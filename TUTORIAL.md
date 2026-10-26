@@ -18,11 +18,11 @@ You'll need: Python 3.14+, Docker (services run in containers until Chapter 10 o
 
 1. `django-admin startproject config .`, then create only what this chapter needs: `startapp organizations` (`Organization` + `Venue` + `VenuePolicy` + `Membership` live there together — the whole tenancy context in one app). Each later chapter adds its own app the same way — nothing before its time, and never one shared app "for simplicity" (you'll regret it by Chapter 6).
 2. Baseline deps: `uv add "django>=6.1,<7" django-environ "psycopg[binary]"` (`psycopg` v3 is the driver Django 6 talks to; add DRF / Celery / `redis` in the chapters that use them, always latest releases). Then start the database: `docker compose up -d db` (the compose file holds only `db` for now; Redis and mailpit join it in Chapter 4, the rest in Chapter 10), with `DATABASE_URL` in a local `.env` (see README) for the `django-environ` settings split (`base/dev/prod`). Generated settings already ship `USE_TZ = True` + `TIME_ZONE = 'UTC'` — keep datetimes UTC, per-venue `time_zone` is display-only.
-3. Tenancy core in `organizations`: `Organization(slug UNIQUE, name, membership_scope=spanning|per_venue)` → `Venue(org, slug UNIQUE per org, name, time_zone)` + `VenuePolicy` versions holding the business rules (never edited: retire stamps `valid_until`, activate inserts a row; one active row per venue, read via `venue.current_policy`) + middleware resolving the venue from staff membership or `X-Venue-Slug` header for API (org derived from venue). Scoped unique constraints everywhere: `(venue, ...)` (slugs: `(organization, ...)`). (The shared `VenueScopedManager` mixin arrives in Ch.2 with the first venue-scoped list.)
-4. Roles: Django groups `owner/manager/teacher/frontdesk/member` per membership, via `Membership(org, venue NULL when spanning, user, role)`. Scope is set per organization: spanning orgs cover all venues with one row; per-venue orgs pin each row (enforced at creation). Permission class `IsVenueMember` — cross-organization or cross-venue access returns **404**, not 403 (no id leaks).
+3. Tenancy core in `organizations`: `Organization(slug UNIQUE, name, membership_scope=spanning|per_venue)` → `Venue(org, slug UNIQUE per org, name, time_zone)` + `VenuePolicy` versions holding the business rules (never edited: retire stamps `valid_until`, activate inserts a row; one active row per venue, read via `venue.current_policy`). Scoped unique constraints everywhere: `(venue, ...)` (slugs: `(organization, ...)`). (Request handling — middleware, permissions — arrives in Ch.2 with the first endpoint.)
+4. Roles: Django groups `owner/manager/teacher/frontdesk/member` per membership, via `Membership(org, venue NULL when spanning, user, role)`. Scope is set per organization: spanning orgs cover all venues with one row; per-venue orgs pin each row (enforced at creation). (The `IsVenueMember` permission enforcing it arrives in Ch.2.)
 
-**Run it:** `uv run pytest tests -q` — org A's member 404s on org B; venue A's member 404s on venue B (per-venue org); a spanning member sees both venues. `GET /healthz` → 200.
-**Exercises:** 1) Write the cross-org and cross-venue 404 tests. 2) Add `seed_demo` management command (1 org + venue + users; rooms/classes extend it in Ch.2, passes in Ch.5) — later chapters build on it.
+**Run it:** `uv run pytest tests -q` — model constraint tests green. `GET /healthz` → 200.
+**Exercises:** 1) Add a model test per constraint in `tests/`. 2) Add `seed_demo` management command (2 orgs + venues + users, re-runnable; rooms/classes extend it in Ch.2, passes in Ch.5) — later chapters build on it.
 
 ## Chapter 2: Class types, rooms, schedule
 
@@ -32,9 +32,10 @@ You'll need: Python 3.14+, Docker (services run in containers until Chapter 10 o
 2. The important line: Postgres `ExclusionConstraint` on `TSTZRANGE(starts_at, ends_at)` for `(venue, room)` and `(venue, teacher)` where active. Check `sqlmigrate` output by eye — this is the constraint that saves you at 6pm on Monday.
 3. DRF (`uv add djangorestframework`): `GET /api/v1/classes?from&to` (bounded, max 31d, `select_related`), scoped through a shared `VenueScopedManager` mixin (`for_venue()` — defined here, at first use), staff-only POST/PATCH. Cancelling a class sets `cancelled` and logs a fan-out line (it becomes the Celery fan-out in Ch.4).
 4. Substitution: POST creates row, keeps old teacher, notifies (log in dev, mailpit from Ch.4 on).
+5. First wired requests: add the venue middleware (resolve from staff membership, else `X-Venue-Slug`, org derived from venue — one choke point so no view forgets scoping) and the `IsVenueMember` permission (spanning-or-pinned `Q`, filter-then-404 so outsiders can't enumerate). Prove it with three isolation tests: org-A member on org-B's object → 404; pinned member on venue B → 404; spanning member → 200 on both.
 
-**Run it:** create two overlapping classes same room in the shell — second must `IntegrityError`. List endpoint: `assertNumQueries` ≤ 3.
-**Exercises:** 1) Capacity-shrink test: reducing capacity below confirmed count keeps bookings, shrinks free seats only.
+**Run it:** create two overlapping classes same room in the shell — second must `IntegrityError`. List endpoint: `assertNumQueries` ≤ 3. Isolation trio green (404, 404, 200).
+**Exercises:** 1) Capacity-shrink test: reducing capacity below confirmed count keeps bookings, shrinks free seats only. 2) The isolation trio, if not written in step 5.
 
 ## Chapter 3: Bookings — the money moment
 

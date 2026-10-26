@@ -40,13 +40,52 @@ class Meta:
 class ScheduledClass(models.Model):
     ...
     objects = VenueQuerySet.as_manager()  # the trick: queryset becomes the default manager</pre>
-<p>Every later scoped model reuses it (<code>Model.objects.for_venue(request.venue)</code>). Staff-only POST/PATCH for publishing. Cancelling sets <code>cancelled</code> and logs a fan-out line (it becomes a Celery task in <a href="0005-waitlist-cancels.html">lesson 5</a>). Substitution POST creates the row, keeps the old teacher, notifies (console backend for now). Check query count with <code>assertNumQueries(≤3)</code> on the list test.</p>
+<p>Every later scoped model reuses it (<code>Model.objects.for_venue(request.venue)</code>) — and <code>request.venue</code> itself starts in step 5 below, at the first endpoint that needs it.</p>
+
+<p>Staff-only POST/PATCH for publishing. Cancelling sets <code>cancelled</code> and logs a fan-out line (it becomes a Celery task in <a href="0005-waitlist-cancels.html">lesson 5</a>). Substitution POST creates the row, keeps the old teacher, notifies (console backend for now). Check query count with <code>assertNumQueries(≤3)</code> on the list test.</p>
+<h2>Step 5 — First wired requests</h2>
+<p>The list endpoint is the course's first real request, so the request machinery lives here — lesson 2 had models but nothing to route through them:</p>
+<h3>5a — Middleware: resolve the venue once, in one place</h3>
+<pre>class VenueMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        request.venue = self._resolve(request)  # None → every scoped view 404s
+        # Derive, don't trust: the org always comes from the venue, never
+        # from a second header — two client-controlled headers will disagree.
+        request.organization = request.venue.organization if request.venue else None
+        return self.get_response(request)
+
+    def _resolve(self, request):
+        if request.user.is_authenticated:
+            # Staff browser sessions carry a user: their (single) venue wins.
+            if membership := Membership.objects.filter(
+                    user=request.user).only("venue").first():
+                return membership.venue
+        # API clients (aggregators, door controllers in later lessons)
+        # carry no user — only a header. Fall back to it, not the reverse:
+        # a logged-in user must never escape into another venue by header.
+        if slug := request.headers.get("X-Venue-Slug"):
+            return Venue.objects.filter(slug=slug).first()
+        return None</pre>
+<p>Why middleware instead of per-view logic: tenancy is a request-wide fact, and scattering twelve copies of it across views guarantees the thirteenth view forgets. One choke point means every scoped queryset starts from <code>request.venue</code> the same way. Why staff-first, header-second: headers are client-controlled, so an authenticated user must not be able to header their way into someone else's venue.</p>
+<h3>5b — Permission: deny outsiders with 404, not 403</h3>
+<pre>class IsVenueMember(BasePermission):
+    def has_permission(self, request, view):
+        if request.venue is None or not request.user.is_authenticated:
+            return False
+        return Membership.objects.filter(
+            user=request.user, organization=request.organization
+        ).filter(Q(venue__isnull=True) | Q(venue=request.venue)).exists()</pre>
+<p>Wire it into the class viewset, which filters its queryset to <code>request.venue</code> <em>before</em> permission runs — so an org-B member asking for org-A's class 42, or a venue-B-pinned member asking for venue-A's, gets 404 exactly as if 42 didn't exist. The spanning-or-pinned <code>Q</code> is the whole scope model in one query: org must match, and then either the row covers everything or it names this venue. Why not the more truthful 403: a 403 confirms the object is real, which lets anyone enumerate other organizations' records one id at a time (<a href="../reference/glossary.html">glossary</a>). A 404 reveals nothing. Prove it with three tests: org-A member on org-B's object → 404; pinned member on venue B → 404; spanning member → 200 on both.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">
 <li><label><input type="checkbox" data-id="d1"> Two overlapping classes in one room: the second raises <code>IntegrityError</code> in the shell</label></li>
 <li><label><input type="checkbox" data-id="d2"> Class list endpoint runs in ≤ 3 queries (<code>assertNumQueries</code>)</label></li>
 <li><label><input type="checkbox" data-id="d3"> Capacity-shrink test: shrinking below confirmed count keeps bookings, shrinks free seats only</label></li>
+<li><label><input type="checkbox" data-id="d4"> Isolation trio green: 404, 404, and 200 for the spanning member</label></li>
 </ul>
 <h2>Primary source</h2>
 <p><a href="https://www.postgresql.org/docs/current/btree-gist.html">Postgres btree_gist docs</a> — what the exclusion constraint stands on; skim the range-type examples.</p>
