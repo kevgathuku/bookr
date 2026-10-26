@@ -61,20 +61,23 @@ class Command(BaseCommand):
             slug="box",
             defaults={"name": "The Box", "time_zone": "America/Chicago"},
         )
-        for venue in (venue_a1, venue_a2, venue_b1):
+        venue_b2, _ = Venue.objects.get_or_create(
+            organization=org_b,
+            slug="annex",
+            defaults={"name": "Annex Box", "time_zone": "America/Chicago"},
+        )
+        for venue in (venue_a1, venue_a2, venue_b1, venue_b2):
             VenuePolicy.objects.get_or_create(venue=venue, valid_until=None)
 
         spanning = _user()
         _membership(org_a, spanning, Membership.Role.MEMBER)
         pinned = _user()
-        _membership(org_a, pinned, Membership.Role.MEMBER, venue_a1)
+        _membership(org_b, pinned, Membership.Role.MEMBER, venue_b1)
         teacher = _user()
-        _membership(org_a, teacher, Membership.Role.TEACHER, venue_a1)
-        outsider = _user()
-        _membership(org_b, outsider, Membership.Role.MEMBER, venue_b1)
+        _membership(org_b, teacher, Membership.Role.TEACHER, venue_b2)
         self.stdout.write(
             self.style.SUCCESS(
-                f"Seeded: {spanning.username} sees A1+A2, {pinned.username} sees A1 only, "
-                f"{teacher.username} teaches A1, {outsider.username} sees B1 only"
+                f"Seeded: {spanning.username} spans A1+A2, {pinned.username} pinned to B1, "
+                f"{teacher.username} teaches B2"
             )
         )

@@ -1,9 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection
 
-from organizations.models import Organization, Venue, VenuePolicy
+from organizations.models import Membership, Organization, Venue, VenuePolicy
 
 pytestmark = pytest.mark.django_db
 
@@ -156,3 +158,57 @@ class TestVenuePolicy:
 
         assert len(errors) == 1  # loser hits one_active_policy_per_venue
         assert venue.policies.filter(valid_until__isnull=True).count() == 1
+
+
+class TestMembership:
+    def _setup(self, scope):
+        org = Organization.objects.create(slug="o1", name="O1", membership_scope=scope)
+        venue_a = Venue.objects.create(organization=org, slug="a", name="A")
+        venue_b = Venue.objects.create(organization=org, slug="b", name="B")
+        user = get_user_model().objects.create_user(username="sam")
+        return org, venue_a, venue_b, user
+
+    def test_duplicate_rejected(self):
+        org, venue_a, _, user = self._setup(Organization.Scope.PER_VENUE)
+        Membership.objects.create(
+            organization=org, venue=venue_a, user=user, role=Membership.Role.MEMBER
+        )
+
+        with pytest.raises(IntegrityError):
+            Membership.objects.create(
+                organization=org, venue=venue_a, user=user, role=Membership.Role.MEMBER
+            )
+
+    def test_accepts_teacher_in_two_venues_with_per_venue_org(self):
+        # The two-venue teacher: one row per venue.
+        org, venue_a, venue_b, user = self._setup(Organization.Scope.PER_VENUE)
+        first = Membership.objects.create(
+            organization=org, venue=venue_a, user=user, role=Membership.Role.TEACHER
+        )
+        second = Membership.objects.create(
+            organization=org, venue=venue_b, user=user, role=Membership.Role.TEACHER
+        )
+
+        assert first.pk is not None and second.pk is not None
+
+    def test_spanning_rejects_pinned_venue(self):
+        org, venue_a, _, user = self._setup(Organization.Scope.SPANNING)
+
+        membership = Membership(
+            organization=org, venue=venue_a, user=user, role=Membership.Role.MEMBER
+        )
+
+        with pytest.raises(ValidationError):
+            membership.full_clean()
+
+    def test_per_venue_requires_venue(self):
+        org = Organization.objects.create(
+            slug="o1", name="O1", membership_scope=Organization.Scope.PER_VENUE
+        )
+        user = get_user_model().objects.create_user(username="sam")
+        membership = Membership(
+            organization=org, venue=None, user=user, role=Membership.Role.MEMBER
+        )
+
+        with pytest.raises(ValidationError):
+            membership.full_clean()

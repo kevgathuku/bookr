@@ -1,12 +1,15 @@
 from typing import ClassVar
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 
 
 class Organization(models.Model):
     class Scope(models.TextChoices):
+        # SPANNING: one membership covers every venue (membership.venue NULL).
+        # PER_VENUE: each membership pins exactly one venue (venue required).
         SPANNING = "spanning", "Spanning"
         PER_VENUE = "per_venue", "Per venue"
 
@@ -15,6 +18,14 @@ class Organization(models.Model):
     membership_scope = models.CharField(
         max_length=16, choices=Scope.choices, default=Scope.SPANNING
     )
+
+    @property
+    def is_spanning(self):
+        return self.membership_scope == self.Scope.SPANNING
+
+    @property
+    def is_per_venue(self):
+        return self.membership_scope == self.Scope.PER_VENUE
 
     def __str__(self):
         return self.name
@@ -128,6 +139,17 @@ class Membership(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memberships"
     )
     role = models.CharField(max_length=16, choices=Role.choices)
+
+    def clean(self):
+        super().clean()
+        if self.organization_id is None:
+            return  # null FK flagged separately; nothing to compare yet
+        if self.organization.is_spanning and self.venue_id is not None:
+            raise ValidationError(
+                {"venue": "Spanning memberships must not pin a venue."}
+            )
+        if self.organization.is_per_venue and self.venue_id is None:
+            raise ValidationError({"venue": "Per-venue organizations require a venue."})
 
     class Meta:
         # NULLs never equal: two spanning rows slip past this — the creation
