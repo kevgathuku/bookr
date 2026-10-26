@@ -2,12 +2,12 @@
 <body><main>
 <p class="course">Bookr course · Lesson 2 of 11 · Tutorial Ch. 1</p>
 <h1>Skeleton and multi-tenancy</h1>
-<p class="why">Win: Postgres runs, migrations apply, and every row belongs to exactly one venue.</p>
+<p class="why">Win: Postgres runs, migrations apply, every row belongs to exactly one venue — and every venue to one organization.</p>
 <h2>Step 1 — Scaffold and deps</h2>
 <pre>uv run django-admin startproject config .
 uv add "django&gt;=6.1,&lt;7" django-environ "psycopg[binary]"</pre>
 <p>Project package is <code>config</code>, not <code>bookr</code> (that name belongs to the repo). Then create only this lesson's apps:</p>
-<pre>uv run python manage.py startapp venues</pre>
+<pre>uv run python manage.py startapp organizations</pre>
 <p><code>Venue</code> and <code>Membership</code> live together in <code>venues</code> — one tenancy app, since a membership is meaningless without its venue. Later lessons add their own app the same way — nothing before its time. Delete the generated <code>tests.py</code>/<code>views.py</code> stubs: tests live in a top-level <code>tests/</code> directory from day one (it grows into unit/api/e2e in lesson 9), views arrive per chapter.</p>
 <h2>Step 2 — Compose stack</h2>
 <p>Start Postgres — one command, no compose files yet (those arrive in lesson 10):</p>
@@ -16,11 +16,29 @@ uv add "django&gt;=6.1,&lt;7" django-environ "psycopg[binary]"</pre>
 <h2>Step 3 — Settings split</h2>
 <p>Split <code>config/settings.py</code> into <code>config/settings/{base,dev,prod}.py</code> driven by <code>django-environ</code> (<code>DATABASE_URL</code> now; <code>REDIS_URL</code> and <code>EMAIL_URL</code> arrive with their services in lesson 5). Keep the generated defaults: <code>USE_TZ = True</code>, <code>TIME_ZONE = "UTC"</code>. Point <code>DATABASES</code> at Postgres via <code>psycopg</code> (ENGINE <code>django.db.backends.postgresql</code>). Django nuance: <code>DJANGO_SETTINGS_MODULE</code> picks the file (<code>config.settings.dev</code> locally) and <code>django-environ</code> reads the <code>.env</code> — twelve-factor config, Django-style; an 'app' is just a package with an <code>AppConfig</code>, and listing it in <code>INSTALLED_APPS</code> is what wires its models into migrations. Check: <code>uv run python manage.py check</code> is clean.</p>
 <h2>Step 4 — Tenancy core</h2>
-<p>In <code>venues/models.py</code>, the tenant plus a queryset mixin every scoped model will use:</p>
-<pre>class Venue(models.Model):
+<p>In <code>organizations/models.py</code>, the tenancy context plus a queryset mixin every scoped model will use:</p>
+<pre>class Organization(models.Model):
+    class Scope(models.TextChoices):
+        SPANNING = "spanning", "Spanning"
+        PER_VENUE = "per_venue", "Per venue"
+
     slug = models.SlugField(unique=True)
     name = models.CharField(max_length=200)
+    membership_scope = models.CharField(max_length=16,
+        choices=Scope.choices, default=Scope.SPANNING)
+
+class Venue(models.Model):
+    organization = models.ForeignKey(Organization,
+        on_delete=models.CASCADE, related_name="venues")
+    slug = models.SlugField()
+    name = models.CharField(max_length=200)
     time_zone = models.CharField(max_length=64, default="UTC")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "slug"],
+                name="venue_slug_unique_per_org"),
+        ]
 
 class VenuePolicy(models.Model):
     # Business rules, one row per venue — policy edits never touch identity rows.
@@ -36,7 +54,7 @@ class VenueQuerySet(models.QuerySet):
     def for_venue(self, venue):
         return self.filter(venue=venue)</pre>
 <h3>4a — Membership: the role lives on the join, not on the user</h3>
-<p>In <code>venues/models.py</code>:</p>
+<p>In <code>organizations/models.py</code>:</p>
 <pre>class Membership(models.Model):
     class Role(models.TextChoices):
         OWNER = "owner", "Owner"
@@ -45,18 +63,20 @@ class VenueQuerySet(models.QuerySet):
         FRONTDESK = "frontdesk", "Front desk"
         MEMBER = "member", "Member"
 
+    organization = models.ForeignKey(Organization,
+        on_delete=models.CASCADE, related_name="memberships")
     venue = models.ForeignKey(Venue, on_delete=models.CASCADE,
-        related_name="memberships")
+        null=True, blank=True, related_name="memberships")
     user = models.ForeignKey(settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE, related_name="memberships")
     role = models.CharField(max_length=16, choices=Role.choices)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["venue", "user"],
-                name="member_once_per_venue"),
+            models.UniqueConstraint(fields=["organization", "user", "venue"],
+                name="member_once_per_scope"),
         ]</pre>
-<p>Why this shape: a role is meaningless without its venue — "manager at A, member at B" can't be expressed with Django's global Groups, so the role sits on the join row and Groups stay out of it (reach for them later only if the Django admin needs per-model permissions). Why the constraint lives in the database and not in a form or view: two concurrent signups would both pass an app-level check; the unique index makes the second one fail no matter the timing.</p>
+<p>Why this shape: a role is meaningless without its organization — "manager at A, member at B" can't be expressed with Django's global Groups, so the role sits on the join row and Groups stay out of it (reach for them later only if the Django admin needs per-model permissions). Why nullable venue: the organization sets one rule — <code>spanning</code> (venue NULL, covers every venue) or <code>per_venue</code> (venue required, enforced where memberships are created, since a check constraint can't compare across tables). Two sharp edges to know: the unique index is on (org, user, venue), and NULLs never equal in Postgres — so nothing stops two spanning rows for one user; guard that in the creation service (one spanning membership per user per org). App-level checks alone would race; the index makes the loser fail no matter the timing.</p>
 <h3>4b — Middleware: resolve the venue once, in one place</h3>
 <pre>class VenueMiddleware:
     def __init__(self, get_response):
@@ -64,6 +84,9 @@ class VenueQuerySet(models.QuerySet):
 
     def __call__(self, request):
         request.venue = self._resolve(request)  # None → every scoped view 404s
+        # Derive, don't trust: the org always comes from the venue, never
+        # from a second header — two client-controlled headers will disagree.
+        request.organization = request.venue.organization if request.venue else None
         return self.get_response(request)
 
     def _resolve(self, request):
@@ -82,11 +105,14 @@ class VenueQuerySet(models.QuerySet):
 <h3>4c — Permission: deny outsiders with 404, not 403</h3>
 <pre>class IsVenueMember(BasePermission):
     def has_permission(self, request, view):
-        return request.venue is not None and Membership.objects.filter(
-            user=request.user, venue=request.venue).exists()</pre>
-<p>And every scoped viewset filters its queryset to <code>request.venue</code> <em>before</em> permission runs — so a venue-B member asking for venue-A's class 42 gets 404, exactly as if 42 didn't exist. Why not the more truthful 403: a 403 confirms the object is real, which lets anyone enumerate other venues' records one id at a time (<a href="../reference/glossary.html">glossary</a>). A 404 reveals nothing.</p>
+        if request.venue is None or not request.user.is_authenticated:
+            return False
+        return Membership.objects.filter(
+            user=request.user, organization=request.organization
+        ).filter(Q(venue__isnull=True) | Q(venue=request.venue)).exists()</pre>
+<p>And every scoped viewset filters its queryset to <code>request.venue</code> <em>before</em> permission runs — so an org-B member asking for org-A's class 42, or a venue-B-pinned member asking for venue-A's, gets 404 exactly as if 42 didn't exist. The spanning-or-pinned <code>Q</code> is the whole scope model in one query: org must match, and then either the row covers everything or it names this venue. Why not the more truthful 403: a 403 confirms the object is real, which lets anyone enumerate other organizations' records one id at a time (<a href="../reference/glossary.html">glossary</a>). A 404 reveals nothing.</p>
 <h2>Step 5 — Seed + prove it</h2>
-<p>Write <code>venues/management/commands/seed_demo.py</code>: 1 venue + users/memberships (1 teacher, 5 members). No rooms or classes — <code>scheduling</code> doesn't exist yet; lesson 3 extends the seed, lesson 6 adds passes. Then the isolation test (plain pytest, in <code>tests/</code>): venue A's member GETs venue B's object → assert 404. Run:</p>
+<p>Write <code>organizations/management/commands/seed_demo.py</code>: 1 org + 2 venues, a spanning member, a member pinned to venue A, and a teacher. No rooms or classes — <code>scheduling</code> doesn't exist yet; lesson 3 extends the seed, lesson 6 adds passes. Then three isolation tests (plain pytest, in <code>tests/</code>): org-A member on org-B's object → 404; pinned member on venue B's object → 404; spanning member → 200 on both venues. Run:</p>
 <pre>uv run python manage.py makemigrations
 uv run python manage.py migrate
 uv run python manage.py seed_demo
@@ -96,8 +122,8 @@ uv run pytest tests -q</pre>
 <p class="progress" data-progress></p>
 <ul class="check">
 <li><label><input type="checkbox" data-id="d1"> Postgres answers, <code>migrate</code> applies cleanly, and <code>GET /healthz</code> → 200</label></li>
-<li><label><input type="checkbox" data-id="d2"> Cross-venue test passes: venue A's member gets 404 on venue B's endpoint</label></li>
-<li><label><input type="checkbox" data-id="d3"> <code>seed_demo</code> builds 1 venue + users/memberships from zero (rooms, classes, and passes extend it in later lessons)</label></li>
+<li><label><input type="checkbox" data-id="d2"> Isolation green: cross-org 404, cross-venue 404 for the pinned member, 200 on both venues for the spanning member</label></li>
+<li><label><input type="checkbox" data-id="d3"> <code>seed_demo</code> builds 1 org + 2 venues + scoped memberships from zero (rooms, classes, and passes extend it in later lessons)</label></li>
 </ul>
 <h2>Primary source</h2>
 <p><a href="https://docs.djangoproject.com/en/6.1/topics/testing/">Django testing docs (6.1)</a> — the 404-isolation test is your first real test; write it in this style.</p>

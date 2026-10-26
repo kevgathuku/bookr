@@ -9,15 +9,22 @@ Non-goals (v1): payments/PSP integration, native mobile apps, dynamic pricing, m
 
 ## 2. Tenancy & Roles
 
-- Tenancy: single DB, shared schema, every tenant-scoped row has `venue FK`. Enforce via middleware (`X-Venue-Slug` / staff's venue) + queryset mixin `VenueScopedManager`. No cross-venue FKs. Unique constraints scoped to `(venue, ...)`.
-- Roles (per venue): `owner, manager, teacher, frontdesk, member`. Use Django groups + per-object check (`is_teacher_of(class)`). Staff ≠ superuser. Aggregator access via scoped API tokens, never user passwords.
+- Tenancy: single DB, shared schema. `Organization` is the tenant root (the business); `Venue` is one location under it. Every tenant-scoped row carries its `venue FK`; venues carry their `organization FK`. Enforce via middleware (resolve `X-Venue-Slug`, derive the org; staff's venue from membership) + queryset mixin `VenueScopedManager`. No cross-organization FKs. Unique constraints scoped to `(venue, ...)` (slugs to `(organization, ...)`).
+- Membership scope is per organization: `spanning` (one membership covers all its venues, `venue` NULL) or `per_venue` (membership pins one venue, `venue` required — enforced at creation). A teacher working two venues in a per-venue org simply holds two memberships.
+- Roles (per membership): `owner, manager, teacher, frontdesk, member`. Use Django groups + per-object check (`is_teacher_of(class)`). Staff ≠ superuser. Aggregator access via scoped API tokens, never user passwords. Cross-organization or cross-venue access returns **404**, not 403 (no id leaks).
 
 **Data model** (all fields in §3.7):
 
 ```mermaid
 erDiagram
+    Organization {
+        string slug PK
+        string name
+        string membership_scope
+    }
     Venue {
         string slug PK
+        int organization FK
         string name
         string time_zone
     }
@@ -35,16 +42,19 @@ erDiagram
     }
     Membership {
         int id PK
+        int organization FK
         int venue FK
         int user FK
         string role
     }
-    Venue ||--o{ Membership : scopes
+    Organization ||--o{ Venue : locates
+    Organization ||--o{ Membership : grants
+    Venue ||--o{ Membership : pins
     Venue ||--|| VenuePolicy : ruled_by
     User ||--o{ Membership : holds
 ```
 
-`User` is Django's auth user — no custom fields in v1. One `VenuePolicy` row per venue (1:1, created with it) — business rules live there, so policy edits never touch identity rows.
+`User` is Django's auth user — no custom fields in v1. `membership_scope` ∈ spanning, per-venue; spanning rows use `venue` NULL, per-venue rows require one. Venue slugs are unique per organization. One `VenuePolicy` row per venue (1:1, created with it) — business rules live there, so policy edits never touch identity rows.
 
 ## 3. Domain
 
@@ -57,6 +67,7 @@ Rules:
 - Capacity = override or room capacity or type default (first non-null wins). Capacity edits never kick confirmed bookings; only shrink free seats.
 - Class cancellation by staff → auto-refund credits + notify confirmed + promote waitlist in order. Immutable once `completed`.
 - Substitution notifies booked members; original teacher record kept.
+- Venue autonomy: class types, rooms, and scheduled classes belong to exactly one venue and are never shared — a multi-location business publishes each venue's schedule separately.
 
 **Data model** (all fields in §3.7):
 
@@ -119,6 +130,7 @@ Rules:
 - Waitlist promotion FIFO by `created_at`, on cancel/no-show/capacity increase. Promotion holds seat for `waitlist_hold_minutes` (default 60, configurable per venue); expiry passes to next. Promotion runs in Celery task, idempotent on `booking_id`.
 - Late-cancel window per venue (default 8h classes, 24h 1-1): cancel inside window → `cancelled_late`, credit forfeited (configurable `forfeit_late_cancel bool`), counts toward no-show strikes. Outside window → refund to ledger. Staff override always refunds with `reason` logged.
 - No-show: frontdesk marks within 2h after end → forfeit credit. 3 strikes in 30d → optional booking throttle (flag, don't auto-ban in v1).
+- A booking's venue must equal its class's (or appointment's) venue — enforced in the booking service, so cross-venue booking is impossible even by crafted request.
 
 **Data model** (all fields in §3.7):
 
@@ -165,6 +177,7 @@ Rules:
 - Same exclusion constraints as classes for `(venue, teacher)` and `(venue, resource)`.
 - Buffer time per venue (`booking_buffer_minutes` default 10) pads both sides for conflict checks.
 - Calendar display: API returns events for a date range (`GET /api/calendar?from&to&teacher&room`), frontend renders (FullCalendar). Never `SELECT *` — always bounded range, max 31d.
+- Availability is strictly per-venue: rules, exceptions, and resources belong to one venue, and slot computation never looks across venues. A teacher working two venues has availability per venue, via each membership.
 
 **Data model** (all fields in §3.7):
 
@@ -368,10 +381,14 @@ erDiagram
 
 Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` = FK with delete rule; enums list all values with the default starred. Relationship diagrams live in each section above.
 
-*§2 — Tenancy & roles*
+*§2 — Tenancy, organizations & roles*
 
 | Model | Field | Type | Rules / default |
 |---|---|---|---|
+| Organization | slug | string | unique |
+| | name | string(200) | |
+| | membership_scope | enum(*spanning, per_venue) | per org, set at onboarding |
+| Venue | organization | fk→Organization cascade | slug unique per org ||
 | Venue | slug | string | unique |
 | | name | string(200) | |
 | | time_zone | string(64) | default `UTC`, display only |
@@ -381,9 +398,10 @@ Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` =
 | | forfeit_late_cancel | bool | default true |
 | | waitlist_hold_minutes | int | default 60 |
 | | booking_buffer_minutes | int | default 10 |
-| Membership | venue | fk→Venue cascade | unique together with user |
+| Membership | organization | fk→Organization cascade | unique (org, user, venue) |
+| | venue | fk→Venue null, cascade | NULL = spanning; required when scope is per_venue |
 | | user | fk→User cascade | |
-| | role | enum(owner, manager, teacher, frontdesk, *member) | |
+| | role | enum(owner, manager, teacher, frontdesk, *member) | per membership |
 
 *§3.1 — Scheduling*
 
@@ -515,7 +533,7 @@ Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` =
 - Django 6.1 + DRF for `/api/*` (Python 3.14+, per `pyproject.toml`), `djangorestframework-simplejwt` (app) + token auth (aggregators/controllers). Versioned: `/api/v1/`. OpenAPI via `drf-spectacular`, breaking change = new version.
 - Proposed layout (`django-admin startproject config .`; virtual uv project, no `src/` build — Django apps live at the repo root):
   ```
-  manage.py  config/ (settings/, urls.py)  venues/ scheduling/ bookings/ passes/ aggregators/ access/
+  manage.py  config/ (settings/, urls.py)  organizations/ scheduling/ bookings/ passes/ aggregators/ access/
   ```
   One app per §3 section. Cross-app imports only via services (`bookings/services.py::book_seat()`), never model-to-model shortcuts.
 - Settings: `django-environ`, split `base/dev/prod`; Postgres via `psycopg` v3 + `pgcrypto/btree_gist`; Redis (cache + Celery broker); generated defaults kept (`USE_TZ = True`, `TIME_ZONE = 'UTC'`), `time_zone` per venue display-only, store all datetimes UTC.
@@ -540,4 +558,4 @@ Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` =
 
 ## 6. Build Order
 
-1. venues+auth (memberships live in `venues`), 2. classes+booking tx + tests, 3. waitlist/late-cancel + Celery, 4. passes/ledger, 5. appointments/availability+calendar, 6. access control. Ship 1–4 as MVP; validate the single-venue product (1–6) before phase 2: 7. aggregators (advanced — earns its place only on a proven core).
+1. orgs+auth (tenancy: organizations, venues, policies, memberships), 2. classes+booking tx + tests, 3. waitlist/late-cancel + Celery, 4. passes/ledger, 5. appointments/availability+calendar, 6. access control. Ship 1–4 as MVP; validate the single-venue product (1–6) before phase 2: 7. aggregators (advanced — earns its place only on a proven core).

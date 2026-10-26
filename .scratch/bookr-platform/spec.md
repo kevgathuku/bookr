@@ -71,10 +71,11 @@ Platform:
 
 38. As a venue owner, I want my data strictly isolated from other venues on the shared platform, so that members and staff never see a neighbor's business.
 39. As a staff member with access to two venues, I want my permissions scoped per venue, so that a role in one place grants nothing elsewhere.
+40. As a venue owner, I want to choose whether memberships span all my venues or stay per venue, so that each business runs its own access model.
 
 ## Implementation Decisions
 
-- Tenancy is single-database shared-schema with a venue foreign key on every tenant-scoped row; venue resolution happens in middleware (staff profile or venue-slug header) plus a queryset mixin, and uniqueness constraints are scoped per venue. Cross-venue access returns "not found" rather than "forbidden" to avoid leaking record existence.
+- Tenancy is single-database shared-schema with an `Organization` tenant root; venues are locations under it; membership scope (spanning vs per-venue) is set per organization; every tenant-scoped row carries its venue FK; each venue owns its schedule and availability outright (never shared across venues); venue resolution happens in middleware (staff profile or venue-slug header) plus a queryset mixin, and uniqueness constraints are scoped per venue. Cross-venue access returns "not found" rather than "forbidden" to avoid leaking record existence.
 - One application module per domain area (tenancy incl. memberships, scheduling, bookings, passes, availability/appointments, aggregators, access); cross-module interaction goes through service-layer functions, never direct model shortcuts.
 - All booking creation flows through a single booking service that runs in a database transaction with a row lock on the class, checks seats, spends credit, and creates the booking; it raises typed domain errors (seat full, insufficient credit, duplicate booking) that the web layer maps to status codes. No business logic lives in views or serializers.
 - Waitlist position is derived from booking creation order rather than stored counters; promotion runs as an idempotent background job with a per-venue hold window, and the same promotion path serves cancellations, no-shows, and capacity increases.

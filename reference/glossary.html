@@ -5,8 +5,9 @@
 <p class="why">One meaning per term. Lessons use these words and no synonyms.</p>
 <table>
 <tr><th>Term</th><th>Meaning</th></tr>
-<tr><td>Venue / tenancy</td><td>One tenant on the shared platform; every tenant-scoped row carries its venue.</td></tr>
-<tr><td>Membership / role</td><td>A user's role (owner, manager, teacher, frontdesk, member) scoped to one venue.</td></tr>
+<tr><td>Organization</td><td>The business; tenant root. Sets the membership scope (spanning vs per-venue) for its venues.</td></tr>
+<tr><td>Venue / location</td><td>One location of an organization; every tenant-scoped row carries its venue.</td></tr>
+<tr><td>Membership / role</td><td>A user's role (owner, manager, teacher, frontdesk, member), granted by an organization — optionally pinned to one venue.</td></tr>
 <tr><td>ScheduledClass</td><td>One concrete session: class type + room + teacher + time window + capacity.</td></tr>
 <tr><td>Booking</td><td>A member's seat claim (or aggregator's), with status: confirmed, waitlisted, cancelled, cancelled_late, no_show, completed.</td></tr>
 <tr><td>Waitlist (derived)</td><td>FIFO order by booking creation time; position is computed, never stored.</td></tr>

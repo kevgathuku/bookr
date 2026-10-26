@@ -4,7 +4,7 @@
 <h1>Appointments and calendar</h1>
 <p class="why">Win: bookable humans and rooms behind one fast calendar endpoint.</p>
 <h2>Step 1 — No new app, then availability models</h2>
-<p>Appointments extend <code>scheduling</code> — no new app. Models: <code>Resource</code> (room/equipment/teacher), <code>AvailabilityRule</code> (weekday, start/end, valid range), <code>AvailabilityException</code> (one date: closed or special hours), <code>Appointment</code> (member, teacher, optional resource, window, status). Rules for teachers live on a <code>Resource(type=teacher)</code> row pointing at the same person — one mechanism, not two.</p>
+<p>Appointments extend <code>scheduling</code> — no new app. Models: <code>Resource</code> (room/equipment/teacher), <code>AvailabilityRule</code> (weekday, start/end, valid range), <code>AvailabilityException</code> (one date: closed or special hours), <code>Appointment</code> (member, teacher, optional resource, window, status). Rules, exceptions, and resources all belong to one venue, and slot computation never looks across venues. Rules for teachers live on a <code>Resource(type=teacher)</code> row pointing at the same person — one mechanism, not two.</p>
 <h2>Step 2 — Compute slots, don't store them</h2>
 <pre>def generate_slots(resource, day):
     # 1. weekly rules covering `day` → base intervals
