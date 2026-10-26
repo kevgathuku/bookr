@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Glossary — Bookr reference</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr reference</p>
+<h1>Glossary</h1>
+<p class="why">One meaning per term. Lessons use these words and no synonyms.</p>
+<table>
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td>Gym / tenancy</td><td>One tenant on the shared platform; every tenant-scoped row carries its gym.</td></tr>
+<tr><td>Membership / role</td><td>A user's role (owner, manager, teacher, frontdesk, member) scoped to one gym.</td></tr>
+<tr><td>ScheduledClass</td><td>One concrete session: class type + room + teacher + time window + capacity.</td></tr>
+<tr><td>Booking</td><td>A member's seat claim (or aggregator's), with status: confirmed, waitlisted, cancelled, cancelled_late, no_show, completed.</td></tr>
+<tr><td>Waitlist (derived)</td><td>FIFO order by booking creation time; position is computed, never stored.</td></tr>
+<tr><td>Hold TTL</td><td>Minutes a promoted waitlister has to claim the seat (default 60).</td></tr>
+<tr><td>Late cancel</td><td>Cancel inside the gym's window (default 8h classes, 24h 1-1); forfeits the credit.</td></tr>
+<tr><td>Strike</td><td>A late cancel or no-show; 3 in 30 days flags the member for throttling.</td></tr>
+<tr><td>PassProduct / MemberPass</td><td>A sellable bundle (credits or unlimited) and one member's instance of it.</td></tr>
+<tr><td>CreditLedger</td><td>Append-only credit movements; balance is always the sum of deltas.</td></tr>
+<tr><td>FIFO spend</td><td>Oldest valid applicable pass is consumed first; unlimited passes before credit bundles.</td></tr>
+<tr><td>Idempotency key</td><td>Client-supplied unique key making a retried booking return the original, not a duplicate.</td></tr>
+<tr><td>Allotment</td><td>Max seats one aggregator may hold per class; enforced as min(allotment, free seats).</td></tr>
+<tr><td>Aggregator</td><td>Third-party platform reselling the gym's classes via a scoped token API.</td></tr>
+<tr><td>AccessPoint / AccessEvent</td><td>A door controller, and the logged record of every grant/deny decision.</td></tr>
+<tr><td>Fail-closed</td><td>On outage the door denies; an outage never becomes an open door.</td></tr>
+<tr><td>Anti-passback</td><td>Re-entry within ~60s replays the prior decision without a new event.</td></tr>
+<tr><td>ExclusionConstraint</td><td>Postgres constraint forbidding overlapping time ranges per room/teacher/resource.</td></tr>
+<tr><td>select_for_update</td><td>Row lock inside a transaction serializing racers on one class or pass.</td></tr>
+</table>
+<nav class="lesson-nav"><a href="../lessons/0001-map-and-prereqs.html">← Lesson 1</a><a href="testing-cheatsheet.html">Testing cheatsheet →</a></nav>
+</main></body></html>

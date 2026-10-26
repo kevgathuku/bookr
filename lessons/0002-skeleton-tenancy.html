@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 2 — Skeleton and multi-tenancy</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 2 of 10 · Tutorial Ch. 1</p>
+<h1>Skeleton and multi-tenancy</h1>
+<p class="why">Win: <code>docker compose up</code> gives web + db + redis + worker, and every row belongs to exactly one gym.</p>
+<h2>Steps</h2>
+<ol>
+<li><code>django-admin startproject config .</code>, then one app per domain: <code>gyms members scheduling bookings passes aggregators access</code>. Don't merge them — you'll regret it at lesson 7.</li>
+<li>Compose stack: web, Postgres (with <code>btree_gist</code>), redis, celery worker, beat, mailpit. Settings split via django-environ: <code>base/dev/prod</code>. UTC in the database; per-gym time zone for display only.</li>
+<li>Tenancy core: <code>Gym</code> (slug, policy knobs: <code>late_cancel_h=8</code>, <code>appt_late_cancel_h=24</code>, <code>hold_ttl_min=60</code>, <code>buffer_min=10</code>), a queryset mixin filtering by gym, middleware resolving the gym, per-gym unique constraints.</li>
+<li>Roles via <code>Membership(user, gym, role)</code> and an <code>IsGymMember</code> permission — cross-gym access returns <strong>404, not 403</strong> (see <a href="../reference/glossary.html">glossary</a>).</li>
+</ol>
+<h2>Deliverables — check them off</h2>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> <code>docker compose up</code> is green and <code>GET /healthz</code> → 200</label></li>
+<li><label><input type="checkbox" data-id="d2"> Cross-gym test passes: gym A's member gets 404 on gym B's endpoint</label></li>
+<li><label><input type="checkbox" data-id="d3"> <code>seed_demo</code> command builds 1 gym, 1 room, 1 teacher, 5 members</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://docs.djangoproject.com/en/5.0/topics/testing/">Django testing docs</a> — the 404-isolation test is your first real test; write it in this style.</p>
+<nav class="lesson-nav"><a href="0001-map-and-prereqs.html">← Lesson 1</a><a href="0003-schedule.html">Lesson 3 →</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
+</main><script src="../assets/app.js"></script></body></html>

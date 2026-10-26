@@ -1,0 +1,23 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 3 — Schedule that can't double-book</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 3 of 10 · Tutorial Ch. 2</p>
+<h1>Schedule that can't double-book</h1>
+<p class="why">Win: staff publish classes, and the database itself refuses overlapping room or teacher bookings.</p>
+<h2>Steps</h2>
+<ol>
+<li>Models: <code>ClassType</code>, <code>Room</code>, <code>ScheduledClass</code> (status: scheduled/cancelled/completed), append-only <code>TeacherSubstitution</code>. Capacity resolves override → room → type default; shrinking capacity never ejects confirmed bookings.</li>
+<li>The important line: Postgres <code>ExclusionConstraint</code> on the class time range per (gym, room) and (gym, teacher) while active. Read the <code>sqlmigrate</code> output by eye — this constraint saves you at 6pm on Monday.</li>
+<li>API: bounded <code>GET /api/v1/classes?from&amp;to</code> (max 31 days, <code>select_related</code>), staff-only writes. Class cancellation sets <code>cancelled</code> and fires a stub fan-out task (real refunds/promotion land in <a href="0005-waitlist-cancels.html">lesson 5</a>).</li>
+</ol>
+<h2>Deliverables — check them off</h2>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> Two overlapping classes in one room: the second raises <code>IntegrityError</code> in the shell</label></li>
+<li><label><input type="checkbox" data-id="d2"> Class list endpoint runs in ≤ 3 queries (<code>assertNumQueries</code>)</label></li>
+<li><label><input type="checkbox" data-id="d3"> Capacity-shrink test: shrinking below confirmed count keeps bookings, shrinks free seats only</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://www.postgresql.org/docs/current/btree-gist.html">Postgres btree_gist docs</a> — what the exclusion constraint stands on; skim the range-type examples.</p>
+<nav class="lesson-nav"><a href="0002-skeleton-tenancy.html">← Lesson 2</a><a href="0004-booking-transaction.html">Lesson 4 →</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
+</main><script src="../assets/app.js"></script></body></html>

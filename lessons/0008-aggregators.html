@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 8 — Aggregators</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 8 of 10 · Tutorial Ch. 7</p>
+<h1>Aggregators</h1>
+<p class="why">Win: a stranger's platform books your seats — within allotment, idempotently, billed to them, never touching member passes.</p>
+<h2>Steps</h2>
+<ol>
+<li>Separate router <code>POST /api/v1/aggregators/&lt;slug&gt;/bookings</code> with per-partner hashed tokens (rotatable) + throttling. Enforce <code>min(allotment, free seats)</code>. Log every inbound call for reconciliation.</li>
+<li>Idempotency on <code>(aggregator, external_id)</code>: retries return the original. Their late cancels use the contract <code>cutoff_min</code>, billed to the aggregator account.</li>
+<li>Outbound: read-only schedule feed + HMAC-signed change webhooks with Celery backoff retries.</li>
+</ol>
+<h2>Deliverables — check them off</h2>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> Same <code>external_id</code> booked twice → one booking</label></li>
+<li><label><input type="checkbox" data-id="d2"> Booking past the allotment → 409</label></li>
+<li><label><input type="checkbox" data-id="d3"> Token rotated → old token gets 401</label></li>
+<li><label><input type="checkbox" data-id="d4"> Webhook signature verification test passes; event log replays to identical state</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://www.django-rest-framework.org/api-guide/throttling/">DRF throttling + authentication docs</a> — scoped tokens and rate limits, the channel's guardrails.</p>
+<nav class="lesson-nav"><a href="0007-appointments-calendar.html">← Lesson 7</a><a href="0009-door-access.html">Lesson 9 →</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
+</main><script src="../assets/app.js"></script></body></html>

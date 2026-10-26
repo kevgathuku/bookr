@@ -1,0 +1,31 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Testing cheatsheet — Bookr reference</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr reference</p>
+<h1>Testing cheatsheet</h1>
+<p class="why">Assert visible behavior — seat granted, credit moved, door denied — never internals.</p>
+<h2>The seams (highest first)</h2>
+<ol>
+<li>Booking service: <code>book_seat / cancel_booking / promote_waitlist</code> — one seam for classes, waitlist, cancels, credits.</li>
+<li>Availability: pure <code>generate_slots</code> — no database needed.</li>
+<li>Aggregator booking endpoint — channel seam.</li>
+<li>Door check endpoint — read-only seam.</li>
+</ol>
+<h2>Test layers</h2>
+<table>
+<tr><th>Layer</th><th>What</th><th>Stack</th></tr>
+<tr><td>Unit</td><td>Services, ledger math, availability, concurrency races</td><td>pytest-django, factory-boy, freezegun</td></tr>
+<tr><td>API</td><td>Status codes, isolation, idempotency, token scope</td><td>DRF APITestCase, assertNumQueries</td></tr>
+<tr><td>E2E</td><td>Promotion + email; forfeiture in ledger; door grant/deny</td><td>Playwright, mailpit, docker compose</td></tr>
+</table>
+<h2>Non-negotiables</h2>
+<ul>
+<li>Last-seat race (20 threads → exactly 1 confirmed) and last-credit race — mandatory, run in CI.</li>
+<li>Cross-gym access must 404, not 403.</li>
+<li>Late-cancel boundary tested at window ± 1 minute.</li>
+<li>Ledger invariant: sum of deltas equals cached balance, asserted on seed data.</li>
+</ul>
+<h2>CI order</h2>
+<pre>ruff + black --check → mypy (services/models) → pytest -x → playwright @smoke
+nightly + pre-release: full @e2e</pre>
+<nav class="lesson-nav"><a href="glossary.html">← Glossary</a><a href="../lessons/0010-tests-ci-ship.html">Lesson 10 →</a></nav>
+</main></body></html>

@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 5 — Waitlist and late cancels</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 5 of 10 · Tutorial Ch. 4</p>
+<h1>Waitlist and late cancels</h1>
+<p class="why">Win: cancellations heal themselves — FIFO promotion, held seats, and late cancels that cost a credit.</p>
+<h2>Steps</h2>
+<ol>
+<li>Waitlist order derives from booking creation time — no stored counters to corrupt. <code>cancel_seat()</code> transacts, then enqueues idempotent <code>promote_waitlist</code> (Celery). Promoted seats are held <code>hold_ttl_min</code>; expiry passes to the next in line. Same path serves cancels, no-shows, and capacity increases.</li>
+<li><code>cancel_booking</code>: outside the window → refund; inside → <code>cancelled_late</code>, credit forfeited, strike counted. Staff override always refunds with a logged reason. (Ledger calls are stubs until <a href="0006-credit-ledger.html">lesson 6</a> — log them.)</li>
+<li>No-shows: frontdesk marks within 2h after end → forfeit; 3 strikes in 30 days flags the member (no auto-ban in v1).</li>
+<li>Notifications via a pluggable backend (console now, mailpit here): class-cancelled, promoted, late-cancel receipt.</li>
+</ol>
+<h2>Deliverables — check them off</h2>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> E2E #1 green: book → full → waitlist → seat freed → first waitlister promoted + email in mailpit</label></li>
+<li><label><input type="checkbox" data-id="d2"> Boundary test: cancel at window ± 1 min → refund vs forfeit</label></li>
+<li><label><input type="checkbox" data-id="d3"> Hold-expiry test (freezegun): expired hold passes to the next member</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://docs.celeryq.dev/en/stable/userguide/tasks.html">Celery task docs</a> — idempotent tasks with retries, the promotion job's foundation.</p>
+<nav class="lesson-nav"><a href="0004-booking-transaction.html">← Lesson 4</a><a href="0006-credit-ledger.html">Lesson 6 →</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
+</main><script src="../assets/app.js"></script></body></html>

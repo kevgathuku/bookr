@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 10 — Tests, CI, ship</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 10 of 10 · Tutorial Ch. 9</p>
+<h1>Tests, CI, ship</h1>
+<p class="why">Win: a suite you trust and a pipeline that runs it — green CI on a fresh clone, following only this course.</p>
+<h2>Steps</h2>
+<ol>
+<li>Settle the layout from the <a href="../reference/testing-cheatsheet.html">testing cheatsheet</a>: <code>tests/unit</code> (fast, ≥80% on services), <code>tests/api</code> (codes, isolation, idempotency), <code>tests/e2e</code> (Playwright <code>@e2e</code> on compose + mailpit). The lesson-4/6 race tests live in unit and run in CI.</li>
+<li>Pipeline: <code>ruff + black --check → mypy → pytest -x → playwright @smoke</code>; full <code>@e2e</code> nightly + pre-release.</li>
+<li>Ship checklist: <code>sqlmigrate</code> reviewed, seed-from-zero works, <code>/healthz</code> + Sentry + structured logs, token-rotation runbook written, fail-closed drill done.</li>
+</ol>
+<h2>Deliverables — check them off</h2>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> Green CI on a fresh clone following only this course</label></li>
+<li><label><input type="checkbox" data-id="d2"> Rebuild-from-zero drill: db deleted, migrations + seed restore everything</label></li>
+<li><label><input type="checkbox" data-id="d3"> Token-rotation runbook and postmortem template written before they're needed</label></li>
+<li><label><input type="checkbox" data-id="d4"> Course complete: every lesson's deliverables checked — claim your MVP 🎓</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://playwright.dev/python/docs/intro">Playwright Python intro</a> — the E2E layer that proves the whole system at once.</p>
+<nav class="lesson-nav"><a href="0009-door-access.html">← Lesson 9</a><a href="../reference/glossary.html">Glossary →</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
+</main><script src="../assets/app.js"></script></body></html>

@@ -1,0 +1,23 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 9 — Door access</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 9 of 10 · Tutorial Ch. 8</p>
+<h1>Door access</h1>
+<p class="why">Win: a knock on <code>POST /api/access/check</code> gets grant/deny in under 200ms — and an outage never opens the door.</p>
+<h2>Steps</h2>
+<ol>
+<li>Grant iff active pass, or confirmed booking in [-15min, +duration], or staff role. Per-controller tokens, lean hot path, every attempt logged to <code>AccessEvent</code> with its reason.</li>
+<li>Redis validity cache (60s TTL) with DB fallback. <strong>Fail-closed</strong>: DB down → deny + log; drill it, don't just believe it. Anti-passback replays the prior decision within ~60s.</li>
+<li>Recent events visible to frontdesk; <code>door_grants_total</code> metric emitted.</li>
+</ol>
+<h2>Deliverables — check them off</h2>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> E2E #2: upcoming booking → grant; expired pass + no booking → deny; both rows in <code>AccessEvent</code></label></li>
+<li><label><input type="checkbox" data-id="d2"> Fail-closed drill done: DB killed in staging → deny + log</label></li>
+<li><label><input type="checkbox" data-id="d3"> p95 check latency under 200ms; passback test passes</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://docs.djangoproject.com/en/5.0/topics/cache/">Django cache docs</a> — the Redis TTL pattern the hot path depends on.</p>
+<nav class="lesson-nav"><a href="0008-aggregators.html">← Lesson 8</a><a href="0010-tests-ci-ship.html">Lesson 10 →</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
+</main><script src="../assets/app.js"></script></body></html>
