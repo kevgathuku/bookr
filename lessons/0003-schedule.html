@@ -3,8 +3,8 @@
 <p class="course">Bookr course · Lesson 3 of 11 · Tutorial Ch. 2</p>
 <h1>Schedule that can't double-book</h1>
 <p class="why">Win: staff publish classes, and the database itself refuses overlapping room or teacher bookings.</p>
-<h2>Step 1 — Models</h2>
-<p>In <code>scheduling/models.py</code>: <code>ClassType</code> (name, capacity_default, duration_min), <code>Room</code> (name, capacity), <code>ScheduledClass</code> (type, room, teacher, starts/ends, capacity_override, status, checkin_opens_min=30), append-only <code>TeacherSubstitution</code> (old/new teacher, reason — never rewrite history). Capacity resolves override → room → type default; shrinking capacity never ejects confirmed bookings (enforce in the service, lesson 4).</p>
+<h2>Step 1 — New app, then models</h2>
+<p><code>uv run python manage.py startapp scheduling</code>, add it to <code>INSTALLED_APPS</code>, delete its stubs. Then in <code>scheduling/models.py</code>: <code>ClassType</code> (name, capacity_default, duration_min), <code>Room</code> (name, capacity), <code>ScheduledClass</code> (type, room, teacher, starts/ends, capacity_override, status, checkin_opens_minutes=30), append-only <code>TeacherSubstitution</code> (old/new teacher, reason — never rewrite history). Capacity resolves override → room → type default; shrinking capacity never ejects confirmed bookings (enforce in the service, lesson 4).</p>
 <h2>Step 2 — The constraint (the important line)</h2>
 <p>On <code>ScheduledClass.Meta</code>, one exclusion per scope — same room or same teacher, overlapping time, both non-cancelled. Django 6 note: <code>CheckConstraint</code> takes <code>condition=</code>, not <code>check=</code>:</p>
 <pre>from django.contrib.postgres.constraints import ExclusionConstraint
@@ -18,21 +18,21 @@ def _range():
 class Meta:
     constraints = [
         ExclusionConstraint(name="no_double_room",
-            expressions=[("gym", RangeOperators.EQUAL),
+            expressions=[("venue", RangeOperators.EQUAL),
                          ("room", RangeOperators.EQUAL),
                          (_range(), RangeOperators.OVERLAPS)],
             condition=~Q(status="cancelled")),
         ExclusionConstraint(name="no_double_teacher",
-            expressions=[("gym", RangeOperators.EQUAL),
+            expressions=[("venue", RangeOperators.EQUAL),
                          ("teacher", RangeOperators.EQUAL),
                          (_range(), RangeOperators.OVERLAPS)],
             condition=~Q(status="cancelled")),
     ]</pre>
 <p>Run <code>makemigrations</code>, then read the migration's <code>sqlmigrate</code> output by eye — this is the constraint that saves you at 6pm on Monday. It needs <code>btree_gist</code> (lesson 2's DB init script).</p>
 <h2>Step 3 — Prove the refusal</h2>
-<p>In the shell (<code>uv run python manage.py shell</code>, seed data loaded): create two overlapping classes in the same room. The second must raise <code>IntegrityError</code>. Same teacher, different rooms, overlapping time → also refused. Cancelled overlapping classes → allowed.</p>
+<p>In the shell (<code>uv run python manage.py shell</code>, seed data loaded): create two overlapping classes in the same room. The second must raise <code>IntegrityError</code>. Same teacher, different rooms, overlapping time → also refused. Cancelled overlapping classes → allowed. Then extend <code>seed_demo</code> with one room and one class — later lessons build on it.</p>
 <h2>Step 4 — List endpoint</h2>
-<p>DRF read view: <code>GET /api/v1/classes?from=&amp;to=</code>, bounded (reject ranges &gt; 31 days), <code>select_related("class_type", "room", "teacher")</code>, gym-scoped queryset from lesson 2's mixin. Staff-only POST/PATCH for publishing. Cancelling sets <code>cancelled</code> and fires a stub Celery task (real refund/notify/promote lands in <a href="0005-waitlist-cancels.html">lesson 5</a> — log a line for now). Substitution POST creates the row, keeps the old teacher, notifies (console backend for now). Check query count with <code>assertNumQueries(≤3)</code> on the list test.</p>
+<p>Install DRF (<code>uv add djangorestframework</code>) and add the read view: <code>GET /api/v1/classes?from=&amp;to=</code>, bounded (reject ranges &gt; 31 days), <code>select_related("class_type", "room", "teacher")</code>, venue-scoped queryset from lesson 2's mixin. Staff-only POST/PATCH for publishing. Cancelling sets <code>cancelled</code> and logs a fan-out line (it becomes a Celery task in <a href="0005-waitlist-cancels.html">lesson 5</a>). Substitution POST creates the row, keeps the old teacher, notifies (console backend for now). Check query count with <code>assertNumQueries(≤3)</code> on the list test.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">

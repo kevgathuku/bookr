@@ -2,11 +2,11 @@
 <body><main>
 <p class="course">Bookr course · Lesson 1 of 11 · Tutorial Ch. 0</p>
 <h1>Map and prereqs</h1>
-<p class="why">One deploy, many gyms. A member books a seat, pays in pass credits, can waitlist or cancel late, can arrive via an aggregator, and can open the door with a booking. Ten lessons build exactly that.</p>
+<p class="why">One deploy, many venues. A member books a seat, pays in pass credits, can waitlist or cancel late, can arrive via an aggregator, and can open the door with a booking. Eleven lessons build exactly that.</p>
 <h2>Step 1 — Confirm your tools</h2>
 <p>Run these; fix anything that errors before continuing:</p>
 <pre>python3 --version   # want 3.14+
-docker --version    # Postgres + Redis run in containers
+docker --version    # services run in containers (orchestrated in lesson 10)
 uv --version        # project uses uv, virtual project (no src/ build)</pre>
 <p>Check: <code>uv run python --version</code> inside the repo prints 3.14.x. If bare <code>python</code> hits a mise-shim error, run <code>direnv allow</code> once (the <code>.envrc</code> already activates <code>.venv</code>) or prefix everything with <code>uv run</code>.</p>
 <h2>Step 2 — Read the contract</h2>
@@ -14,16 +14,16 @@ uv --version        # project uses uv, virtual project (no src/ build)</pre>
 <h2>Step 3 — Learn the route</h2>
 <ol>
 <li>Map and prereqs (this lesson)</li>
-<li>Skeleton + multi-tenancy → <code>compose up</code> is green</li>
+<li>Skeleton + multi-tenancy → migrations apply and healthz is green</li>
 <li>Schedule that can't double-book</li>
 <li>The booking transaction + last-seat race test</li>
 <li>Waitlist, late cancels, no-shows (MVP completes in lesson 6)</li>
 <li>Credit ledger (MVP done here)</li>
 <li>Appointments, availability, calendar</li>
-<li>Aggregators</li>
 <li>Door access</li>
-<li>Tests, CI, ship</li>
+<li>Tests, CI, ship (single-venue validation lives here)</li>
 <li>Docker dress rehearsal (pre-deployment, after local verification)</li>
+<li>Aggregators — Phase 2, only after the single venue works</li>
 </ol>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>

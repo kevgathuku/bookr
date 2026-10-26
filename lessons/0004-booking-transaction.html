@@ -3,14 +3,14 @@
 <p class="course">Bookr course · Lesson 4 of 11 · Tutorial Ch. 3</p>
 <h1>The booking transaction</h1>
 <p class="why">Win: exactly one member gets the last seat, even with 20 racers. If this fails, stop — nothing later matters.</p>
-<h2>Step 1 — Booking model</h2>
-<p><code>Booking</code>: unique <code>idempotency_key</code>, member, nullable class/appointment FKs with a check that exactly one is set (<code>condition=</code> in Django 6), status, source (<code>app</code>/frontdesk/`aggregator:&lt;slug&gt;`), credit link (stubbed until <a href="0006-credit-ledger.html">lesson 6</a>). Plus partial uniques — one active booking per member per class:</p>
+<h2>Step 1 — New app, then model</h2>
+<p><code>uv run python manage.py startapp bookings</code>, add it to <code>INSTALLED_APPS</code>. Then the <code>Booking</code>: unique <code>idempotency_key</code>, member, nullable class/appointment FKs with a check that exactly one is set (<code>condition=</code> in Django 6), status, source (<code>app</code>/frontdesk/`aggregator:&lt;slug&gt;`), credit link (stubbed until <a href="0006-credit-ledger.html">lesson 6</a>). Plus partial uniques — one active booking per member per class:</p>
 <pre>constraints = [
     CheckConstraint(condition=(
         Q(scheduled_class__isnull=False, appointment__isnull=True)
         | Q(scheduled_class__isnull=True, appointment__isnull=False)),
         name="booking_single_target"),
-    UniqueConstraint(fields=["gym", "member", "scheduled_class"],
+    UniqueConstraint(fields=["venue", "member", "scheduled_class"],
         condition=Q(status__in=["confirmed", "waitlisted"]),
         name="one_active_class_booking"),
 ]</pre>
@@ -23,18 +23,19 @@ class DuplicateBooking(Exception): ...
 def book_seat(member, klass, *, waitlist=False, idempotency_key):
     with transaction.atomic():
         klass = ScheduledClass.objects.select_for_update().get(pk=klass.pk)
+        status = "confirmed"
         if Booking.objects.filter(scheduled_class=klass,
                 status="confirmed").count() &gt;= klass.effective_capacity():
             if not waitlist:
                 raise SeatFull  # view → 409, offer ?waitlist=true
-            return Booking.objects.create(member=member, scheduled_class=klass,
-                status="waitlisted", gym=klass.gym,
-                idempotency_key=idempotency_key)
-        spend_credit(member, klass)  # stubbed: pass until lesson 6
-        return Booking.objects.create(member=member, scheduled_class=klass,
-            status="confirmed", gym=klass.gym,
-            idempotency_key=idempotency_key)</pre>
-<p>Views map typed errors to codes: <code>SeatFull→409</code>, <code>CreditInsufficient→402</code>, <code>DuplicateBooking→409</code>. No business logic in views or serializers — ever.</p>
+            status = "waitlisted"
+        booking = Booking(member=member, scheduled_class=klass,
+            status=status, venue=klass.venue, idempotency_key=idempotency_key)
+        booking.save()
+        if status == "confirmed":
+            spend_credit(member, booking)  # raises → whole transaction rolls back
+        return booking</pre>
+<p>Views map typed errors to codes: <code>SeatFull→409</code>, <code>CreditInsufficient→402</code>, <code>DuplicateBooking→409</code>. Member login arrives here too (<code>uv add djangorestframework-simplejwt</code>) — the book endpoint authenticates the member; everything else stays service-level. No business logic in views or serializers — ever.</p>
 <h2>Step 3 — The race test (required)</h2>
 <p>With 1 free seat, fire 20 threads at <code>book_seat</code> (<code>ThreadPoolExecutor</code>, each with its own idempotency key) and assert exactly 1 confirmed. Then: same key twice → one booking; same member twice → 409. If the race test fails, stop — nothing later matters.</p>
 <h2>Deliverables — check them off</h2>

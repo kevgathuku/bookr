@@ -15,12 +15,12 @@
 <tr><th>Layer</th><th>What</th><th>Stack</th></tr>
 <tr><td>Unit</td><td>Services, ledger math, availability, concurrency races</td><td>pytest-django, factory-boy, freezegun</td></tr>
 <tr><td>API</td><td>Status codes, isolation, idempotency, token scope</td><td>DRF APITestCase, assertNumQueries</td></tr>
-<tr><td>E2E</td><td>Promotion + email; forfeiture in ledger; door grant/deny</td><td>Playwright, mailpit, docker compose</td></tr>
+<tr><td>E2E</td><td>Promotion + email; forfeiture in ledger; door grant/deny</td><td>Playwright, mailpit, docker-run services</td></tr>
 </table>
 <h2>Non-negotiables</h2>
 <ul>
 <li>Last-seat race (20 threads → exactly 1 confirmed) and last-credit race — mandatory, run in CI.</li>
-<li>Cross-gym access must 404, not 403.</li>
+<li>Cross-venue access must 404, not 403.</li>
 <li>Late-cancel boundary tested at window ± 1 minute.</li>
 <li>Ledger invariant: sum of deltas equals cached balance, asserted on seed data.</li>
 </ul>

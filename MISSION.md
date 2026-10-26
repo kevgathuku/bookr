@@ -1,7 +1,7 @@
 # Mission: Build Bookr
 
 ## Why
-Ship a working multi-tenant Django app that lets individual gyms run classes, bookings, credit passes, aggregator distribution, and self-service door access — going from empty repo to deployed MVP through ten small, verifiable lessons.
+Ship a working multi-tenant Django app that lets individual venues run classes, bookings, credit passes, aggregator distribution, and self-service door access — going from empty repo to deployed MVP through eleven small, verifiable lessons.
 
 ## Success looks like
 - `docker compose up` runs the whole platform (web, db, cache, worker) from a fresh clone

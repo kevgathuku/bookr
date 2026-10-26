@@ -3,28 +3,28 @@
 <p class="course">Bookr course · Lesson 7 of 11 · Tutorial Ch. 6</p>
 <h1>Appointments and calendar</h1>
 <p class="why">Win: bookable humans and rooms behind one fast calendar endpoint.</p>
-<h2>Step 1 — Availability models</h2>
-<p><code>Resource</code> (room/equipment/teacher), <code>AvailabilityRule</code> (weekday, start/end, valid range), <code>AvailabilityException</code> (one date: closed or special hours), <code>Appointment</code> (member, teacher, optional resource, window, status). Rules for teachers live on a <code>Resource(type=teacher)</code> row pointing at the same person — one mechanism, not two.</p>
+<h2>Step 1 — No new app, then availability models</h2>
+<p>Appointments extend <code>scheduling</code> — no new app. Models: <code>Resource</code> (room/equipment/teacher), <code>AvailabilityRule</code> (weekday, start/end, valid range), <code>AvailabilityException</code> (one date: closed or special hours), <code>Appointment</code> (member, teacher, optional resource, window, status). Rules for teachers live on a <code>Resource(type=teacher)</code> row pointing at the same person — one mechanism, not two.</p>
 <h2>Step 2 — Compute slots, don't store them</h2>
 <pre>def generate_slots(resource, day):
     # 1. weekly rules covering `day` → base intervals
     # 2. minus exceptions (closed or shortened)
     # 3. minus existing appointments + classes touching the
-    #    teacher/resource, padded by gym.buffer_min each side
+    #    teacher/resource, padded by venue.booking_buffer_minutes each side
     ...</pre>
-<p>Pure function, no database writes — unit-test it directly, including a DST-boundary day. Same exclusion constraints as classes for (gym, teacher) and (gym, resource). Cross-table clashes (appointment vs that teacher's <em>classes</em>) can't live in a DB constraint — check them in the booking service before confirming. Appointments use the 24h late-cancel window.</p>
+<p>Pure function, no database writes — unit-test it directly, including a DST-boundary day. Same exclusion constraints as classes for (venue, teacher) and (venue, resource). Cross-table clashes (appointment vs that teacher's <em>classes</em>) can't live in a DB constraint — check them in the booking service before confirming. Appointments use the 24h late-cancel window.</p>
 <h2>Step 3 — One calendar endpoint</h2>
-<p><code>GET /api/v1/calendar?from=&amp;to=&amp;teacher=&amp;room=</code> merges classes + appointments into event objects, bounded to 31 days, <code>prefetch_related</code>, paginated by day. Render with FullCalendar — backend just returns events fast. Check: week view on seed data under 200ms; overlapping appointment for one teacher → <code>IntegrityError</code>; back-to-back with <code>buffer_min=10</code> → conflict.</p>
+<p><code>GET /api/v1/calendar?from=&amp;to=&amp;teacher=&amp;room=</code> merges classes + appointments into event objects, bounded to 31 days, <code>prefetch_related</code>, paginated by day. Render with FullCalendar — backend just returns events fast. Check: week view on seed data under 200ms; overlapping appointment for one teacher → <code>IntegrityError</code>; back-to-back with <code>booking_buffer_minutes=10</code> → conflict.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">
 <li><label><input type="checkbox" data-id="d1"> Overlapping appointment for one teacher → <code>IntegrityError</code></label></li>
 <li><label><input type="checkbox" data-id="d2"> Week calendar on seed data renders in &lt; 200ms</label></li>
 <li><label><input type="checkbox" data-id="d3"> DST-boundary availability test passes</label></li>
-<li><label><input type="checkbox" data-id="d4"> Buffer test: back-to-back with <code>buffer_min=10</code> conflicts</label></li>
+<li><label><input type="checkbox" data-id="d4"> Buffer test: back-to-back with <code>booking_buffer_minutes=10</code> conflicts</label></li>
 </ul>
 <h2>Primary source</h2>
 <p><a href="https://fullcalendar.io/docs">FullCalendar docs</a> — the events-feed format your endpoint must speak.</p>
-<nav class="lesson-nav"><a href="0006-credit-ledger.html">← Lesson 6</a><a href="0008-aggregators.html">Lesson 8 →</a></nav>
+<nav class="lesson-nav"><a href="0006-credit-ledger.html">← Lesson 6</a><a href="0008-door-access.html">Lesson 8 →</a></nav>
 <p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
 </main><script src="../assets/app.js"></script></body></html>

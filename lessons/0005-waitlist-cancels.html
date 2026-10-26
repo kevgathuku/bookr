@@ -11,13 +11,19 @@ def promote_waitlist(class_id):
     nxt = Booking.objects.filter(
         scheduled_class=klass, status="waitlisted").order_by("created_at").first()
     if nxt and free_seats(klass):  # re-check inside the task: idempotent
-        nxt.status = "confirmed"   # hold TTL enforced by a beat sweeper:
-        nxt.save()                 # unclaimed in hold_ttl_min → back to waitlist tail…</pre>
+        nxt.status = "confirmed"
+        nxt.save()  # hold enforced by a beat sweeper: unclaimed past
+                      # waitlist_hold_minutes → seat passes to the next waiter</pre>
 <p>…next in line. Same task serves cancels, no-shows, and capacity increases — one path, not three.</p>
 <h2>Step 2 — Late-cancel policy</h2>
-<p>Compare cancel time against <code>gym.late_cancel_h</code>: outside → <code>cancelled</code> + refund (call the ledger stub from lesson 4 and log it — real money moves in <a href="0006-credit-ledger.html">lesson 6</a>); inside → <code>cancelled_late</code>, credit forfeited, strike counted. Staff override always refunds with a logged reason. No-shows: frontdesk <code>POST …/no_show</code> within 2h after end → forfeit; 3 strikes/30d flags the member (no auto-ban in v1).</p>
+<p>Compare cancel time against <code>venue.late_cancel_hours</code>: outside → <code>cancelled</code> + refund (call the ledger stub from lesson 4 and log it — real money moves in <a href="0006-credit-ledger.html">lesson 6</a>); inside → <code>cancelled_late</code>, credit forfeited, strike counted. Staff override always refunds with a logged reason. No-shows: frontdesk <code>POST …/no_show</code> within 2h after end → forfeit; 3 strikes/30d flags the member (no auto-ban in v1).</p>
 <h2>Step 3 — Notify</h2>
-<p>Pluggable backend: console now, mailpit (already in compose) via <code>EMAIL_URL</code> in dev settings, per-gym templates. Wire three mails: class-cancelled, promoted, late-cancel receipt. Boundary-test with freezegun: cancel at window ± 1 minute → refund vs forfeit; hold expiry → seat passes on.</p>
+<p>New infra, still no compose files: <code>uv add celery redis</code>, then run the new pieces as plain processes and containers:</p>
+<pre>docker run -d --name bookr-redis redis
+docker run -d --name bookr-mailpit -p 8025:8025 -p 1025:1025 axllent/mailpit
+uv run celery -A config worker   # terminal 1
+uv run celery -A config beat    # terminal 2</pre>
+<p>Add <code>REDIS_URL</code> + <code>EMAIL_URL</code> to dev settings. Backend: console → mailpit, per-venue templates.</p> Wire three mails: class-cancelled, promoted, late-cancel receipt. Boundary-test with freezegun: cancel at window ± 1 minute → refund vs forfeit; hold expiry → seat passes on.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">

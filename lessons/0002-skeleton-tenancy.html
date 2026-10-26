@@ -2,52 +2,48 @@
 <body><main>
 <p class="course">Bookr course · Lesson 2 of 11 · Tutorial Ch. 1</p>
 <h1>Skeleton and multi-tenancy</h1>
-<p class="why">Win: <code>docker compose up</code> gives web + db + redis + worker, and every row belongs to exactly one gym.</p>
+<p class="why">Win: Postgres runs, migrations apply, and every row belongs to exactly one venue.</p>
 <h2>Step 1 — Scaffold and deps</h2>
 <pre>uv run django-admin startproject config .
 uv add "django&gt;=6.1,&lt;7" django-environ "psycopg[binary]"</pre>
-<p>Project package is <code>config</code>, not <code>bookr</code> (that name belongs to the repo). Then create one app per domain at the repo root:</p>
-<pre>uv run python manage.py startapp gyms
-uv run python manage.py startapp members
-uv run python manage.py startapp scheduling
-uv run python manage.py startapp bookings
-uv run python manage.py startapp passes
-uv run python manage.py startapp aggregators
-uv run python manage.py startapp access</pre>
-<p>Delete the generated <code>tests.py</code>/<code>views.py</code> stubs you won't use yet — tests live in <code>tests/</code> (lesson 10), views arrive per chapter.</p>
+<p>Project package is <code>config</code>, not <code>bookr</code> (that name belongs to the repo). Then create only this lesson's apps:</p>
+<pre>uv run python manage.py startapp venues</pre>
+<p><code>Venue</code> and <code>Membership</code> live together in <code>venues</code> — one tenancy app, since a membership is meaningless without its venue. Later lessons add their own app the same way — nothing before its time. Delete the generated <code>tests.py</code>/<code>views.py</code> stubs: tests live in a top-level <code>tests/</code> directory from day one (it grows into unit/api/e2e in lesson 9), views arrive per chapter.</p>
 <h2>Step 2 — Compose stack</h2>
-<p>Write <code>docker-compose.yml</code> with <code>web</code> (build ., runserver), <code>db</code> (Postgres with <code>btree_gist</code> — needed for lesson 3's constraints; enable via a <code>CREATE EXTENSION</code> init script), <code>redis</code>, <code>worker</code> (celery), <code>beat</code>, <code>mailpit</code>. Check: <code>docker compose up db redis</code> stays healthy.</p>
+<p>Start Postgres — one command, no compose files yet (those arrive in lesson 10):</p>
+<pre>docker run -d --name bookr-db -e POSTGRES_PASSWORD=bookr -p 5432:5432 postgres:18</pre>
+<p>Then <code>CREATE EXTENSION IF NOT EXISTS btree_gist</code> in the new database (lesson 3's constraints need it). Check: <code>pg_isready -h localhost</code> answers.</p>
 <h2>Step 3 — Settings split</h2>
-<p>Split <code>config/settings.py</code> into <code>config/settings/{base,dev,prod}.py</code> driven by <code>django-environ</code> (<code>DATABASE_URL</code>, <code>REDIS_URL</code>, <code>EMAIL_URL</code>). Keep the generated defaults: <code>USE_TZ = True</code>, <code>TIME_ZONE = "UTC"</code>. Point <code>DATABASES</code> at Postgres via <code>psycopg</code> (ENGINE <code>django.db.backends.postgresql</code>). Check: <code>uv run python manage.py check</code> is clean.</p>
+<p>Split <code>config/settings.py</code> into <code>config/settings/{base,dev,prod}.py</code> driven by <code>django-environ</code> (<code>DATABASE_URL</code> now; <code>REDIS_URL</code> and <code>EMAIL_URL</code> arrive with their services in lesson 5). Keep the generated defaults: <code>USE_TZ = True</code>, <code>TIME_ZONE = "UTC"</code>. Point <code>DATABASES</code> at Postgres via <code>psycopg</code> (ENGINE <code>django.db.backends.postgresql</code>). Check: <code>uv run python manage.py check</code> is clean.</p>
 <h2>Step 4 — Tenancy core</h2>
-<p>In <code>gyms/models.py</code>, the tenant plus a queryset mixin every scoped model will use:</p>
-<pre>class Gym(models.Model):
+<p>In <code>venues/models.py</code>, the tenant plus a queryset mixin every scoped model will use:</p>
+<pre>class Venue(models.Model):
     slug = models.SlugField(unique=True)
     name = models.CharField(max_length=200)
     time_zone = models.CharField(max_length=64, default="UTC")
-    late_cancel_h = models.PositiveSmallIntegerField(default=8)
-    appt_late_cancel_h = models.PositiveSmallIntegerField(default=24)
+    late_cancel_hours = models.PositiveSmallIntegerField(default=8)
+    appointment_late_cancel_hours = models.PositiveSmallIntegerField(default=24)
     forfeit_late_cancel = models.BooleanField(default=True)
-    hold_ttl_min = models.PositiveSmallIntegerField(default=60)
-    buffer_min = models.PositiveSmallIntegerField(default=10)
+    waitlist_hold_minutes = models.PositiveSmallIntegerField(default=60)
+    booking_buffer_minutes = models.PositiveSmallIntegerField(default=10)
 
-class GymQuerySet(models.QuerySet):
-    def for_gym(self, gym):
-        return self.filter(gym=gym)</pre>
-<p>Add middleware resolving the gym (staff profile, else <code>X-Gym-Slug</code> header) and stashing it on the request. In <code>members/models.py</code>: <code>Membership(user, gym, role)</code> with roles owner/manager/teacher/frontdesk/member and <code>UniqueConstraint(gym, user)</code>. Permission class <code>IsGymMember</code>: deny cross-gym with <strong>404, not 403</strong> (no id leaks — see <a href="../reference/glossary.html">glossary</a>).</p>
+class VenueQuerySet(models.QuerySet):
+    def for_venue(self, venue):
+        return self.filter(venue=venue)</pre>
+<p>Add middleware resolving the venue (staff profile, else <code>X-Venue-Slug</code> header) and stashing it on the request. In <code>venues/models.py</code>: <code>Membership(user, venue, role)</code> with roles owner/manager/teacher/frontdesk/member and <code>UniqueConstraint(venue, user)</code>. Permission class <code>IsVenueMember</code>: deny cross-venue with <strong>404, not 403</strong> (no id leaks — see <a href="../reference/glossary.html">glossary</a>).</p>
 <h2>Step 5 — Seed + prove it</h2>
-<p>Write <code>gyms/management/commands/seed_demo.py</code>: 1 gym, 1 room, 1 teacher, 5 members. Then the isolation test (API layer, DRF <code>APITestCase</code>): gym A's member GETs gym B's object → assert 404. Run:</p>
+<p>Write <code>venues/management/commands/seed_demo.py</code>: 1 venue + users/memberships (1 teacher, 5 members). No rooms or classes — <code>scheduling</code> doesn't exist yet; lesson 3 extends the seed, lesson 6 adds passes. Then the isolation test (plain pytest, in <code>tests/</code>): venue A's member GETs venue B's object → assert 404. Run:</p>
 <pre>uv run python manage.py makemigrations
 uv run python manage.py migrate
 uv run python manage.py seed_demo
-uv run pytest members -q</pre>
-<p>Add a <code>GET /healthz</code> view returning 200 (lesson 10's pipeline will ping it).</p>
+uv run pytest tests -q</pre>
+<p>Add a <code>GET /healthz</code> view returning 200 (lesson 9's pipeline will ping it).</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">
-<li><label><input type="checkbox" data-id="d1"> <code>docker compose up</code> is green and <code>GET /healthz</code> → 200</label></li>
-<li><label><input type="checkbox" data-id="d2"> Cross-gym test passes: gym A's member gets 404 on gym B's endpoint</label></li>
-<li><label><input type="checkbox" data-id="d3"> <code>seed_demo</code> builds 1 gym, 1 room, 1 teacher, 5 members from zero</label></li>
+<li><label><input type="checkbox" data-id="d1"> Postgres answers, <code>migrate</code> applies cleanly, and <code>GET /healthz</code> → 200</label></li>
+<li><label><input type="checkbox" data-id="d2"> Cross-venue test passes: venue A's member gets 404 on venue B's endpoint</label></li>
+<li><label><input type="checkbox" data-id="d3"> <code>seed_demo</code> builds 1 venue + users/memberships from zero (rooms, classes, and passes extend it in later lessons)</label></li>
 </ul>
 <h2>Primary source</h2>
 <p><a href="https://docs.djangoproject.com/en/6.1/topics/testing/">Django testing docs (6.1)</a> — the 404-isolation test is your first real test; write it in this style.</p>

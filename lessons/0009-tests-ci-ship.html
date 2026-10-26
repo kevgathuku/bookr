@@ -1,17 +1,17 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 10 — Tests, CI, ship</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 10 of 11 · Tutorial Ch. 9</p>
+<p class="course">Bookr course · Lesson 9 of 11 · Tutorial Ch. 8</p>
 <h1>Tests, CI, ship</h1>
 <p class="why">Win: a suite you trust and a pipeline that runs it — green CI on a fresh clone, following only this course.</p>
-<h2>Step 1 — Settle the layout</h2>
-<p>From the <a href="../reference/testing-cheatsheet.html">testing cheatsheet</a>: <code>tests/unit</code> (services, ledger math, <code>generate_slots</code> — pytest-django + factory-boy + freezegun, ≥80% on services), <code>tests/api</code> (status codes, cross-gym 404s, idempotent retries), <code>tests/e2e</code> (Playwright <code>@e2e</code> against compose + mailpit asserts). Move the lesson-4/6 race tests into unit — they run in CI, not just once. Add <code>pytest.ini</code>/<code>pyproject</code> config and a factory per model (start with <code>Gym</code>, <code>User</code>, <code>ScheduledClass</code>, <code>MemberPass</code>).</p>
+<h2>Step 1 — New dev deps, then the layout</h2>
+<p><code>uv add --dev pytest pytest-django factory-boy freezegun playwright ruff black mypy</code>. Grow the day-one <code>tests/</code> (lesson 2) per the <a href="../reference/testing-cheatsheet.html">testing cheatsheet</a>: <code>tests/unit</code> (services, ledger math, <code>generate_slots</code> — pytest-django + factory-boy + freezegun, ≥80% on services), <code>tests/api</code> (status codes, cross-venue 404s, idempotent retries), <code>tests/e2e</code> (Playwright <code>@e2e</code> against the running app + mailpit asserts). Move the lesson-4/6 race tests into unit — they run in CI, not just once. Add <code>pytest.ini</code>/<code>pyproject</code> config and a factory per model (start with <code>Venue</code>, <code>User</code>, <code>ScheduledClass</code>, <code>MemberPass</code>).</p>
 <h2>Step 2 — Pipeline</h2>
 <p>GitHub workflow, in order (each gate blocks the next):</p>
 <pre>ruff + black --check  →  mypy (services, models)  →
 pytest -x  →  playwright @smoke</pre>
 <p>Full <code>@e2e</code> runs nightly + pre-release, not per-commit. Check: push a branch with a deliberately broken race test and watch CI go red at the right gate.</p>
 <h2>Step 3 — Ship checklist</h2>
-<p>Work it top to bottom, checking each: <code>sqlmigrate</code> output reviewed (especially the exclusion constraints); seed-from-zero rebuilds everything (<code>rm</code> the db, migrate, <code>seed_demo</code>); <code>/healthz</code> + Sentry + structured logs (<code>gym_id</code>/<code>booking_id</code> on every line); token-rotation runbook written; fail-closed drill done (lesson 9); postmortem template written before you need it.</p>
+<p>Work it top to bottom, checking each: <code>sqlmigrate</code> output reviewed (especially the exclusion constraints); seed-from-zero rebuilds everything (<code>rm</code> the db, migrate, <code>seed_demo</code>); <code>/healthz</code> + Sentry + structured logs (<code>venue_id</code>/<code>booking_id</code> on every line); token-rotation runbook written; fail-closed drill done (lesson 9); postmortem template written before you need it.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">
@@ -22,6 +22,6 @@ pytest -x  →  playwright @smoke</pre>
 </ul>
 <h2>Primary source</h2>
 <p><a href="https://playwright.dev/python/docs/intro">Playwright Python intro</a> — the E2E layer that proves the whole system at once.</p>
-<nav class="lesson-nav"><a href="0009-door-access.html">← Lesson 9</a><a href="0011-docker-dress-rehearsal.html">Lesson 11 →</a></nav>
+<nav class="lesson-nav"><a href="0008-door-access.html">← Lesson 8</a><a href="0010-docker-dress-rehearsal.html">Lesson 10 →</a></nav>
 <p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
 </main><script src="../assets/app.js"></script></body></html>

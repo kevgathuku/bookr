@@ -4,7 +4,7 @@
   var boxes = Array.prototype.slice.call(document.querySelectorAll("ul.check input[type=checkbox]"));
   if (!boxes.length) return;
   var state = {};
-  try { state = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) { state = {}; }
+  try { state = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) { state = {}; console.warn("lesson progress: stored state unreadable", e); }
   var bar = document.querySelector("[data-progress]");
   function render() {
     var n = 0;
@@ -19,7 +19,7 @@
   boxes.forEach(function (b) {
     b.addEventListener("change", function () {
       state[b.dataset.id] = b.checked;
-      try { localStorage.setItem(key, JSON.stringify(state)); } catch (e) {}
+      try { localStorage.setItem(key, JSON.stringify(state)); } catch (e) { console.warn("lesson progress: cannot persist", e); }
       render();
     });
   });
