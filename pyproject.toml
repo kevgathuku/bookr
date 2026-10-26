@@ -10,7 +10,6 @@ requires-python = ">=3.14"
 dependencies = [
     "dj-database-url>=3.1.2",
     "django>=6.1.2,<7",
-    "django-environ",
     "django-extensions>=4.1",
     "ipython>=9.17.1",
     "psycopg[binary]",
@@ -30,11 +29,12 @@ exclude = ["*/migrations/*.py"]
 package = false
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "config.settings"
+DJANGO_SETTINGS_MODULE = "config.settings.dev"
 pythonpath = ["."]
 
 [dependency-groups]
 dev = [
+    "django-debug-toolbar>=8.0.0",
     "faker>=40.43.0",
     "pytest-django>=4.14.0",
     "ruff>=0.17.2",

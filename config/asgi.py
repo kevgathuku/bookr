@@ -11,6 +11,10 @@ import os
 
 from django.core.asgi import get_asgi_application
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+# No default here — ASGI serves real traffic, so the environment must say
+# which settings to use (e.g. DJANGO_SETTINGS_MODULE=config.settings.prod).
+# get_asgi_application() raises ImproperlyConfigured if it is unset.
+if "DJANGO_SETTINGS_MODULE" not in os.environ:
+    raise RuntimeError("DJANGO_SETTINGS_MODULE is not set (want config.settings.prod?)")
 
 application = get_asgi_application()
