@@ -25,7 +25,7 @@ direnv allow   # or: export $(cat .env | xargs) per shell
 # 4. Migrate + verify
 uv run python manage.py migrate
 uv run python manage.py check
-docker exec bookr-db psql -U bookr -d bookr -c "\dx"   # expect btree_gist
+docker compose exec db psql -U bookr -d bookr -c "\dx"   # expect btree_gist
 
 # 5. Run
 uv run python manage.py runserver
