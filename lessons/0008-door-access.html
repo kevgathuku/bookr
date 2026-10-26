@@ -15,7 +15,7 @@
     return JsonResponse({"granted": grant})</pre>
 <p>Keep the hot path lean (skip DRF serialization if profiling says so). Anti-passback: same member within ~60s replays the prior decision without a new row.</p>
 <h2>Step 2 — Cache + fail closed</h2>
-<p>Cache member validity in Redis (60s TTL), DB fallback underneath. Then the drill that matters: kill the database in staging and knock — the door must <strong>deny + log</strong>, never hang or open. Fail-closed is a tested behavior, not a belief. Load-test to p95 &lt; 200ms (k6 or locust).</p>
+<p>Cache member validity in Redis (60s TTL), DB fallback underneath — configured once in <code>CACHES</code> (<code>django.core.cache.backends.redis.RedisCache</code>), after which Django's cache API is identical whatever the backend. Then the drill that matters: kill the database in staging and knock — the door must <strong>deny + log</strong>, never hang or open. Fail-closed is a tested behavior, not a belief. Load-test to p95 &lt; 200ms (k6 or locust).</p>
 <h2>Step 3 — Expose + observe</h2>
 <p>Recent events visible to frontdesk; emit the <code>door_grants_total</code> metric. E2E #2: upcoming booking → grant; expired pass + no booking → deny; assert both rows exist in <code>AccessEvent</code>.</p>
 <h2>Deliverables — check them off</h2>

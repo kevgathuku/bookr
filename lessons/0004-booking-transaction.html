@@ -37,7 +37,7 @@ def book_seat(member, klass, *, waitlist=False, idempotency_key):
         return booking</pre>
 <p>Views map typed errors to codes: <code>SeatFull→409</code>, <code>CreditInsufficient→402</code>, <code>DuplicateBooking→409</code>. Member login arrives here too (<code>uv add djangorestframework-simplejwt</code>) — the book endpoint authenticates the member; everything else stays service-level. No business logic in views or serializers — ever.</p>
 <h2>Step 3 — The race test (required)</h2>
-<p>With 1 free seat, fire 20 threads at <code>book_seat</code> (<code>ThreadPoolExecutor</code>, each with its own idempotency key) and assert exactly 1 confirmed. Then: same key twice → one booking; same member twice → 409. If the race test fails, stop — nothing later matters.</p>
+<p>With 1 free seat, fire 20 threads at <code>book_seat</code> (<code>ThreadPoolExecutor</code>, each with its own idempotency key) and assert exactly 1 confirmed. Then: same key twice → one booking; same member twice → 409. Django nuance, twice: outside <code>atomic()</code> Django autocommits, so the <code>select_for_update</code> lock only means something inside the block — and <code>TestCase</code> wraps every test in a transaction your threads can't see into, so race tests must use <code>TransactionTestCase</code> (or pytest's <code>transaction=True</code>) or all 20 threads queue behind your own uncommitted lock. If the race test fails, stop — nothing later matters.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">

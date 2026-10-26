@@ -4,7 +4,7 @@
 <h1>Waitlist and late cancels</h1>
 <p class="why">Win: cancellations heal themselves — FIFO promotion, held seats, and late cancels that cost a credit.</p>
 <h2>Step 1 — Cancel, then promote</h2>
-<p>Waitlist order derives from booking creation time — no stored counters to corrupt. <code>cancel_booking(member, booking, by_staff=False)</code> runs in a transaction, then enqueues an idempotent Celery task:</p>
+<p>Waitlist order derives from booking creation time — no stored counters to corrupt. <code>cancel_booking(member, booking, by_staff=False)</code> runs in a transaction, then enqueues an idempotent Celery task (keep it in <code>bookings/tasks.py</code> — Celery's autodiscovery only looks in installed apps' <code>tasks</code> modules):</p>
 <pre>@shared_task
 def promote_waitlist(class_id):
     klass = ScheduledClass.objects.get(pk=class_id)
@@ -23,7 +23,7 @@ def promote_waitlist(class_id):
 docker run -d --name bookr-mailpit -p 8025:8025 -p 1025:1025 axllent/mailpit
 uv run celery -A config worker   # terminal 1
 uv run celery -A config beat    # terminal 2</pre>
-<p>Add <code>REDIS_URL</code> + <code>EMAIL_URL</code> to dev settings. Backend: console → mailpit, per-venue templates.</p> Wire three mails: class-cancelled, promoted, late-cancel receipt. Boundary-test with freezegun: cancel at window ± 1 minute → refund vs forfeit; hold expiry → seat passes on.</p>
+<p>Add <code>REDIS_URL</code> + <code>EMAIL_URL</code> to dev settings. Backend: console → mailpit, per-venue templates.</p> Wire three mails: class-cancelled, promoted, late-cancel receipt. Boundary-test with freezegun: cancel at window ± 1 minute → refund vs forfeit; hold expiry → seat passes on. <code>freeze_time</code> shifts Django's <code>timezone.now()</code> too, so window math tests deterministically.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">

@@ -6,7 +6,7 @@
 <h2>Step 1 — New app, then ledger models</h2>
 <p><code>uv run python manage.py startapp passes</code>, add it to <code>INSTALLED_APPS</code>. Then <code>PassProduct</code> (credits or unlimited, validity, applicable class-type M2M blank = all), <code>MemberPass</code> (member's instance, cached counters), append-only <code>CreditLedger</code> (pass, booking, ±delta, reason, actor, timestamp). Balance is always <code>SUM(delta)</code> — cached counters update in the same transaction, history is never edited. Note: the spec's <code>pass</code> field is <code>member_pass</code> in code (<code>pass</code> is a Python keyword).</p>
 <h2>Step 2 — Spend, refund, expire</h2>
-<p><code>passes/services.py::spend_credit(member, booking)</code>: lock the chosen pass (<code>select_for_update</code>), oldest valid pass covering the class type first, unlimited passes before credit bundles. Pair it with <code>refund_credit</code>, reason-required <code>adjust_credit</code>, and a nightly beat task <code>expire_passes</code> writing expiry rows:</p>
+<p><code>passes/services.py::spend_credit(member, booking)</code>: lock the chosen pass (<code>select_for_update</code>), oldest valid pass covering the class type first, unlimited passes before credit bundles. Pair it with <code>refund_credit</code>, reason-required <code>adjust_credit</code>, and a nightly beat task <code>expire_passes</code> writing expiry rows. Django nuance: under the row lock, plain <code>+=</code> plus <code>save()</code> is safe — <code>F()</code> expressions are for counters you update <em>without</code> locking:</p>
 <pre>def spend_credit(member, booking):
     with transaction.atomic():
         member_pass = (MemberPass.objects.select_for_update()

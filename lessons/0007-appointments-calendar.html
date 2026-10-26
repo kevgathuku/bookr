@@ -14,7 +14,7 @@
     ...</pre>
 <p>Pure function, no database writes — unit-test it directly, including a DST-boundary day. Same exclusion constraints as classes for (venue, teacher) and (venue, resource). Cross-table clashes (appointment vs that teacher's <em>classes</em>) can't live in a DB constraint — check them in the booking service before confirming. Appointments use the 24h late-cancel window.</p>
 <h2>Step 3 — One calendar endpoint</h2>
-<p><code>GET /api/v1/calendar?from=&amp;to=&amp;teacher=&amp;room=</code> merges classes + appointments into event objects, bounded to 31 days, <code>prefetch_related</code>, paginated by day. Render with FullCalendar — backend just returns events fast. Check: week view on seed data under 200ms; overlapping appointment for one teacher → <code>IntegrityError</code>; back-to-back with <code>booking_buffer_minutes=10</code> → conflict.</p>
+<p><code>GET /api/v1/calendar?from=&amp;to=&amp;teacher=&amp;room=</code> merges classes + appointments into event objects, bounded to 31 days, <code>prefetch_related</code>, paginated by day. Django nuance: <code>select_related</code> JOINs single-valued relations; <code>prefetch_related</code> is for reverse and many-valued ones — reaching for the wrong one is the classic N+1 source. Render with FullCalendar — backend just returns events fast. Check: week view on seed data under 200ms; overlapping appointment for one teacher → <code>IntegrityError</code>; back-to-back with <code>booking_buffer_minutes=10</code> → conflict.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">

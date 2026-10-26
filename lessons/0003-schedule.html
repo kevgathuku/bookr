@@ -28,7 +28,7 @@ class Meta:
                          (_range(), RangeOperators.OVERLAPS)],
             condition=~Q(status="cancelled")),
     ]</pre>
-<p>Run <code>makemigrations</code>, then read the migration's <code>sqlmigrate</code> output by eye — this is the constraint that saves you at 6pm on Monday. It needs <code>btree_gist</code> (lesson 2's DB init script).</p>
+<p>Run <code>makemigrations</code>, then read the migration's <code>sqlmigrate</code> output by eye — this is the constraint that saves you at 6pm on Monday. It needs <code>btree_gist</code> (lesson 2's <code>CREATE EXTENSION</code>). Django nuance: constraints are DDL — <code>makemigrations</code> writes them, <code>sqlmigrate</code> shows the SQL, and SQLite silently skips what it can't express, which is why this course develops against Postgres from day one.</p>
 <h2>Step 3 — Prove the refusal</h2>
 <p>In the shell (<code>uv run python manage.py shell</code>, seed data loaded): create two overlapping classes in the same room. The second must raise <code>IntegrityError</code>. Same teacher, different rooms, overlapping time → also refused. Cancelled overlapping classes → allowed. Then extend <code>seed_demo</code> with one room and one class — later lessons build on it.</p>
 <h2>Step 4 — List endpoint</h2>

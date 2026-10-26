@@ -8,7 +8,7 @@ How to use this: do the chapters in order. Each ends with **Run it** (proof it w
 
 A single Django deploy serving many venues. A member books a class seat, pays with pass credits, can waitlist, can be late-cancelled, can come via an aggregator (ClassPass-style), and can open the venue door with a booking. Staff manage subs, rooms, availability.
 
-You'll need: Python 3.14+, Docker (Postgres + Redis), Django 6.1 (pinned in `pyproject.toml`), familiarity with Django ORM basics. That's it.
+You'll need: Python 3.14+, Docker (services run in containers until Chapter 10 orchestrates them), Django 6.1 (pinned in `pyproject.toml`), plus working web-development knowledge (HTTP, ORM concepts, background jobs). No prior Django needed — same deal as the official Django tutorial: you bring web experience, the course teaches Django's opinions.
 
 **Exercises:** 1) Read `SPEC.md` §§1–3 once end to end.
 
