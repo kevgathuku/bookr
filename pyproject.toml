@@ -25,3 +25,12 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest-django>=4.14.0",
+]
