@@ -8,7 +8,7 @@ How to use this: do the chapters in order. Each ends with **Run it** (proof it w
 
 A single Django deploy serving many gyms. A member books a class seat, pays with pass credits, can waitlist, can be late-cancelled, can come via an aggregator (ClassPass-style), and can open the gym door with a booking. Staff manage subs, rooms, availability.
 
-You'll need: Python 3.12+, Docker (Postgres + Redis), familiarity with Django ORM basics. That's it.
+You'll need: Python 3.14+, Docker (Postgres + Redis), Django 6.1 (pinned in `pyproject.toml`), familiarity with Django ORM basics. That's it.
 
 **Exercises:** 1) Read `SPEC.md` §§1–3 once end to end.
 
@@ -17,7 +17,7 @@ You'll need: Python 3.12+, Docker (Postgres + Redis), familiarity with Django OR
 **Goal:** `docker compose up` gives you web + db + redis + worker, and every row belongs to a gym.
 
 1. `django-admin startproject config .` then create apps: `gyms members scheduling bookings passes aggregators access`. One app per spec section — don't merge them "for simplicity," you'll regret it at Chapter 6.
-2. Add `docker-compose.yml` (web, db w/ `btree_gist`, redis, celery worker, beat, mailpit), `django-environ` settings split (`base/dev/prod`), all datetimes UTC, per-gym `time_zone` field only for display.
+2. Baseline deps: `uv add "django>=6.1,<7" django-environ "psycopg[binary]"` (`psycopg` v3 is the driver Django 6 talks to; add DRF / Celery / `redis` in the chapters that use them, always latest releases). Then `docker-compose.yml` (web, db w/ `btree_gist`, redis, celery worker, beat, mailpit) plus a `django-environ` settings split (`base/dev/prod`). Generated settings already ship `USE_TZ = True` + `TIME_ZONE = 'UTC'` — keep datetimes UTC, per-gym `time_zone` is display-only.
 3. Tenancy core in `gyms`: `Gym(slug UNIQUE, name, time_zone, late_cancel_h=8, appt_late_cancel_h=24, forfeit_late_cancel=True, hold_ttl_min=60, buffer_min=10)` + `GymScopedManager` (filters `gym=`) + middleware resolving gym from staff profile or `X-Gym-Slug` header for API. Scoped unique constraints everywhere: `(gym, ...)`.
 4. Roles: Django groups `owner/manager/teacher/frontdesk/member` per gym via a `Membership(user, gym, role)` model. Permission class `IsGymMember` — cross-gym access returns **404**, not 403 (no id leaks).
 

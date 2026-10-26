@@ -76,13 +76,13 @@ Rules:
 
 ## 4. API & Project Layout
 
-- Django 5 + DRF for `/api/*`, `djangorestframework-simplejwt` (app) + token auth (aggregators/controllers). Versioned: `/api/v1/`. OpenAPI via `drush`/`drf-spectacular`, breaking change = new version.
-- Proposed layout (create on `django-admin startproject`):
+- Django 6.1 + DRF for `/api/*` (Python 3.14+, per `pyproject.toml`), `djangorestframework-simplejwt` (app) + token auth (aggregators/controllers). Versioned: `/api/v1/`. OpenAPI via `drf-spectacular`, breaking change = new version.
+- Proposed layout (`django-admin startproject config .`; virtual uv project, no `src/` build — Django apps live at the repo root):
   ```
-  bookr/ (settings/, urls.py)  apps/: gyms/ scheduling/ bookings/ passes/ aggregators/ access/ members/
+  manage.py  config/ (settings/, urls.py)  gyms/ members/ scheduling/ bookings/ passes/ aggregators/ access/
   ```
   One app per §3 section. Cross-app imports only via services (`bookings/services.py::book_seat()`), never model-to-model shortcuts.
-- Settings: `django-environ`, split `base/dev/prod`; Postgres + `pgcrypto/btree_gist`; Redis (cache + Celery broker); `TIME_ZONE` per gym, store all datetimes UTC.
+- Settings: `django-environ`, split `base/dev/prod`; Postgres via `psycopg` v3 + `pgcrypto/btree_gist`; Redis (cache + Celery broker); generated defaults kept (`USE_TZ = True`, `TIME_ZONE = 'UTC'`), `time_zone` per gym display-only, store all datetimes UTC.
 - Background: Celery + Beat — waitlist promotion, expiry sweeps, aggregator webhooks, reminders/notifications (email/SMS via pluggable backend, templates per gym).
 - Money-adjacent discipline: ledger append-only, `select_for_update` on booking paths, `idempotency_key` unique on `Booking`, admin actions logged (`LogEntry` + `reason`).
 

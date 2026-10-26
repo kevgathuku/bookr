@@ -1,0 +1,20 @@
+[project]
+name = "bookr"
+version = "0.1.0"
+description = "Multi-tenant gym management platform (classes, bookings, credit passes, aggregators, door access)"
+readme = "README.md"
+authors = [
+    { name = "Kevin Gathuku", email = "kevgathuku@users.noreply.github.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "django>=6.1.2,<7",
+    "django-environ",
+    "psycopg[binary]",
+]
+
+# [project.scripts]
+# bookr = "bookr:main"
+
+[tool.uv]
+package = false
