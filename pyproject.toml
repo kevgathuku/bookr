@@ -11,6 +11,8 @@ dependencies = [
     "dj-database-url>=3.1.2",
     "django>=6.1.2,<7",
     "django-environ",
+    "django-extensions>=4.1",
+    "ipython>=9.17.1",
     "psycopg[binary]",
 ]
 
