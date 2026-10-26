@@ -15,13 +15,16 @@ class Organization(models.Model):
         max_length=16, choices=Scope.choices, default=Scope.SPANNING
     )
 
+    def __str__(self):
+        return self.name
+
 
 class Venue(models.Model):
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="venues"
     )
+    slug = models.SlugField()
     name = models.CharField(max_length=200)
-    slug = models.SlugField(unique=True)
     time_zone = models.CharField(max_length=64, default="UTC")
 
     class Meta:
@@ -30,6 +33,13 @@ class Venue(models.Model):
                 fields=["organization", "slug"], name="venue_slug_unique_per_org"
             ),
         ]
+
+    @property
+    def current_policy(self):
+        return self.policies.get(valid_until__isnull=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.organization})"
 
 
 # Business rules, configurable row per venue — policy edits never touch identity rows.
@@ -60,6 +70,7 @@ class VenuePolicy(models.Model):
     )
 
     class Meta:
+        verbose_name_plural = "venue policies"
         constraints: ClassVar[list[models.UniqueConstraint]] = [
             models.UniqueConstraint(
                 fields=["venue"],
@@ -67,6 +78,10 @@ class VenuePolicy(models.Model):
                 name="one_active_policy_per_venue",
             ),
         ]
+
+    def __str__(self):
+        state = "active" if self.valid_until is None else f"retired {self.valid_until:%Y-%m-%d}"
+        return f"Policy for {self.venue} ({state})"
 
 
 class Membership(models.Model):
@@ -82,13 +97,22 @@ class Membership(models.Model):
     )
     # NULL: organization rule applied across all venues
     venue = models.ForeignKey(
-        Venue,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="memberships",
+        Venue, on_delete=models.CASCADE, null=True, blank=True, related_name="memberships"
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memberships"
     )
     role = models.CharField(max_length=16, choices=Role.choices)
+
+    class Meta:
+        # NULLs never equal: two spanning rows slip past this — the creation
+        # service must also guard one spanning membership per user per org.
+        constraints: ClassVar[list[models.UniqueConstraint]] = [
+            models.UniqueConstraint(
+                fields=["organization", "user", "venue"], name="member_once_per_scope"
+            ),
+        ]
+
+    def __str__(self):
+        where = self.venue.name if self.venue else "all venues"
+        return f"{self.user} · {self.role} @ {where}"
