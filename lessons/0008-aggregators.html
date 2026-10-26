@@ -1,14 +1,19 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 8 — Aggregators</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 8 of 10 · Tutorial Ch. 7</p>
+<p class="course">Bookr course · Lesson 8 of 11 · Tutorial Ch. 7</p>
 <h1>Aggregators</h1>
 <p class="why">Win: a stranger's platform books your seats — within allotment, idempotently, billed to them, never touching member passes.</p>
-<h2>Steps</h2>
-<ol>
-<li>Separate router <code>POST /api/v1/aggregators/&lt;slug&gt;/bookings</code> with per-partner hashed tokens (rotatable) + throttling. Enforce <code>min(allotment, free seats)</code>. Log every inbound call for reconciliation.</li>
-<li>Idempotency on <code>(aggregator, external_id)</code>: retries return the original. Their late cancels use the contract <code>cutoff_min</code>, billed to the aggregator account.</li>
-<li>Outbound: read-only schedule feed + HMAC-signed change webhooks with Celery backoff retries.</li>
-</ol>
+<h2>Step 1 — Partner models + auth</h2>
+<p><code>Aggregator</code> (slug, hashed token, seat allotment, contract cutoff, commission, active), <code>AggregatorBooking</code> (partner + external id → booking, unique together), <code>AggregatorEventLog</code> (every inbound call — reconciliation evidence). Separate router <code>POST /api/v1/aggregators/&lt;slug&gt;/bookings</code> with per-partner token auth: hash the presented token (sha256) and compare with <code>hmac.compare_digest</code> against <code>api_token_hash</code> — never user passwords, never plain equality. Add throttling.</p>
+<h2>Step 2 — Book within allotment, idempotently</h2>
+<p>Enforce <code>min(allotment, free seats)</code>, then reuse lesson 4's <code>book_seat</code> (same seats, same locks — aggregators are just another channel):</p>
+<pre>booking, created = AggregatorBooking.objects.get_or_create(
+    aggregator=agg, external_id=ext_id,
+    defaults={"booking": book_seat(...)})  # retries return the original
+return booking  # late cancels use the contract cutoff_min, billed to agg</pre>
+<p>Late cancels use the contract <code>cutoff_min</code>, never gym defaults or member passes. Log every request to <code>AggregatorEventLog</code> first — replaying the log must reproduce booking state (that's your reconciliation test).</p>
+<h2>Step 3 — Outbound feed + rotation</h2>
+<p>Read-only <code>GET …/schedule?from&amp;to</code> plus HMAC-signed change webhooks via Celery with backoff retries; sign with a per-partner secret and verify signatures in tests. Rotate a token: new hash saved → old token gets 401. Check all four: double <code>external_id</code> → one booking; over allotment → 409; rotated → 401; bad webhook signature → rejected.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">

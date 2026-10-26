@@ -1,14 +1,42 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 4 — The booking transaction</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 4 of 10 · Tutorial Ch. 3</p>
+<p class="course">Bookr course · Lesson 4 of 11 · Tutorial Ch. 3</p>
 <h1>The booking transaction</h1>
 <p class="why">Win: exactly one member gets the last seat, even with 20 racers. If this fails, stop — nothing later matters.</p>
-<h2>Steps</h2>
-<ol>
-<li><code>Booking</code> with unique <code>idempotency_key</code> plus a partial unique constraint: one active booking per member per class. This is the <strong>primary seam</strong> (see <a href="../reference/testing-cheatsheet.html">testing cheatsheet</a>).</li>
-<li>One function creates bookings: <code>book_seat(member, klass, waitlist=False, idempotency_key)</code>. Transaction + row lock on the class → count confirmed → full? raise <code>SeatFull</code> (view → 409, offer <code>?waitlist=true</code>) → else spend credit (stubbed until <a href="0006-credit-ledger.html">lesson 6</a>) → create. Fat service, thin views.</li>
-<li>Views map typed errors to codes: <code>SeatFull→409</code>, <code>CreditInsufficient→402</code>, <code>DuplicateBooking→409</code>. No business logic in views or serializers.</li>
-</ol>
+<h2>Step 1 — Booking model</h2>
+<p><code>Booking</code>: unique <code>idempotency_key</code>, member, nullable class/appointment FKs with a check that exactly one is set (<code>condition=</code> in Django 6), status, source (<code>app</code>/frontdesk/`aggregator:&lt;slug&gt;`), credit link (stubbed until <a href="0006-credit-ledger.html">lesson 6</a>). Plus partial uniques — one active booking per member per class:</p>
+<pre>constraints = [
+    CheckConstraint(condition=(
+        Q(scheduled_class__isnull=False, appointment__isnull=True)
+        | Q(scheduled_class__isnull=True, appointment__isnull=False)),
+        name="booking_single_target"),
+    UniqueConstraint(fields=["gym", "member", "scheduled_class"],
+        condition=Q(status__in=["confirmed", "waitlisted"]),
+        name="one_active_class_booking"),
+]</pre>
+<p>This is the <strong>primary seam</strong> (see <a href="../reference/testing-cheatsheet.html">testing cheatsheet</a>).</p>
+<h2>Step 2 — The one function that books</h2>
+<p><code>bookings/services.py::book_seat(member, klass, waitlist=False, idempotency_key)</code> — the <em>only</em> code path that creates bookings. Thin views, fat service:</p>
+<pre>class SeatFull(Exception): ...
+class DuplicateBooking(Exception): ...
+
+def book_seat(member, klass, *, waitlist=False, idempotency_key):
+    with transaction.atomic():
+        klass = ScheduledClass.objects.select_for_update().get(pk=klass.pk)
+        if Booking.objects.filter(scheduled_class=klass,
+                status="confirmed").count() &gt;= klass.effective_capacity():
+            if not waitlist:
+                raise SeatFull  # view → 409, offer ?waitlist=true
+            return Booking.objects.create(member=member, scheduled_class=klass,
+                status="waitlisted", gym=klass.gym,
+                idempotency_key=idempotency_key)
+        spend_credit(member, klass)  # stubbed: pass until lesson 6
+        return Booking.objects.create(member=member, scheduled_class=klass,
+            status="confirmed", gym=klass.gym,
+            idempotency_key=idempotency_key)</pre>
+<p>Views map typed errors to codes: <code>SeatFull→409</code>, <code>CreditInsufficient→402</code>, <code>DuplicateBooking→409</code>. No business logic in views or serializers — ever.</p>
+<h2>Step 3 — The race test (required)</h2>
+<p>With 1 free seat, fire 20 threads at <code>book_seat</code> (<code>ThreadPoolExecutor</code>, each with its own idempotency key) and assert exactly 1 confirmed. Then: same key twice → one booking; same member twice → 409. If the race test fails, stop — nothing later matters.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">
@@ -17,7 +45,7 @@
 <li><label><input type="checkbox" data-id="d3"> Same member rebooking the same class → 409</label></li>
 </ul>
 <h2>Primary source</h2>
-<p><a href="https://docs.djangoproject.com/en/5.0/topics/db/transactions/">Django transactions docs</a> — <code>atomic</code> + <code>select_for_update</code>, the two calls this whole lesson stands on.</p>
+<p><a href="https://docs.djangoproject.com/en/6.1/topics/db/transactions/">Django transactions docs (6.1)</a> — <code>atomic</code> + <code>select_for_update</code>, the two calls this whole lesson stands on.</p>
 <nav class="lesson-nav"><a href="0003-schedule.html">← Lesson 3</a><a href="0005-waitlist-cancels.html">Lesson 5 →</a></nav>
 <p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
 </main><script src="../assets/app.js"></script></body></html>

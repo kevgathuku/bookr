@@ -115,6 +115,19 @@ You'll need: Python 3.14+, Docker (Postgres + Redis), Django 6.1 (pinned in `pyp
 **Run it:** green CI on a fresh clone following only this tutorial.
 **Exercises:** 1) Delete your db, rebuild from migrations + seed. 2) Write the postmortem template before you need it.
 
+## Chapter 10: Docker — the pre-deployment dress rehearsal
+
+**Goal:** the verified app runs from images, not your laptop. Do this after Chapter 9 is green, before touching any cloud.
+
+1. Write a `Dockerfile` (multi-stage: `uv sync --frozen`, then a slim runtime running `gunicorn config.wsgi`; non-root user; `collectstatic` at build; no secrets baked in — everything via environment).
+2. Write `docker-compose.prod.yml`: `web` (gunicorn, `$PORT`), `worker`, `beat`, `db`, `redis`. Migrations run as a one-off (`docker compose run web python manage.py migrate`), never inside the boot command.
+3. Create `.env.prod` for `django-environ`: `SECRET_KEY`, `DATABASE_URL`, `REDIS_URL`, `ALLOWED_HOSTS`, `EMAIL_URL`. Dev's mailpit stays in the dev file; prod points at the real sender.
+4. Boot it: `docker compose -f docker-compose.prod.yml up --build`, migrate, then (staging only) `seed_demo`. Run the `@smoke` suite against the containers and click through one booking by hand; check `/healthz`, structured logs, and admin login.
+5. Prove reproducibility: `docker compose down -v`, rebuild from zero, migrate, re-run smoke. If it isn't green from scratch, it isn't shippable.
+
+**Run it:** fresh `up --build` on a clean machine state → migrate → smoke green → one manual booking.
+**Exercises:** 1) `docker scout`/`dive` the image and justify every layer. 2) Time the cold boot; write the rollback runbook (previous image tag + migrate backwards plan).
+
 ## Build order reminder
 
-Ch.1 → Ch.2 → Ch.3 → Ch.4 → Ch.5 → Ch.6 → Ch.7 → Ch.8 → Ch.9. MVP = Chapters 1–5. Don't start aggregators before the ledger balances.
+Ch.1 → Ch.2 → Ch.3 → Ch.4 → Ch.5 → Ch.6 → Ch.7 → Ch.8 → Ch.9 → Ch.10. MVP = Chapters 1–5. Don't start aggregators before the ledger balances; don't ship anywhere before Chapter 10 is green.

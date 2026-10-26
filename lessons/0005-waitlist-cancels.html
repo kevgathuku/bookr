@@ -1,15 +1,23 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 5 — Waitlist and late cancels</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 5 of 10 · Tutorial Ch. 4</p>
+<p class="course">Bookr course · Lesson 5 of 11 · Tutorial Ch. 4</p>
 <h1>Waitlist and late cancels</h1>
 <p class="why">Win: cancellations heal themselves — FIFO promotion, held seats, and late cancels that cost a credit.</p>
-<h2>Steps</h2>
-<ol>
-<li>Waitlist order derives from booking creation time — no stored counters to corrupt. <code>cancel_seat()</code> transacts, then enqueues idempotent <code>promote_waitlist</code> (Celery). Promoted seats are held <code>hold_ttl_min</code>; expiry passes to the next in line. Same path serves cancels, no-shows, and capacity increases.</li>
-<li><code>cancel_booking</code>: outside the window → refund; inside → <code>cancelled_late</code>, credit forfeited, strike counted. Staff override always refunds with a logged reason. (Ledger calls are stubs until <a href="0006-credit-ledger.html">lesson 6</a> — log them.)</li>
-<li>No-shows: frontdesk marks within 2h after end → forfeit; 3 strikes in 30 days flags the member (no auto-ban in v1).</li>
-<li>Notifications via a pluggable backend (console now, mailpit here): class-cancelled, promoted, late-cancel receipt.</li>
-</ol>
+<h2>Step 1 — Cancel, then promote</h2>
+<p>Waitlist order derives from booking creation time — no stored counters to corrupt. <code>cancel_booking(member, booking, by_staff=False)</code> runs in a transaction, then enqueues an idempotent Celery task:</p>
+<pre>@shared_task
+def promote_waitlist(class_id):
+    klass = ScheduledClass.objects.get(pk=class_id)
+    nxt = Booking.objects.filter(
+        scheduled_class=klass, status="waitlisted").order_by("created_at").first()
+    if nxt and free_seats(klass):  # re-check inside the task: idempotent
+        nxt.status = "confirmed"   # hold TTL enforced by a beat sweeper:
+        nxt.save()                 # unclaimed in hold_ttl_min → back to waitlist tail…</pre>
+<p>…next in line. Same task serves cancels, no-shows, and capacity increases — one path, not three.</p>
+<h2>Step 2 — Late-cancel policy</h2>
+<p>Compare cancel time against <code>gym.late_cancel_h</code>: outside → <code>cancelled</code> + refund (call the ledger stub from lesson 4 and log it — real money moves in <a href="0006-credit-ledger.html">lesson 6</a>); inside → <code>cancelled_late</code>, credit forfeited, strike counted. Staff override always refunds with a logged reason. No-shows: frontdesk <code>POST …/no_show</code> within 2h after end → forfeit; 3 strikes/30d flags the member (no auto-ban in v1).</p>
+<h2>Step 3 — Notify</h2>
+<p>Pluggable backend: console now, mailpit (already in compose) via <code>EMAIL_URL</code> in dev settings, per-gym templates. Wire three mails: class-cancelled, promoted, late-cancel receipt. Boundary-test with freezegun: cancel at window ± 1 minute → refund vs forfeit; hold expiry → seat passes on.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">

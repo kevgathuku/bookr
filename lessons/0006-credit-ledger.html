@@ -1,15 +1,26 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 6 — Credit ledger (MVP done)</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 6 of 10 · Tutorial Ch. 5</p>
+<p class="course">Bookr course · Lesson 6 of 11 · Tutorial Ch. 5</p>
 <h1>Credit ledger — MVP done</h1>
 <p class="why">Win: every credit movement is auditable, races can't double-spend — and with this lesson the MVP is shippable.</p>
-<h2>Steps</h2>
-<ol>
-<li><code>PassProduct</code>, <code>MemberPass</code>, append-only <code>CreditLedger</code>. Balance is always <code>SUM(delta)</code>; cached counters update in the same transaction, history is never edited.</li>
-<li><code>spend_credit</code> locks the chosen pass, spends oldest-valid-first covering the class type, unlimited passes first. <code>refund_credit</code>, reason-required <code>adjust_credit</code>, nightly <code>expire_passes</code> writing expiry rows.</li>
-<li>Replace the lesson-4 stub: <code>book_seat</code> calls <code>spend_credit</code>; <code>cancel_booking</code> refunds or forfeits per lesson-5 rules.</li>
-<li>Expose <code>GET /api/v1/me/passes</code> plus the ledger view (members see own, frontdesk sees the gym's).</li>
-</ol>
+<h2>Step 1 — Ledger models</h2>
+<p><code>PassProduct</code> (credits or unlimited, validity, applicable class-type M2M blank = all), <code>MemberPass</code> (member's instance, cached counters), append-only <code>CreditLedger</code> (pass, booking, ±delta, reason, actor, timestamp). Balance is always <code>SUM(delta)</code> — cached counters update in the same transaction, history is never edited. Note: the spec's <code>pass</code> field is <code>member_pass</code> in code (<code>pass</code> is a Python keyword).</p>
+<h2>Step 2 — Spend, refund, expire</h2>
+<p><code>passes/services.py::spend_credit(member, booking)</code>: lock the chosen pass (<code>select_for_update</code>), oldest valid pass covering the class type first, unlimited passes before credit bundles. Pair it with <code>refund_credit</code>, reason-required <code>adjust_credit</code>, and a nightly beat task <code>expire_passes</code> writing expiry rows:</p>
+<pre>def spend_credit(member, booking):
+    with transaction.atomic():
+        p = (MemberPass.objects.select_for_update()
+             .filter(member=member, status="active",
+                     valid_until__gt=now())
+             .order_by("valid_until").first())  # FIFO; unlimited-first is a second pass
+        if p is None:
+            raise CreditInsufficient
+        CreditLedger.objects.create(member_pass=p, booking=booking,
+            delta=-1, reason="booking")
+        p.credits_used += 1  # cache only
+        p.save()</pre>
+<h2>Step 3 — Wire it into lessons 4–5</h2>
+<p>Replace the stubs: <code>book_seat</code> calls <code>spend_credit</code>; <code>cancel_booking</code> calls <code>refund_credit</code> or writes a <code>forfeit</code> row per the window rules. Expose <code>GET /api/v1/me/passes</code> plus the ledger view (members see own, frontdesk sees the gym's). Then run both races again: last-seat <em>and</em> last-credit (20 threads × 1 credit → exactly 1 booking), plus the invariant test — ledger sums equal cached balances on seed data.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">
@@ -19,7 +30,7 @@
 <li><label><input type="checkbox" data-id="d4"> Staff adjustment without a reason → 400; MVP demo runs end to end</label></li>
 </ul>
 <h2>Primary source</h2>
-<p><a href="https://docs.djangoproject.com/en/5.0/topics/db/transactions/">Django transactions docs, revisited</a> — same locking pattern as lesson 4, now guarding money-adjacent rows.</p>
+<p><a href="https://docs.djangoproject.com/en/6.1/topics/db/transactions/">Django transactions docs, revisited (6.1)</a> — same locking pattern as lesson 4, now guarding money-adjacent rows.</p>
 <nav class="lesson-nav"><a href="0005-waitlist-cancels.html">← Lesson 5</a><a href="0007-appointments-calendar.html">Lesson 7 →</a></nav>
 <p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
 </main><script src="../assets/app.js"></script></body></html>

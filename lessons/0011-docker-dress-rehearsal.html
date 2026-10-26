@@ -1,0 +1,33 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 11 — Docker dress rehearsal</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 11 of 11 · Tutorial Ch. 10</p>
+<h1>Docker dress rehearsal</h1>
+<p class="why">Win: the app you verified locally runs from images on a clean machine — the last step before any cloud.</p>
+<h2>Step 1 — Image</h2>
+<p>Write a multi-stage <code>Dockerfile</code>: builder runs <code>uv sync --frozen</code>, runtime is slim, runs <code>gunicorn config.wsgi</code> as a non-root user, <code>collectstatic</code> at build time. Rule: no secrets in the image — <code>SECRET_KEY</code>, <code>DATABASE_URL</code>, everything via environment (<code>django-environ</code> already reads them). Check: <code>docker build -t bookr:lesson11 .</code> succeeds; inspect the layers and justify each one.</p>
+<h2>Step 2 — Prod compose</h2>
+<p><code>docker-compose.prod.yml</code> with <code>web</code>, <code>worker</code>, <code>beat</code>, <code>db</code>, <code>redis</code> — separate from the dev file (dev keeps runserver + mailpit; prod gets gunicorn + the real email sender via <code>EMAIL_URL</code>). Migrations are a one-off, never part of boot:</p>
+<pre>docker compose -f docker-compose.prod.yml up --build -d
+docker compose -f docker-compose.prod.yml run --rm web python manage.py migrate
+docker compose -f docker-compose.prod.yml run --rm web python manage.py seed_demo  # staging only</pre>
+<h2>Step 3 — Verify like a stranger</h2>
+<p>Pretend you've never seen this app: <code>/healthz</code> → 200, admin login works, run the <code>@smoke</code> suite against the containers, hand-click one full booking (book → pay credit → cancel → refund visible). Read the logs — every line carries <code>gym_id</code>/<code>booking_id</code> per lesson 10's checklist.</p>
+<h2>Step 4 — Prove reproducibility</h2>
+<pre>docker compose -f docker-compose.prod.yml down -v   # destroy everything
+docker compose -f docker-compose.prod.yml up --build -d
+# migrate → smoke → manual booking, all green again</pre>
+<p>If it isn't green from scratch, it isn't shippable. Write the rollback runbook now: previous image tag + how migrations go backwards.</p>
+<h2>Deliverables — check them off</h2>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> Image builds with no secrets baked in; I can justify every layer</label></li>
+<li><label><input type="checkbox" data-id="d2"> Prod compose boots green; migrations apply as a one-off from zero</label></li>
+<li><label><input type="checkbox" data-id="d3"> Smoke suite + one manual booking pass against the containers</label></li>
+<li><label><input type="checkbox" data-id="d4"> Down -v → rebuild → green again; rollback runbook written</label></li>
+<li><label><input type="checkbox" data-id="d5"> Course complete: every lesson's deliverables checked — claim your MVP 🎓</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://docs.docker.com/build/building/multi-stage/">Docker multi-stage builds</a> — small, secret-free images, the whole point of step 1.</p>
+<nav class="lesson-nav"><a href="0010-tests-ci-ship.html">← Lesson 10</a><a href="../reference/glossary.html">Glossary →</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
+</main><script src="../assets/app.js"></script></body></html>
