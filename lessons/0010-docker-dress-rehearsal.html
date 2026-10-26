@@ -6,7 +6,7 @@
 <h2>Step 1 — Image</h2>
 <p>Install the server (<code>uv add gunicorn</code>), then write a multi-stage <code>Dockerfile</code>: builder runs <code>uv sync --frozen</code>, runtime is slim, runs <code>gunicorn config.wsgi</code> as a non-root user, <code>collectstatic</code> at build time. Rule: no secrets in the image — <code>SECRET_KEY</code>, <code>DATABASE_URL</code>, everything via environment (<code>django-environ</code> already reads them). Check: <code>docker build -t bookr:lesson11 .</code> succeeds; inspect the layers and justify each one.</p>
 <h2>Step 2 — Prod compose</h2>
-<p>Compose arrives — finally. Write <code>docker-compose.yml</code> for dev (the same web/db/redis/worker/beat/mailpit you've run by hand, now one command) and <code>docker-compose.prod.yml</code> — prod gets gunicorn + the real email sender via <code>EMAIL_URL</code> (dev keeps runserver + mailpit). Migrations are a one-off, never part of boot:</p>
+<p>Grow the compose file: add <code>web</code>/<code>worker</code>/<code>beat</code> (the worker and beat move in from their terminals) and write <code>docker-compose.prod.yml</code> — prod gets gunicorn + the real email sender via <code>EMAIL_URL</code> (dev keeps runserver + mailpit). Migrations are a one-off, never part of boot:</p>
 <pre>docker compose -f docker-compose.prod.yml up --build -d
 docker compose -f docker-compose.prod.yml run --rm web python manage.py migrate
 docker compose -f docker-compose.prod.yml run --rm web python manage.py seed_demo  # staging only</pre>

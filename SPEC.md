@@ -31,7 +31,9 @@ erDiagram
     VenuePolicy {
         int id PK
         int venue FK
-        int late_cancel_hours
+        datetime valid_from
+        datetime valid_until
+        int class_late_cancel_hours
         int appointment_late_cancel_hours
         bool forfeit_late_cancel
         int waitlist_hold_minutes
@@ -50,11 +52,11 @@ erDiagram
     Organization ||--o{ Venue : locates
     Organization ||--o{ Membership : grants
     Venue ||--o{ Membership : pins
-    Venue ||--|| VenuePolicy : ruled_by
+    Venue ||--o{ VenuePolicy : versions
     User ||--o{ Membership : holds
 ```
 
-`User` is Django's auth user — no custom fields in v1. `membership_scope` ∈ spanning, per-venue; spanning rows use `venue` NULL, per-venue rows require one. Venue slugs are unique per organization. One `VenuePolicy` row per venue (1:1, created with it) — business rules live there, so policy edits never touch identity rows.
+`User` is Django's auth user — no custom fields in v1. `membership_scope` ∈ spanning, per-venue; spanning rows use `venue` NULL, per-venue rows require one. Venue slugs are unique per organization. Business rules live on `VenuePolicy`, never on identity rows. Policies are versioned, never edited: retiring stamps `valid_until`, activating inserts a new row; exactly one open row per venue (partial unique on `venue` where `valid_until` is null). Read the live rules via `venue.current_policy`.
 
 ## 3. Domain
 
@@ -392,9 +394,11 @@ Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` =
 | Venue | slug | string | unique |
 | | name | string(200) | |
 | | time_zone | string(64) | default `UTC`, display only |
-| VenuePolicy | venue | 1:1→Venue cascade | one row per venue, `related_name="policy"` |
-| | late_cancel_hours | int | default 8 |
-| | appointment_late_cancel_hours | int | default 24 |
+| VenuePolicy | venue | fk→Venue cascade | versions, not edits: `related_name="policies"` |
+| | valid_from / valid_until | datetime, null | null `valid_until` = active; retire = stamp it |
+| | ― | unique (venue) | where `valid_until` is null: exactly one active row |
+| | class_late_cancel_hours | int | default 8; group-class cutoff (forfeit inside window) |
+| | appointment_late_cancel_hours | int | default 24; 1-1 cutoff, same forfeit rule |
 | | forfeit_late_cancel | bool | default true |
 | | waitlist_hold_minutes | int | default 60 |
 | | booking_buffer_minutes | int | default 10 |

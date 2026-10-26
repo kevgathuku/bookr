@@ -32,7 +32,15 @@ class Meta:
 <h2>Step 3 — Prove the refusal</h2>
 <p>In the shell (<code>uv run python manage.py shell</code>, seed data loaded): create two overlapping classes in the same room. The second must raise <code>IntegrityError</code>. Same teacher, different rooms, overlapping time → also refused. Cancelled overlapping classes → allowed. Then extend <code>seed_demo</code> with one room and one class — later lessons build on it.</p>
 <h2>Step 4 — List endpoint</h2>
-<p>Install DRF (<code>uv add djangorestframework</code>) and add the read view: <code>GET /api/v1/classes?from=&amp;to=</code>, bounded (reject ranges &gt; 31 days), <code>select_related("class_type", "room", "teacher")</code>, venue-scoped queryset from lesson 2's mixin. Staff-only POST/PATCH for publishing. Cancelling sets <code>cancelled</code> and logs a fan-out line (it becomes a Celery task in <a href="0005-waitlist-cancels.html">lesson 5</a>). Substitution POST creates the row, keeps the old teacher, notifies (console backend for now). Check query count with <code>assertNumQueries(≤3)</code> on the list test.</p>
+<p>Install DRF (<code>uv add djangorestframework</code>) and add the read view: <code>GET /api/v1/classes?from=&amp;to=</code>, bounded (reject ranges &gt; 31 days), <code>select_related("class_type", "room", "teacher")</code>. First venue-scoped list, so first shared tool for it — define the mixin here, not earlier (nothing before this lesson queried by venue):</p>
+<pre>class VenueQuerySet(models.QuerySet):
+    def for_venue(self, venue):
+        return self.filter(venue=venue)
+
+class ScheduledClass(models.Model):
+    ...
+    objects = VenueQuerySet.as_manager()  # the trick: queryset becomes the default manager</pre>
+<p>Every later scoped model reuses it (<code>Model.objects.for_venue(request.venue)</code>). Staff-only POST/PATCH for publishing. Cancelling sets <code>cancelled</code> and logs a fan-out line (it becomes a Celery task in <a href="0005-waitlist-cancels.html">lesson 5</a>). Substitution POST creates the row, keeps the old teacher, notifies (console backend for now). Check query count with <code>assertNumQueries(≤3)</code> on the list test.</p>
 <h2>Deliverables — check them off</h2>
 <p class="progress" data-progress></p>
 <ul class="check">

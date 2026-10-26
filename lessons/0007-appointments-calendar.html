@@ -10,7 +10,7 @@
     # 1. weekly rules covering `day` → base intervals
     # 2. minus exceptions (closed or shortened)
     # 3. minus existing appointments + classes touching the
-    #    teacher/resource, padded by venue.policy.booking_buffer_minutes each side
+    #    teacher/resource, padded by venue.current_policy.booking_buffer_minutes each side
     ...</pre>
 <p>Pure function, no database writes — unit-test it directly, including a DST-boundary day. Same exclusion constraints as classes for (venue, teacher) and (venue, resource). Cross-table clashes (appointment vs that teacher's <em>classes</em>) can't live in a DB constraint — check them in the booking service before confirming. Appointments use the 24h late-cancel window.</p>
 <h2>Step 3 — One calendar endpoint</h2>

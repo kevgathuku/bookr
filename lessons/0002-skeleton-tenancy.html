@@ -10,13 +10,13 @@ uv add "django&gt;=6.1,&lt;7" django-environ "psycopg[binary]"</pre>
 <pre>uv run python manage.py startapp organizations</pre>
 <p><code>Venue</code> and <code>Membership</code> live together in <code>venues</code> — one tenancy app, since a membership is meaningless without its venue. Later lessons add their own app the same way — nothing before its time. Delete the generated <code>tests.py</code>/<code>views.py</code> stubs: tests live in a top-level <code>tests/</code> directory from day one (it grows into unit/api/e2e in lesson 9), views arrive per chapter.</p>
 <h2>Step 2 — Compose stack</h2>
-<p>Start Postgres — one command, no compose files yet (those arrive in lesson 10):</p>
-<pre>docker run -d --name bookr-db -e POSTGRES_PASSWORD=bookr -p 5432:5432 postgres:18</pre>
-<p>Then <code>CREATE EXTENSION IF NOT EXISTS btree_gist</code> in the new database (lesson 3's constraints need it). Check: <code>pg_isready -h localhost</code> answers.</p>
+<p>Start Postgres via compose (the file holds only <code>db</code> for now — more services join it in later lessons):</p>
+<pre>docker compose up -d db</pre>
+<p>Then <code>CREATE EXTENSION IF NOT EXISTS btree_gist</code> in the new database — already handled: the custom image (<code>docker/postgres</code>) enables it on first init, and lesson 3's migration repeats it. Check: <code>docker compose exec db pg_isready -U bookr</code> answers.</p>
 <h2>Step 3 — Settings split</h2>
 <p>Split <code>config/settings.py</code> into <code>config/settings/{base,dev,prod}.py</code> driven by <code>django-environ</code> (<code>DATABASE_URL</code> now; <code>REDIS_URL</code> and <code>EMAIL_URL</code> arrive with their services in lesson 5). Keep the generated defaults: <code>USE_TZ = True</code>, <code>TIME_ZONE = "UTC"</code>. Point <code>DATABASES</code> at Postgres via <code>psycopg</code> (ENGINE <code>django.db.backends.postgresql</code>). Django nuance: <code>DJANGO_SETTINGS_MODULE</code> picks the file (<code>config.settings.dev</code> locally) and <code>django-environ</code> reads the <code>.env</code> — twelve-factor config, Django-style; an 'app' is just a package with an <code>AppConfig</code>, and listing it in <code>INSTALLED_APPS</code> is what wires its models into migrations. Check: <code>uv run python manage.py check</code> is clean.</p>
 <h2>Step 4 — Tenancy core</h2>
-<p>In <code>organizations/models.py</code>, the tenancy context plus a queryset mixin every scoped model will use:</p>
+<p>In <code>organizations/models.py</code>, the tenancy context:</p>
 <pre>class Organization(models.Model):
     class Scope(models.TextChoices):
         SPANNING = "spanning", "Spanning"
@@ -34,6 +34,10 @@ class Venue(models.Model):
     name = models.CharField(max_length=200)
     time_zone = models.CharField(max_length=64, default="UTC")
 
+    @property
+    def current_policy(self):
+        return self.policies.get(valid_until__isnull=True)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["organization", "slug"],
@@ -41,18 +45,27 @@ class Venue(models.Model):
         ]
 
 class VenuePolicy(models.Model):
-    # Business rules, one row per venue — policy edits never touch identity rows.
-    venue = models.OneToOneField(Venue, on_delete=models.CASCADE,
-        related_name="policy")
-    late_cancel_hours = models.PositiveSmallIntegerField(default=8)
-    appointment_late_cancel_hours = models.PositiveSmallIntegerField(default=24)
+    # Versions, never edits: retire stamps valid_until, activate inserts a row.
+    venue = models.ForeignKey(Venue, on_delete=models.CASCADE,
+        related_name="policies")
+    valid_from = models.DateTimeField(auto_now_add=True)
+    valid_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["venue"],
+                condition=models.Q(valid_until__isnull=True),
+                name="one_active_policy_per_venue"),
+        ]
+    class_late_cancel_hours = models.PositiveSmallIntegerField(default=8,
+        help_text="Group-class cutoff: cancels inside the window forfeit the credit.")
+    appointment_late_cancel_hours = models.PositiveSmallIntegerField(default=24,
+        help_text="1-1 appointment cutoff: same forfeit rule, longer window.")
     forfeit_late_cancel = models.BooleanField(default=True)
     waitlist_hold_minutes = models.PositiveSmallIntegerField(default=60)
     booking_buffer_minutes = models.PositiveSmallIntegerField(default=10)
 
-class VenueQuerySet(models.QuerySet):
-    def for_venue(self, venue):
-        return self.filter(venue=venue)</pre>
+</pre>
 <h3>4a — Membership: the role lives on the join, not on the user</h3>
 <p>In <code>organizations/models.py</code>:</p>
 <pre>class Membership(models.Model):
