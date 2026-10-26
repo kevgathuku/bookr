@@ -16,7 +16,7 @@ def promote_waitlist(class_id):
                       # waitlist_hold_minutes → seat passes to the next waiter</pre>
 <p>…next in line. Same task serves cancels, no-shows, and capacity increases — one path, not three.</p>
 <h2>Step 2 — Late-cancel policy</h2>
-<p>Compare cancel time against <code>venue.late_cancel_hours</code>: outside → <code>cancelled</code> + refund (call the ledger stub from lesson 4 and log it — real money moves in <a href="0006-credit-ledger.html">lesson 6</a>); inside → <code>cancelled_late</code>, credit forfeited, strike counted. Staff override always refunds with a logged reason. No-shows: frontdesk <code>POST …/no_show</code> within 2h after end → forfeit; 3 strikes/30d flags the member (no auto-ban in v1).</p>
+<p>Compare cancel time against <code>venue.policy.late_cancel_hours</code>: outside → <code>cancelled</code> + refund (call the ledger stub from lesson 4 and log it — real money moves in <a href="0006-credit-ledger.html">lesson 6</a>); inside → <code>cancelled_late</code>, credit forfeited, strike counted. Staff override always refunds with a logged reason. No-shows: frontdesk <code>POST …/no_show</code> within 2h after end → forfeit; 3 strikes/30d flags the member (no auto-ban in v1).</p>
 <h2>Step 3 — Notify</h2>
 <p>New infra, still no compose files: <code>uv add celery redis</code>, then run the new pieces as plain processes and containers:</p>
 <pre>docker run -d --name bookr-redis redis

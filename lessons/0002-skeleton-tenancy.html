@@ -21,6 +21,11 @@ uv add "django&gt;=6.1,&lt;7" django-environ "psycopg[binary]"</pre>
     slug = models.SlugField(unique=True)
     name = models.CharField(max_length=200)
     time_zone = models.CharField(max_length=64, default="UTC")
+
+class VenuePolicy(models.Model):
+    # Business rules, one row per venue — policy edits never touch identity rows.
+    venue = models.OneToOneField(Venue, on_delete=models.CASCADE,
+        related_name="policy")
     late_cancel_hours = models.PositiveSmallIntegerField(default=8)
     appointment_late_cancel_hours = models.PositiveSmallIntegerField(default=24)
     forfeit_late_cancel = models.BooleanField(default=True)
@@ -30,7 +35,56 @@ uv add "django&gt;=6.1,&lt;7" django-environ "psycopg[binary]"</pre>
 class VenueQuerySet(models.QuerySet):
     def for_venue(self, venue):
         return self.filter(venue=venue)</pre>
-<p>Add middleware resolving the venue (staff profile, else <code>X-Venue-Slug</code> header) and stashing it on the request. In <code>venues/models.py</code>: <code>Membership(user, venue, role)</code> with roles owner/manager/teacher/frontdesk/member and <code>UniqueConstraint(venue, user)</code>. Permission class <code>IsVenueMember</code>: deny cross-venue with <strong>404, not 403</strong> (no id leaks — see <a href="../reference/glossary.html">glossary</a>).</p>
+<h3>4a — Membership: the role lives on the join, not on the user</h3>
+<p>In <code>venues/models.py</code>:</p>
+<pre>class Membership(models.Model):
+    class Role(models.TextChoices):
+        OWNER = "owner", "Owner"
+        MANAGER = "manager", "Manager"
+        TEACHER = "teacher", "Teacher"
+        FRONTDESK = "frontdesk", "Front desk"
+        MEMBER = "member", "Member"
+
+    venue = models.ForeignKey(Venue, on_delete=models.CASCADE,
+        related_name="memberships")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE, related_name="memberships")
+    role = models.CharField(max_length=16, choices=Role.choices)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["venue", "user"],
+                name="member_once_per_venue"),
+        ]</pre>
+<p>Why this shape: a role is meaningless without its venue — "manager at A, member at B" can't be expressed with Django's global Groups, so the role sits on the join row and Groups stay out of it (reach for them later only if the Django admin needs per-model permissions). Why the constraint lives in the database and not in a form or view: two concurrent signups would both pass an app-level check; the unique index makes the second one fail no matter the timing.</p>
+<h3>4b — Middleware: resolve the venue once, in one place</h3>
+<pre>class VenueMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        request.venue = self._resolve(request)  # None → every scoped view 404s
+        return self.get_response(request)
+
+    def _resolve(self, request):
+        if request.user.is_authenticated:
+            # Staff browser sessions carry a user: their (single) venue wins.
+            if membership := Membership.objects.filter(
+                    user=request.user).only("venue").first():
+                return membership.venue
+        # API clients (aggregators, door controllers in later lessons)
+        # carry no user — only a header. Fall back to it, not the reverse:
+        # a logged-in user must never escape into another venue by header.
+        if slug := request.headers.get("X-Venue-Slug"):
+            return Venue.objects.filter(slug=slug).first()
+        return None</pre>
+<p>Why middleware instead of per-view logic: tenancy is a request-wide fact, and scattering twelve copies of it across views guarantees the thirteenth view forgets. One choke point means every scoped queryset starts from <code>request.venue</code> the same way. Why staff-first, header-second: headers are client-controlled, so an authenticated user must not be able to header their way into someone else's venue.</p>
+<h3>4c — Permission: deny outsiders with 404, not 403</h3>
+<pre>class IsVenueMember(BasePermission):
+    def has_permission(self, request, view):
+        return request.venue is not None and Membership.objects.filter(
+            user=request.user, venue=request.venue).exists()</pre>
+<p>And every scoped viewset filters its queryset to <code>request.venue</code> <em>before</em> permission runs — so a venue-B member asking for venue-A's class 42 gets 404, exactly as if 42 didn't exist. Why not the more truthful 403: a 403 confirms the object is real, which lets anyone enumerate other venues' records one id at a time (<a href="../reference/glossary.html">glossary</a>). A 404 reveals nothing.</p>
 <h2>Step 5 — Seed + prove it</h2>
 <p>Write <code>venues/management/commands/seed_demo.py</code>: 1 venue + users/memberships (1 teacher, 5 members). No rooms or classes — <code>scheduling</code> doesn't exist yet; lesson 3 extends the seed, lesson 6 adds passes. Then the isolation test (plain pytest, in <code>tests/</code>): venue A's member GETs venue B's object → assert 404. Run:</p>
 <pre>uv run python manage.py makemigrations

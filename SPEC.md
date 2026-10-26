@@ -20,6 +20,10 @@ erDiagram
         string slug PK
         string name
         string time_zone
+    }
+    VenuePolicy {
+        int id PK
+        int venue FK
         int late_cancel_hours
         int appointment_late_cancel_hours
         bool forfeit_late_cancel
@@ -36,10 +40,11 @@ erDiagram
         string role
     }
     Venue ||--o{ Membership : scopes
+    Venue ||--|| VenuePolicy : ruled_by
     User ||--o{ Membership : holds
 ```
 
-`User` is Django's auth user — no custom fields in v1.
+`User` is Django's auth user — no custom fields in v1. One `VenuePolicy` row per venue (1:1, created with it) — business rules live there, so policy edits never touch identity rows.
 
 ## 3. Domain
 
@@ -370,6 +375,7 @@ Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` =
 | Venue | slug | string | unique |
 | | name | string(200) | |
 | | time_zone | string(64) | default `UTC`, display only |
+| VenuePolicy | venue | 1:1→Venue cascade | one row per venue, `related_name="policy"` |
 | | late_cancel_hours | int | default 8 |
 | | appointment_late_cancel_hours | int | default 24 |
 | | forfeit_late_cancel | bool | default true |
