@@ -36,4 +36,5 @@ pythonpath = ["."]
 [dependency-groups]
 dev = [
     "pytest-django>=4.14.0",
+    "ruff>=0.17.2",
 ]
