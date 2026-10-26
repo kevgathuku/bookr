@@ -1,0 +1,21 @@
+services:
+  db:
+    build: ./docker/postgres
+    image: bookr-db
+    environment:
+      POSTGRES_USER: bookr
+      POSTGRES_PASSWORD: bookr # dev default; prod injects its own
+      POSTGRES_DB: bookr
+    ports:
+      # 5433: Homebrew Postgres already owns localhost:5432 on dev machines.
+      - "5433:5432"
+    volumes:
+      - bookr-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookr -d bookr"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  bookr-pgdata:
