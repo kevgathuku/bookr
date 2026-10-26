@@ -1,15 +1,11 @@
-import pytest
-from django.db import IntegrityError
+from concurrent.futures import ThreadPoolExecutor
 
-from organizations.models import Organization
+import pytest
+from django.db import IntegrityError, connection
+
+from organizations.models import Organization, Venue, VenuePolicy
 
 pytestmark = pytest.mark.django_db
-
-
-#  Organization
-#  - Duplicate slug rejected (global uniqueness — the tenant identifier).
-#  - Default membership_scope is SPANNING.
-#  - __str__ returns the name (admin readability — cheap, keeps the admin honest).
 
 #  Venue
 #  - Duplicate slug within one org rejected; same slug in a different org accepted (the per-org constraint from your earlier question).
@@ -40,3 +36,123 @@ class TestOrganizations:
 
         with pytest.raises(IntegrityError):
             Organization.objects.create(slug="downtown-dance", name="Downtown Dance 2")
+
+
+class TestVenue:
+    def test_slug_unique_per_org(self):
+        org = Organization.objects.create(slug="o1", name="O1")
+        Venue.objects.create(organization=org, slug="downtown", name="Downtown")
+
+        with pytest.raises(IntegrityError):
+            Venue.objects.create(organization=org, slug="downtown", name="Downtown 2")
+
+    def test_same_slug_different_org(self):
+        o1 = Organization.objects.create(slug="o1", name="O1")
+        o2 = Organization.objects.create(slug="o2", name="O2")
+        Venue.objects.create(organization=o1, slug="downtown", name="Downtown")
+
+        venue = Venue.objects.create(organization=o2, slug="downtown", name="Downtown")
+
+        assert venue.pk is not None
+
+    def test_str_includes_org(self):
+        org = Organization.objects.create(slug="o1", name="O1")
+        venue = Venue.objects.create(organization=org, slug="downtown", name="Downtown")
+
+        assert org.name in str(venue)
+
+    def test_current_policy_returns_open_row(self):
+        venue = Venue.objects.create(
+            organization=Organization.objects.create(slug="o1", name="O1"),
+            slug="downtown",
+            name="Downtown",
+        )
+        # Open row: valid_until=None is what one_active_policy_per_venue counts.
+        policy = VenuePolicy.objects.create(venue=venue, valid_until=None)
+
+        assert venue.current_policy == policy
+
+    def test_current_policy_missing_raises(self):
+        venue = Venue.objects.create(
+            organization=Organization.objects.create(slug="o1", name="O1"),
+            slug="downtown",
+            name="Downtown",
+        )
+
+        with pytest.raises(VenuePolicy.DoesNotExist):
+            _ = venue.current_policy
+
+
+class TestVenuePolicy:
+    def _venue(self):
+        return Venue.objects.create(
+            organization=Organization.objects.create(slug="o1", name="O1"),
+            slug="downtown",
+            name="Downtown",
+        )
+
+    def test_two_open_rows_rejected(self):
+        venue = self._venue()
+        VenuePolicy.objects.create(venue=venue, valid_until=None)
+
+        with pytest.raises(IntegrityError):
+            # Second open row: same venue, still valid_until=None.
+            VenuePolicy.objects.create(venue=venue, valid_until=None)
+
+    def test_retire(self):
+        venue = self._venue()
+        policy = VenuePolicy.objects.create(venue=venue, valid_until=None)
+
+        policy.retire()
+
+        policy.refresh_from_db()
+        assert policy.valid_until is not None
+
+    def test_retire_then_activate(self):
+        venue = self._venue()
+        old = VenuePolicy.objects.create(venue=venue, valid_until=None)
+
+        # Retired predecessor no longer counts → insert succeeds, atomically.
+        new = VenuePolicy.objects.activate(venue)
+
+        assert venue.current_policy == new
+        old.refresh_from_db()
+        assert old.valid_until is not None
+
+    def test_activate_with_no_prior_policy(self):
+        venue = self._venue()
+
+        new = VenuePolicy.objects.activate(venue)
+
+        assert venue.current_policy == new
+
+    def test_activate_with_overrides(self):
+        venue = self._venue()
+
+        new = VenuePolicy.objects.activate(venue, class_late_cancel_hours=4)
+
+        assert new.class_late_cancel_hours == 4
+        assert new.appointment_late_cancel_hours == 24  # untouched default
+
+    @pytest.mark.django_db(transaction=True)
+    def test_concurrent_activate_single_winner(self):
+        # Plain django_db wraps the test in a transaction other threads
+        # can't see into — so this one commits for real (flushed after).
+        venue = self._venue()
+        errors = []
+
+        def activate():
+            try:
+                VenuePolicy.objects.activate(venue)
+            except IntegrityError as exc:
+                errors.append(exc)
+            finally:
+                # Threads keep their DB connections open otherwise, and
+                # teardown can't drop test_bookr while sessions linger.
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: activate(), range(2)))
+
+        assert len(errors) == 1  # loser hits one_active_policy_per_venue
+        assert venue.policies.filter(valid_until__isnull=True).count() == 1

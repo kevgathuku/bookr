@@ -1,7 +1,8 @@
 from typing import ClassVar
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
 
 
 class Organization(models.Model):
@@ -42,9 +43,20 @@ class Venue(models.Model):
         return f"{self.name} ({self.organization})"
 
 
+class VenuePolicyManager(models.Manager):
+    def activate(self, venue, **fields):
+        """Retire the open row (if any) and insert the successor, atomically."""
+        with transaction.atomic():
+            self.filter(venue=venue, valid_until__isnull=True).update(
+                valid_until=timezone.now()
+            )
+            return self.create(venue=venue, valid_until=None, **fields)
+
+
 # Business rules, configurable row per venue — policy edits never touch identity rows.
 class VenuePolicy(models.Model):
     # Versions, never edits: retire stamps valid_until, activate inserts a row.
+    objects = VenuePolicyManager()
     venue = models.ForeignKey(Venue, on_delete=models.CASCADE, related_name="policies")
     valid_from = models.DateTimeField(auto_now_add=True)
     valid_until = models.DateTimeField(null=True, blank=True)
@@ -79,8 +91,17 @@ class VenuePolicy(models.Model):
             ),
         ]
 
+    def retire(self):
+        """Deactivate this version. Use `activate()` for the retire+insert pair."""
+        self.valid_until = timezone.now()
+        self.save(update_fields=["valid_until"])
+
     def __str__(self):
-        state = "active" if self.valid_until is None else f"retired {self.valid_until:%Y-%m-%d}"
+        state = (
+            "active"
+            if self.valid_until is None
+            else f"retired {self.valid_until:%Y-%m-%d}"
+        )
         return f"Policy for {self.venue} ({state})"
 
 
@@ -97,7 +118,11 @@ class Membership(models.Model):
     )
     # NULL: organization rule applied across all venues
     venue = models.ForeignKey(
-        Venue, on_delete=models.CASCADE, null=True, blank=True, related_name="memberships"
+        Venue,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="memberships",
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memberships"
