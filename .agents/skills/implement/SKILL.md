@@ -14,4 +14,10 @@ Run typechecking regularly, single test files regularly, and the full test suite
 
 Once done, call the Skill tool with "code-review" to review the work.
 
-Commit your work to the current branch.
+Then always close out the ticket, every time, in this order:
+
+1. Record: ingest every decision reached (rationale included) plus any new
+   environment/verification facts into project memory.
+2. Graph: rebuild the repo context graph so it reflects the changes.
+3. Commit: commit the work to the current branch (never push unless asked).
+4. Tracker: close the ticket so the next unblocked one opens up.
