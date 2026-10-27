@@ -19,6 +19,9 @@
 # ignore WPS201; organizations/views.py ignores WPS202 — endpoint files grow
 # one view per staff ticket by design; splitting by ticket would scatter the
 # API surface across modules.
+# Per-file: organizations/models.py ignores legacy E501/WPS237/WPS601 (long help
+# strings + attribute shadowing predate the gates; this ticket's diff is the
+# time_zone validator only).
 # Per-file: settings/base.py ignores WPS407 (module constants by Django
 # convention) and E501 (dotted validator paths stay whole for grep).
 [flake8]
@@ -51,6 +54,10 @@ per-file-ignores =
         WPS201,
     scheduling/views.py:
         WPS201,
+    organizations/models.py:
+        E501,
+        WPS237,
+        WPS601,
     config/settings/base.py:
         E501,
         WPS407,

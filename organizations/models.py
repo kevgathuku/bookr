@@ -1,9 +1,19 @@
 from typing import ClassVar
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
+
+
+def _iana_time_zone(value):
+    """IANA names only (stdlib zoneinfo): typos fail instead of silently
+    falling back to UTC in venue-time display."""
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError, ValueError:
+        raise ValidationError(f"Unknown time zone: {value}.")
 
 
 class Organization(models.Model):
@@ -37,7 +47,9 @@ class Venue(models.Model):
     )
     slug = models.SlugField()
     name = models.CharField(max_length=200)
-    time_zone = models.CharField(max_length=64, default="UTC")
+    time_zone = models.CharField(
+        max_length=64, default="UTC", validators=[_iana_time_zone]
+    )
 
     class Meta:
         constraints: ClassVar[list[models.BaseConstraint]] = [
@@ -74,11 +86,17 @@ class VenuePolicy(models.Model):
 
     class_late_cancel_hours = models.PositiveSmallIntegerField(
         default=8,
-        help_text="Cancel cutoff for group classes; inside the window the credit is forfeited.",
+        help_text=(
+            "Cancel cutoff for group classes; "
+            "inside the window the credit is forfeited."
+        ),
     )
     appointment_late_cancel_hours = models.PositiveSmallIntegerField(
         default=24,
-        help_text="Cancel cutoff for 1-1 classes; inside the window the credit is forfeited.",
+        help_text=(
+            "Cancel cutoff for 1-1 classes; "
+            "inside the window the credit is forfeited."
+        ),
     )
     forfeit_late_cancel = models.BooleanField(default=True)
     waitlist_hold_minutes = models.PositiveSmallIntegerField(
