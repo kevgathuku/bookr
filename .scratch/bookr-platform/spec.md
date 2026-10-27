@@ -8,7 +8,7 @@ Individual venues run their business across disconnected tools and manual proces
 
 ## Solution
 
-A single multi-tenant Django application per the above framing that gives each venue one place to run group classes (schedule, waitlist, substitutions, late cancels), 1-1 appointments with resource availability and a calendar view, a pass-and-credit ledger backing every booking, an aggregator channel that books the same seats under contract terms, and a door-access check for self-service operation. Members get one booking flow; staff get one back office; aggregators and door controllers get narrow, token-scoped APIs.
+A single multi-tenant Django application per the above framing that gives each venue one place to run group classes (schedule, waitlist, substitutions, late cancels), 1-1 appointments with resource availability and a calendar view, a pass-and-credit ledger backing every booking, an aggregator channel that books the same seats under contract terms, and a door-access check for self-service operation. Members get one booking flow; staff get one back office; aggregators and door controllers get narrow, token-scoped APIs. The member/staff UI is one React+TypeScript SPA served same-origin by Django (no CORS in v1); the Django admin covers owner/manager back-office once scoped per venue (SPEC §8 verdict).
 
 ## User Stories
 
@@ -72,11 +72,14 @@ Platform:
 38. As a venue owner, I want my data strictly isolated from other venues on the shared platform, so that members and staff never see a neighbor's business.
 39. As a staff member with access to two venues, I want my permissions scoped per venue, so that a role in one place grants nothing elsewhere.
 40. As a venue owner, I want to choose whether memberships span all my venues or stay per venue, so that each business runs its own access model.
+41. As a member, I want to browse, book, and cancel from the web UI and see my credits there, so that I never touch the admin.
+42. As front-desk staff, I want a one-screen check-in/no-show flow, so that a queue keeps moving.
+43. As a venue owner, I want the Django admin scoped to my venues with audit models read-only, so that back-office work is safe without custom tooling.
 
 ## Implementation Decisions
 
 - Tenancy is single-database shared-schema with an `Organization` tenant root; venues are locations under it; membership scope (spanning vs per-venue) is set per organization; every tenant-scoped row carries its venue FK; each venue owns its schedule and availability outright (never shared across venues); venue resolution happens in middleware (staff profile or venue-slug header) plus a queryset mixin, and uniqueness constraints are scoped per venue. Cross-venue access returns "not found" rather than "forbidden" to avoid leaking record existence.
-- One application module per domain area (tenancy incl. memberships, scheduling, bookings, passes, availability/appointments, aggregators, access); cross-module interaction goes through service-layer functions, never direct model shortcuts.
+- One application module per domain area (tenancy incl. memberships, scheduling incl. appointments, bookings, passes, aggregators, access); cross-module interaction goes through service-layer functions, never direct model shortcuts.
 - All booking creation flows through a single booking service that runs in a database transaction with a row lock on the class, checks seats, spends credit, and creates the booking; it raises typed domain errors (seat full, insufficient credit, duplicate booking) that the web layer maps to status codes. No business logic lives in views or serializers.
 - Waitlist position is derived from booking creation order rather than stored counters; promotion runs as an idempotent background job with a per-venue hold window, and the same promotion path serves cancellations, no-shows, and capacity increases.
 - The credit ledger is append-only: balances derive from the sum of ledger rows (purchase, booking, refund, forfeit, expiry, adjustment), cached counters update in the same transaction, and expiry sweeps and staff adjustments write rows rather than editing history. Booking spends the oldest valid applicable pass first, unlimited passes before credit bundles.
@@ -84,7 +87,9 @@ Platform:
 - Aggregators get a separate versioned API surface with per-partner hashed tokens, rate limiting, per-class seat allotments, idempotency on the partner's external booking reference, a full inbound request log, and signed change webhooks with retried delivery. Aggregator bookings bypass member passes entirely.
 - The door check is a read-only, token-authenticated endpoint per controller that grants on active pass, current booking window, or staff role; member validity is cached briefly with database fallback, re-entry within a short window replays the prior decision, and the check fails closed on outage. Every attempt is logged.
 - Background work (waitlist promotion, credit expiry sweeps, aggregator webhooks, member notifications via a pluggable mail/message backend with per-venue templates) runs on a task queue with a scheduler; datetimes are stored in UTC with per-venue display time zones.
-- API versioning starts at v1 with an OpenAPI schema; authentication is short-lived user tokens for the app and scoped long-lived tokens for aggregators and door controllers.
+- Frontend is one React 18 + TypeScript strict + Vite SPA (TanStack Query, React Router, FullCalendar React), same-origin served by Django; API client generated from the OpenAPI schema in CI, never hand-written; auth via simplejwt pair + `X-Venue-Slug` header; route map per role in SPEC §7 (full contract: `SPEC-frontend.md`).
+- API versioning starts at v1 with an OpenAPI schema (also the codegen source for the SPA client); authentication is short-lived user tokens for the app and scoped long-lived tokens for aggregators and door controllers.
+- Django admin verdict per SPEC §8: sufficient for owner/manager back-office only with per-venue queryset scoping + read-only audit models + non-editable secrets; frontdesk gets the React desk UI (admin as fallback); teacher/member never get staff flags.
 - Build order: tenancy first, then classes plus the booking transaction, then waitlist and late cancels, then the credit ledger, then appointments and calendar, then aggregators, then access control. The first four areas constitute the shippable MVP.
 
 ## Testing Decisions
@@ -93,7 +98,7 @@ Platform:
 - Service-layer tests cover FIFO credit deduction, the late-cancel refund/forfeit boundary on both sides, waitlist ordering and hold expiry, availability math including daylight-saving edges, and aggregator allotment enforcement, with a coverage target on service and ledger logic.
 - The concurrency tests are mandatory, not optional: many threads racing for the last seat must yield exactly one confirmation, and racing spends of the last credit must yield exactly one booking. The codebase is greenfield so there is no prior art; these tests become the reference examples for later test authors.
 - API tests cover the happy path, full-class refusal with waitlist offer, idempotent retries, cross-venue isolation, and aggregator token scoping.
-- End-to-end tests (browser automation against a composed environment with database, cache, web, worker, and test mailbox) cover book-then-waitlist-then-promotion with email receipt, late-cancel forfeiture visible in the ledger, and door grant/deny; the full E2E set runs nightly and pre-release with a fast smoke subset in per-commit CI alongside lint, type-checking, and the unit suite.
+- End-to-end tests drive the SPA (Playwright against web + Vite preview + worker + db + redis + mailpit): smoke [login, book, cancel→refund]; promotion [waitlist→promoted + mailpit receipt]; late-cancel [forfeit row in ledger UI]; door [grant/deny + AccessEvent rows]; aggregator [idempotent retry, over-allotment 409]; admin scoping [venue-A staffer blind to venue-B rows]. Determinism via seed_demo plus a per-run org with second-scale hold windows; `@smoke` per-commit, full `@e2e` nightly + pre-release; trace + video on failure.
 - A demo-seed command builds a one-venue fixture (room, teacher, members) reused by tests, local development, and E2E.
 
 ## Out of Scope
