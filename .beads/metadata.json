@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "bookr",
+  "project_id": "040682e9-92b4-4ea1-b511-ef2b5c88652e"
+}
