@@ -51,13 +51,22 @@ def _schedule(venue, teacher, class_name, room_name):
         defaults={"capacity": 20},
     )[0]
     start = timezone.now() + timedelta(days=1)
-    ScheduledClass.objects.get_or_create(
+    # Re-runnable: drop this room's stale classes, keep one fresh slot.
+    ScheduledClass.objects.filter(
+        venue=venue, room=room, starts_at__lte=timezone.now()
+    ).delete()
+    fresh = ScheduledClass.objects.filter(
+        venue=venue, room=room, starts_at__gt=timezone.now()
+    ).first()
+    if fresh is not None:
+        return fresh
+    return ScheduledClass.objects.get_or_create(
         venue=venue,
         room=room,
         teacher=teacher,
         starts_at=start,
         defaults={"class_type": class_type, "ends_at": start + timedelta(hours=1)},
-    )
+    )[0]
 
 
 def _spanning_org():
@@ -113,6 +122,13 @@ def _per_venue_org():
 class Command(BaseCommand):
     help = "Seed a demo org pair: one spanning, one per-venue. Re-runnable."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--e2e",
+            action="store_true",
+            help="Also seed the fixed e2e-run org (known users, short windows).",
+        )
+
     def handle(self, *args, **options):
         spanning = _spanning_org()
         pinned, teacher = _per_venue_org()
@@ -122,3 +138,7 @@ class Command(BaseCommand):
             f"{teacher.username} teaches B2"
         )
         self.stdout.write(self.style.SUCCESS(message))
+        if options["e2e"]:
+            from django.core.management import call_command
+
+            call_command("seed_e2e")

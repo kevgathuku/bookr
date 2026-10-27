@@ -11,6 +11,8 @@
 # units; further extraction breaches the 7-member cap or contorts the loop.
 # Per-file: config/__init__.py ignores WPS300/WPS410/WPS412 — content is the
 # Celery-prescribed bootstrap, which cannot live anywhere else.
+# Per-file: seed_e2e.py ignores WPS201 — the E2E dataset touches every model
+# once by design; splitting it would scatter one dataset across modules.
 [flake8]
 max-line-length = 88
 extend-ignore =
@@ -29,6 +31,8 @@ exclude =
     */migrations/*
 
 per-file-ignores =
+    organizations/management/commands/seed_e2e.py:
+        WPS201,
     config/__init__.py:
         WPS300,
         WPS410,

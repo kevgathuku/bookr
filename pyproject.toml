@@ -47,6 +47,10 @@ package = false
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.dev"
 pythonpath = ["."]
+markers = [
+    "smoke: per-commit end-to-end smoke (live server, no sleeps)",
+    "e2e: full nightly/pre-release suite (needs worker, mailpit, frontend)",
+]
 
 [tool.mypy]
 python_version = "3.14"
@@ -69,6 +73,8 @@ dev = [
     "freezegun>=1.5.5",
     "mypy>=2.4.0",
     "pytest-django>=4.14.0",
+    "pytest-playwright>=0.10.0",
+    "requests>=2.34.2",
     "ruff>=0.17.2",
     "wemake-python-styleguide>=1.8.1",
 ]
