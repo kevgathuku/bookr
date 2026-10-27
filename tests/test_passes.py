@@ -169,6 +169,45 @@ class TestRefundAdjustExpire:
         assert member_pass.credits_used == 0
         assert member_pass.entries.filter(reason="refund").count() == 1
 
+    def test_refund_unlimited_is_noop(self):
+        venue = _venue()
+        member = _user("m2")
+        member_pass = issue_pass(member, _product(venue, credits=None))
+        booking = _book(member, _class(venue))
+        assert booking.credit_tx is None
+
+        assert refund_credit(booking) is None
+
+        assert member_pass.entries.count() == 0
+
+    def test_refund_reactivates_depleted_pass(self):
+        venue = _venue()
+        member = _user("m3")
+        member_pass = issue_pass(member, _product(venue, credits=1))
+        booking = _book(member, _class(venue))
+        member_pass.refresh_from_db()
+        assert member_pass.status == MemberPass.Status.DEPLETED
+
+        refund_credit(booking)
+
+        member_pass.refresh_from_db()
+        assert member_pass.status == MemberPass.Status.ACTIVE
+        assert member_pass.credits_used == 0
+
+    def test_expire_task_runs_service(self):
+        from passes.tasks import expire_passes_task
+
+        venue = _venue()
+        member = _user("exp-task")
+        member_pass = issue_pass(member, _product(venue))
+        member_pass.valid_until = timezone.now() - timedelta(seconds=1)
+        member_pass.save()
+
+        expire_passes_task()
+
+        member_pass.refresh_from_db()
+        assert member_pass.status == MemberPass.Status.EXPIRED
+
     def test_adjust_needs_reason(self):
         venue = _venue()
         member_pass = issue_pass(_user("m1"), _product(venue))

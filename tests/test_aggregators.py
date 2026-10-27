@@ -203,6 +203,21 @@ class TestWebhooks:
         assert verify_signature("secret", tampered, sign("secret", body)) is False
 
 
+class TestWebhookSend:
+    def test_send_signs_body_and_posts(self):
+        from unittest import mock
+
+        from aggregators.webhooks import SIGNATURE_HEADER, send_webhook, sign
+
+        with mock.patch("aggregators.webhooks.urlopen") as opener:
+            send_webhook(
+                "https://partner.example/hook", "secret", "booking.created", {"a": 1}
+            )
+            request = opener.call_args[0][0]
+        headers = {key.lower(): value for key, value in request.header_items()}
+        assert sign("secret", request.data) == headers[SIGNATURE_HEADER.lower()]
+
+
 class TestEventLogReplay:
     def test_log_replays_to_identical_booking_state(self):
         from rest_framework.test import APIClient

@@ -88,6 +88,99 @@ def _client(user, slug="downtown"):
     return client
 
 
+class TestLapsedPromotion:
+    def test_waiter_without_credit_stays_queued(self):
+        from booking.tasks import promote_waitlist
+
+        venue = _venue("lapsed")
+        klass = _class(venue)
+        confirmed = _book(_member(venue, "holder"), klass, "lp1")
+        broke = _user("broke")
+        Membership.objects.create(
+            organization=venue.organization,
+            venue=venue,
+            user=broke,
+            role=Membership.Role.MEMBER,
+        )
+        waiter = _book(broke, klass, "lp2", waitlist=True)
+        cancel_booking(confirmed.member, confirmed)
+
+        waiter.refresh_from_db()
+        assert waiter.status == Booking.Status.WAITLISTED
+        assert promote_waitlist(class_id=klass.pk) == 0
+
+
+class TestPromoteBranches:
+    def test_promote_needs_exactly_one_target(self):
+        from booking.tasks import promote_waitlist
+
+        with pytest.raises(ValueError):
+            promote_waitlist()
+        with pytest.raises(ValueError):
+            promote_waitlist(booking_id=1, class_id=2)
+
+    def test_promote_full_class_keeps_waiter(self):
+        from booking.tasks import promote_waitlist
+
+        venue = _venue("full")
+        klass = _class(venue, capacity=1)
+        _book(_member(venue, "holder"), klass, "f1")
+        waiter = _book(_member(venue, "waiter"), klass, "f2", waitlist=True)
+
+        assert promote_waitlist(class_id=klass.pk) == 0
+        waiter.refresh_from_db()
+        assert waiter.status == Booking.Status.WAITLISTED
+
+    def test_promote_appointment_booking_is_noop(self):
+        from booking.tasks import promote_waitlist
+        from scheduling.appointments import Appointment
+
+        venue = _venue("appt-promote")
+        member = _member(venue, "appt-holder")
+        teacher = _user("appt-teacher")
+        appointment = Appointment.objects.create(
+            venue=venue,
+            member=member,
+            teacher=teacher,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=1),
+        )
+        booking = Booking.objects.create(
+            member=member,
+            venue=venue,
+            appointment=appointment,
+            status=Booking.Status.CONFIRMED,
+            idempotency_key="appt-noop-1",
+        )
+
+        assert promote_waitlist(booking_id=booking.pk) == 0
+
+    def test_sweep_skips_unexpired_hold(self):
+        from booking.tasks import sweep_expired_holds
+
+        venue = _venue("sweep-future")
+        klass = _class(venue, capacity=1)
+        booking = _book(_member(venue, "holder2"), klass, "s2")
+        booking.hold_until = timezone.now() + timedelta(minutes=5)
+        booking.save(update_fields=["hold_until"])
+
+        assert sweep_expired_holds() == 0
+        booking.refresh_from_db()
+        assert booking.status == Booking.Status.CONFIRMED
+
+    def test_sweep_skips_already_closed(self):
+        from booking.tasks import sweep_expired_holds
+
+        venue = _venue("swept")
+        klass = _class(venue, capacity=1)
+        booking = _book(_member(venue, "gone"), klass, "s1")
+        booking.status = Booking.Status.CANCELLED
+        booking.hold_until = timezone.now() - timedelta(minutes=1)
+        booking.save(update_fields=["status", "hold_until"])
+
+        assert sweep_expired_holds() == 0
+
+
 class TestCancelBooking:
     def test_outside_window_refunds_and_promotes_fifo(self):
         venue = _venue()

@@ -46,6 +46,30 @@ class TestCheckin:
         booking.refresh_from_db()
         assert booking.checked_in_at is not None
 
+    def test_checkin_closed_booking_rejected(self):
+        venue = _venue()
+        booking = _book(_member(venue), _class(venue))
+        booking.status = Booking.Status.CANCELLED
+        booking.save(update_fields=["status"])
+
+        response = _client(_staff(venue)).post(
+            f"/api/v1/bookings/{booking.pk}/checkin/"
+        )
+
+        assert response.status_code == 400
+
+    def test_noshow_closed_booking_rejected(self):
+        venue = _venue()
+        booking = _book(_member(venue), _class(venue))
+        booking.status = Booking.Status.CANCELLED
+        booking.save(update_fields=["status"])
+
+        response = _client(_staff(venue)).post(
+            f"/api/v1/bookings/{booking.pk}/no-show/"
+        )
+
+        assert response.status_code == 400
+
     def test_member_cannot_checkin(self):
         venue = _venue()
         booking = _book(_member(venue), _class(venue))

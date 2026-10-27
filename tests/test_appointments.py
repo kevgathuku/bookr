@@ -376,3 +376,53 @@ class TestCalendar:
 
         assert response.status_code == 200
         assert len(ctx) <= 5
+
+
+class TestAppointmentCancelWindow:
+    def test_cancel_uses_24h_appointment_window(self):
+        from booking.cancellations import cancel_booking
+        from booking.models import Booking
+        from organizations.models import VenuePolicy
+
+        venue = _venue("appt-cancel")
+        VenuePolicy.objects.create(venue=venue)
+        member = _user("appt-member")
+        soon = _appointment(
+            venue, member=member, start=timezone.now() + timedelta(hours=1)
+        )
+        booking = Booking.objects.create(
+            member=member,
+            venue=venue,
+            appointment=soon,
+            status=Booking.Status.CONFIRMED,
+            idempotency_key="appt-cancel-1",
+        )
+
+        cancel_booking(member, booking)
+
+        booking.refresh_from_db()
+        assert booking.status == Booking.Status.CANCELLED_LATE
+
+    def test_cancel_outside_window_cancels(self):
+        from booking.cancellations import cancel_booking
+        from booking.models import Booking
+        from organizations.models import VenuePolicy
+
+        venue = _venue("appt-ok")
+        VenuePolicy.objects.create(venue=venue)
+        member = _user("appt-member-ok")
+        later = _appointment(
+            venue, member=member, start=timezone.now() + timedelta(days=3)
+        )
+        booking = Booking.objects.create(
+            member=member,
+            venue=venue,
+            appointment=later,
+            status=Booking.Status.CONFIRMED,
+            idempotency_key="appt-cancel-2",
+        )
+
+        cancel_booking(member, booking)
+
+        booking.refresh_from_db()
+        assert booking.status == Booking.Status.CANCELLED
