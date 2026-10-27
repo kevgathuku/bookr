@@ -9,8 +9,13 @@ Implement the work described by the user in the spec or tickets.
 If the user passes a ticket reference, fetch it from the issue tracker and state its title before starting. If the reference is ambiguous, ask.
 
 Call the Skill tool with "tdd" where possible, at pre-agreed seams.
+Where no Skill/subagent tool exists in the environment, run the
+referenced skill inline (read its SKILL.md, follow its loop, report in
+its format) and say so in one line.
 
-Run typechecking regularly, single test files regularly, and the full test suite once at the end.
+Run typechecking regularly (if the repo configures it — if not, note
+the absence once and move on; do not silently skip every time), single
+test files regularly, and the full test suite once at the end.
 
 ## Python style: wemake-python-styleguide
 
@@ -33,3 +38,15 @@ Then always close out the ticket, every time, in this order:
 2. Graph: rebuild the repo context graph so it reflects the changes.
 3. Commit: commit the work to the current branch (never push unless asked).
 4. Tracker: close the ticket so the next unblocked one opens up.
+
+## Session discipline (prevents lost work)
+
+- End every turn with the tree committed, or say plainly what is
+  uncommitted and why. Never let done work sit uncommitted across an
+  interruption: when a new instruction arrives mid-ticket, finish the
+  current atomic step, commit the ticket's done files (message cites the
+  ticket), then switch.
+- If blocked on an approval, commit everything done first, then ask —
+  the question must never hold the work hostage.
+- Start each turn by stating the active ticket + gate status
+  (tests/lint/wemake) in one line, so drift is visible immediately.
