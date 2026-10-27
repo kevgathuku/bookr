@@ -3,6 +3,7 @@
 from typing import ClassVar
 
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -78,6 +79,7 @@ class GrantView(APIView):
         IsStaffOrReadOnly,
     ]
 
+    @extend_schema(request=GrantSerializer, responses=MemberPassSerializer)
     def post(self, request):
         form = GrantSerializer(data=request.data)
         form.is_valid(raise_exception=True)

@@ -1,6 +1,7 @@
 from typing import ClassVar
 
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, serializers
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -102,6 +103,7 @@ class AdjustView(APIView):
         IsStaffOrReadOnly,
     ]
 
+    @extend_schema(request=AdjustSerializer, responses=MemberPassSerializer)
     def post(self, request):
         form = AdjustSerializer(data=request.data)
         form.is_valid(raise_exception=True)

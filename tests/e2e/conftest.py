@@ -51,12 +51,10 @@ def service_available(name, url, timeout=2):
         return False
 
 
-@pytest.fixture(scope="session")
-def frontend_url():
-    url = os.environ.get("FRONTEND_URL", "")
-    if not url:
-        pytest.skip("FRONTEND_URL unset (frontend lands with 0ay)")
-    return url
+@pytest.fixture()
+def frontend_url(live_server):
+    """Live Django serves the built SPA same-origin (WhiteNoise)."""
+    return os.environ.get("FRONTEND_URL", live_server.url)
 
 
 @pytest.fixture(scope="session")
