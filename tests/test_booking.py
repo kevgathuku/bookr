@@ -6,13 +6,9 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection
 from django.utils import timezone
 
+from booking.errors import CreditInsufficient, DuplicateBooking, SeatFull
 from booking.models import Booking
-from booking.services import (
-    CreditInsufficient,
-    DuplicateBooking,
-    SeatFull,
-    book_seat,
-)
+from booking.services import book_seat
 from organizations.models import Organization, Venue
 from scheduling.models import ClassType, Room, ScheduledClass
 

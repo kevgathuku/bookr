@@ -4,6 +4,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
+ACTIVE_STATUSES = ("confirmed", "waitlisted")
+
 
 class Booking(models.Model):
     class Status(models.TextChoices):
@@ -13,8 +15,6 @@ class Booking(models.Model):
         CANCELLED_LATE = "cancelled_late", "Cancelled late"
         NO_SHOW = "no_show", "No-show"
         COMPLETED = "completed", "Completed"
-
-    ACTIVE = ("confirmed", "waitlisted")
 
     venue = models.ForeignKey(
         "organizations.Venue", on_delete=models.CASCADE, related_name="bookings"
@@ -42,7 +42,7 @@ class Booking(models.Model):
         constraints: ClassVar[list[models.UniqueConstraint]] = [
             models.UniqueConstraint(
                 fields=["venue", "member", "scheduled_class"],
-                condition=models.Q(status__in=["confirmed", "waitlisted"]),
+                condition=models.Q(status__in=ACTIVE_STATUSES),
                 name="one_active_class_booking",
             ),
         ]
