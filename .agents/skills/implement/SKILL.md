@@ -12,6 +12,18 @@ Call the Skill tool with "tdd" where possible, at pre-agreed seams.
 
 Run typechecking regularly, single test files regularly, and the full test suite once at the end.
 
+## Python style: wemake-python-styleguide
+
+All new Python code follows wemake (`uv run flake8 <touched files>` —
+config in `.flake8`). Legacy files are out of scope: gate only the files
+the ticket creates or modifies, never the whole repo. Six rules are off
+repo-wide for Django-declarative collisions (`objects`, nested TextChoices,
+field literals, `Q`/`F` imports — reasons in `.flake8`); tests get relaxed
+naming/structure rules via `per-file-ignores`. Fix every other finding in
+new code — the guide has repeatedly caught real issues (bloated services,
+mutable constants, dead test locals). If a rule fights a framework-mandated
+pattern, prefer a small documented ignore over contorting the code.
+
 Once done, call the Skill tool with "code-review" to review the work.
 
 Then always close out the ticket, every time, in this order:

@@ -1,0 +1,41 @@
+# wemake-python-styleguide gate for new Python code (see implement skill).
+# Six rules are off repo-wide, all Django-declarative collisions:
+#   WPS110  managers are named `objects` by framework convention
+#   WPS226  model/field kwargs repeat names declaratively
+#   WPS431  nested TextChoices (Status/Role/Scope) are Django+repo convention
+#   WPS432  max_length= / choices= literals in field declarations
+#   WPS347  Q/F expression imports are the required pattern
+#   WPS458  `django.db.models` + `django.db` imports collide by necessity
+[flake8]
+max-line-length = 88
+extend-ignore =
+    WPS110,
+    WPS226,
+    WPS431,
+    WPS432,
+    WPS347,
+    WPS458
+exclude =
+    .venv,
+    .git,
+    __pycache__,
+    graft,
+    assets,
+    */migrations/*
+
+per-file-ignores =
+    tests/*:
+        E501,
+        WPS111,
+        WPS114,
+        WPS117,
+        WPS118,
+        WPS122,
+        WPS204,
+        WPS210,
+        WPS211,
+        WPS214,
+        WPS221,
+        WPS229,
+        WPS338,
+        WPS430

@@ -11,6 +11,8 @@ dependencies = [
     "dj-database-url>=3.1.2",
     "django>=6.1.2,<7",
     "django-extensions>=4.1",
+    "djangorestframework>=3.18.3",
+    "djangorestframework-simplejwt>=5.5.1",
     "ipython>=9.17.1",
     "psycopg[binary]",
 ]
@@ -36,6 +38,8 @@ pythonpath = ["."]
 dev = [
     "django-debug-toolbar>=8.0.0",
     "faker>=40.43.0",
+    "flake8>=7.4.1",
     "pytest-django>=4.14.0",
     "ruff>=0.17.2",
+    "wemake-python-styleguide>=1.8.1",
 ]
