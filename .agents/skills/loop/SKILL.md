@@ -23,7 +23,9 @@ proceed.
 
 1. **Pre-conditions**: `graft build`; orient with `graft ask --source`
    (spans, not whole files); memory search scoped to the project wing —
-   never re-derive rationale memory already holds.
+   never re-derive rationale memory already holds. Prefer graft for ALL
+   codebase exploration (`ask`/`skeleton`/`callers`/`grep`) over raw grep
+   or reading whole files; open source only at exact spans graft returns.
 2. **TDD**: pytest by default at pre-agreed seams, red first, one vertical
    slice per cycle. The full E2E gate runs only once its harness ticket
    lands; until then the ticket's pytest scope plus all prior scopes is
