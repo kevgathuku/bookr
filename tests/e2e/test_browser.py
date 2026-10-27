@@ -35,6 +35,15 @@ def _tiny_id(base_url):
     return tiny[0]["id"]
 
 
+def _login(page, frontend_url, username, password):
+    page.goto(frontend_url)
+    page.get_by_test_id("username").fill(username)
+    page.get_by_test_id("password").fill(password)
+    page.get_by_test_id("login-button").click()
+    page.get_by_test_id("schedule").wait_for()
+    page.get_by_test_id("venue-switcher").select_option("main")
+
+
 def test_member_journey(frontend_url):
     playwright = pytest.importorskip("playwright.sync_api")
     tiny_id = _tiny_id(frontend_url)
@@ -44,21 +53,13 @@ def test_member_journey(frontend_url):
         page = context.new_page()
 
         # Member logs in and books the Tiny class (sole seat).
-        page.goto(frontend_url)
-        page.get_by_test_id("username").fill(MEMBER[0])
-        page.get_by_test_id("password").fill(MEMBER[1])
-        page.get_by_test_id("login-button").click()
-        page.get_by_test_id("schedule").wait_for()
-        page.get_by_test_id("venue-switcher").select_option("main")
+        _login(page, frontend_url, MEMBER[0], MEMBER[1])
         page.get_by_test_id(f"book-button-{tiny_id}").click()
         page.get_by_test_id("booked-badge").first.wait_for()
 
         # Booker finds it full, waitlists, sees it in bookings.
         page.get_by_text("Log out").click()
-        page.get_by_test_id("username").fill(BOOKER[0])
-        page.get_by_test_id("password").fill(BOOKER[1])
-        page.get_by_test_id("login-button").click()
-        page.get_by_test_id("schedule").wait_for()
+        _login(page, frontend_url, BOOKER[0], BOOKER[1])
         page.get_by_test_id(f"book-button-{tiny_id}").click()
         page.get_by_test_id(f"waitlist-button-{tiny_id}").click()
         page.get_by_text("My bookings").click()

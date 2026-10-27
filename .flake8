@@ -13,6 +13,8 @@
 # Celery-prescribed bootstrap, which cannot live anywhere else.
 # Per-file: seed_e2e.py ignores WPS201 — the E2E dataset touches every model
 # once by design; splitting it would scatter one dataset across modules.
+# Per-file: test_browser.py ignores WPS213 — a linear E2E script; splitting
+# further would be helpers that exist only to shorten (see ponytail-review).
 # Per-file: settings/base.py ignores WPS407 (module constants by Django
 # convention) and E501 (dotted validator paths stay whole for grep).
 [flake8]
@@ -33,6 +35,8 @@ exclude =
     */migrations/*
 
 per-file-ignores =
+    tests/e2e/test_browser.py:
+        WPS213,
     config/settings/base.py:
         E501,
         WPS407,

@@ -1,25 +1,24 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link, Outlet, useNavigate } from "react-router";
-import { setVenueSlug, venueSlug } from "./api/client";
 import { useAuth } from "./auth";
+import { useVenue } from "./venue";
 
 function VenueSwitcher() {
 	const { me } = useAuth();
+	const { venue, select } = useVenue();
 	const queryClient = useQueryClient();
 	const venues = (me?.venues ?? []).map((v) => v.slug);
 	const unique = [...new Set(venues)];
-	const [current, setCurrent] = useState<string | null>(venueSlug());
 	if (unique.length <= 1) return null;
 	return (
 		<label>
 			Venue{" "}
 			<select
 				data-testid="venue-switcher"
-				value={current ?? ""}
+				value={venue ?? ""}
 				onChange={(event) => {
-					setVenueSlug(event.target.value);
-					setCurrent(event.target.value);
+					select(event.target.value);
 					queryClient.clear();
 				}}
 			>

@@ -45,7 +45,9 @@ export default function Login() {
 					/>
 				</Field>
 				{error ? <ErrorText message={error} /> : null}
-				<Button testId="login-button">Log in</Button>
+				<Button testId="login-button" type="submit">
+					Log in
+				</Button>
 			</form>
 		</main>
 	);

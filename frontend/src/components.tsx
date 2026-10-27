@@ -5,15 +5,17 @@ export function Button({
 	onClick,
 	disabled,
 	testId,
+	type = "button",
 }: {
 	children: ReactNode;
 	onClick?: () => void;
 	disabled?: boolean;
 	testId?: string;
+	type?: "button" | "submit";
 }) {
 	return (
 		<button
-			type="button"
+			type={type}
 			data-testid={testId}
 			disabled={disabled}
 			onClick={onClick}

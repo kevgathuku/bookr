@@ -13,6 +13,7 @@ import {
 	setAccessToken,
 	setRefreshToken,
 } from "./api/client";
+import { useVenue } from "./venue";
 
 export interface Membership {
 	organization: string;
@@ -34,6 +35,7 @@ export interface Me {
 
 interface AuthState {
 	me: Me | null;
+	recovered: boolean;
 	login: (username: string, password: string) => Promise<void>;
 	logout: () => void;
 }
@@ -42,14 +44,24 @@ const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [me, setMe] = useState<Me | null>(null);
+	const [recovered, setRecovered] = useState(false);
 	const queryClient = useQueryClient();
 
+	const { select } = useVenue();
+
 	useEffect(() => {
-		if (!localStorage.getItem("bookr.refresh")) return;
+		if (!localStorage.getItem("bookr.refresh")) {
+			setRecovered(true);
+			return;
+		}
 		apiJson<Me>("/api/v1/me/")
-			.then((profile) => setMe(profile))
-			.catch(() => clearAuth());
-	}, []);
+			.then((profile) => {
+				setMe(profile);
+				if (profile.venues.length > 0) select(profile.venues[0].slug);
+			})
+			.catch(() => clearAuth())
+			.finally(() => setRecovered(true));
+	}, [select]);
 
 	const login = useCallback(
 		async (username: string, password: string) => {
@@ -62,21 +74,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			const profile = await apiJson<Me>("/api/v1/me/");
 			setMe(profile);
 			if (profile.venues.length > 0) {
-				localStorage.setItem("bookr.venue", profile.venues[0].slug);
+				select(profile.venues[0].slug);
 			}
 			queryClient.clear();
 		},
-		[queryClient],
+		[queryClient, select],
 	);
 
 	const logout = useCallback(() => {
 		clearAuth();
 		setMe(null);
 		queryClient.clear();
+		window.location.href = "/login";
 	}, [queryClient]);
 
 	return (
-		<AuthContext.Provider value={{ me, login, logout }}>
+		<AuthContext.Provider value={{ me, recovered, login, logout }}>
 			{children}
 		</AuthContext.Provider>
 	);
