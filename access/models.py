@@ -34,7 +34,7 @@ class AccessPoint(models.Model):
     def set_token(self):
         """Rotate the controller secret. Plaintext shown once, hash stored."""
         plaintext = secrets.token_urlsafe(32)
-        self.api_token_hash = hash_token(plaintext)
+        self.api_token_hash = hash_token(plaintext)  # noqa: WPS601 — rotation setter
         return plaintext
 
     def check_token(self, plaintext):

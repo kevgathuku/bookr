@@ -47,8 +47,14 @@ class CheckSerializer(serializers.Serializer):
 class CheckView(APIView):
     """Read-only door decision. 200 + granted flag; 401 on bad token."""
 
-    authentication_classes: ClassVar[list] = [ControllerAuthentication]  # type: ignore[misc]  # DRF stubs declare these as instance vars
-    permission_classes: ClassVar[list] = [AllowAny]  # type: ignore[misc]  # DRF stubs declare these as instance vars
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    authentication_classes: ClassVar[list] = [  # type: ignore[misc]
+        ControllerAuthentication,
+    ]
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        AllowAny,
+    ]
 
     def post(self, request):
         form = CheckSerializer(data=request.data)
@@ -104,7 +110,11 @@ class RecentEventsView(generics.ListAPIView):
     """Frontdesk reads the venue's recent attempts, newest first."""
 
     serializer_class = AccessEventSerializer
-    permission_classes: ClassVar[list] = [IsVenueMember, IsStaff]  # type: ignore[misc]  # DRF stubs declare these as instance vars
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaff,
+    ]
 
     def get_queryset(self):
         events = AccessEvent.objects.filter(
