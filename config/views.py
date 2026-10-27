@@ -17,3 +17,16 @@ def metrics(request):
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
     return HttpResponse(generate_latest(), content_type=CONTENT_TYPE_LATEST)
+
+
+def spa(request):
+    """Same-origin SPA fallback: every non-API route serves the Vite build."""
+    from pathlib import Path
+
+    from django.conf import settings
+    from django.http import Http404
+
+    index = Path(settings.WHITENOISE_ROOT) / "index.html"
+    if not index.is_file():
+        raise Http404("Frontend not built (npm run build in frontend/).")
+    return HttpResponse(index.read_text(), content_type="text/html")

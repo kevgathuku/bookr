@@ -1,11 +1,14 @@
 from typing import ClassVar
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, serializers
+from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from organizations.models import VenuePolicy
+from organizations.models import Membership, Venue, VenuePolicy
 from organizations.permissions import IsStaff, IsVenueMember
+from organizations.serializers import MeSerializer
 
 
 class VenuePolicySerializer(serializers.ModelSerializer):
@@ -57,8 +60,68 @@ class PolicyActivateView(APIView):
         IsStaff,
     ]
 
+    @extend_schema(request=ActivateSerializer, responses=VenuePolicySerializer)
     def post(self, request):
         form = ActivateSerializer(data=request.data)
         form.is_valid(raise_exception=True)
         policy = VenuePolicy.objects.activate(request.venue, **form.validated_data)
         return Response(VenuePolicySerializer(policy).data, status=201)
+
+
+class MeView(APIView):
+    """Who am I: username + memberships for the venue switcher."""
+
+    @extend_schema(responses=MeSerializer)
+    def get(self, request):
+        memberships = (
+            Membership.objects.filter(user=request.user)
+            .select_related("organization", "venue")
+            .order_by("organization__slug")
+        )
+        org_ids = {mem.organization_id for mem in memberships}
+        venues = (
+            Venue.objects.filter(organization__in=org_ids)
+            .select_related("organization")
+            .order_by("slug")
+        )
+        return Response(
+            {
+                "username": request.user.username,
+                "memberships": [
+                    {
+                        "organization": mem.organization.slug,
+                        "venue": mem.venue.slug if mem.venue else None,
+                        "role": mem.role,
+                    }
+                    for mem in memberships
+                ],
+                "venues": [
+                    {
+                        "organization": venue.organization.slug,
+                        "slug": venue.slug,
+                        "name": venue.name,
+                    }
+                    for venue in venues
+                ],
+            }
+        )
+
+
+class CurrentPolicyView(APIView):
+    """Open policy windows for countdown display."""
+
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
+
+    @extend_schema(responses=VenuePolicySerializer)
+    def get(self, request):
+        policy = (
+            VenuePolicy.objects.filter(venue=request.venue, valid_until__isnull=True)
+            .order_by("-valid_from")
+            .first()
+        )
+        if policy is None:
+            raise NotFound("No such venue.")
+        return Response(VenuePolicySerializer(policy).data)

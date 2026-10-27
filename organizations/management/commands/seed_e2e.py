@@ -7,6 +7,7 @@ from datetime import time as dtime
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
+from django.db import IntegrityError
 from django.utils import timezone
 
 from access.models import AccessEvent, AccessPoint
@@ -30,22 +31,24 @@ class Command(BaseCommand):
         )
 
 
-def _named_user(username):
-    user, created = get_user_model().objects.get_or_create(username=username)
-    if created:
-        user.set_password("password")
-        user.save()
-    return user
+_PEOPLE_SPECS = (
+    ("teacher", "e2e-run-teacher", Membership.Role.TEACHER),
+    ("member", "e2e-run-member", Membership.Role.MEMBER),
+    ("stranger", "e2e-run-stranger", Membership.Role.MEMBER),
+    ("sub", "e2e-run-sub", Membership.Role.TEACHER),
+    ("booker", "e2e-run-booker", Membership.Role.MEMBER),
+)
 
 
 def _e2e_people(org):
-    teacher = _named_user("e2e-run-teacher")
-    _membership(org, teacher, Membership.Role.TEACHER)
-    member = _named_user("e2e-run-member")
-    _membership(org, member, Membership.Role.MEMBER)
-    stranger = _named_user("e2e-run-stranger")
-    _membership(org, stranger, Membership.Role.MEMBER)
-    return {"teacher": teacher, "member": member, "stranger": stranger}
+    users = {}
+    for key, username, role in _PEOPLE_SPECS:
+        user = get_user_model().objects.get_or_create(username=username)[0]
+        user.set_password("password")
+        user.save()
+        _membership(org, user, role)
+        users[key] = user
+    return users
 
 
 def _e2e_org():
@@ -69,6 +72,7 @@ def _e2e_org():
     member = people["member"]
     if not member.passes.exists():
         issue_pass(member, product)
+    _seed_extra_places(org, people, venue)
     _seed_extras(
         venue,
         org,
@@ -80,8 +84,7 @@ def _e2e_org():
 
 def _seed_bookings(venue, people, klass, resource, product):
     member = people["member"]
-    booker = _named_user("e2e-run-booker")
-    _membership(venue.organization, booker, Membership.Role.MEMBER)
+    booker = people["booker"]
     if not booker.passes.exists():
         issue_pass(booker, product)
     Appointment.objects.filter(
@@ -108,12 +111,12 @@ def _seed_bookings(venue, people, klass, resource, product):
 
 
 def _seed_paperwork(venue, org, people, klass):
-    sub = _named_user("e2e-run-sub")
-    _membership(org, sub, Membership.Role.TEACHER)
+    teacher = people["teacher"]
+    sub = people["sub"]
     TeacherSubstitution.objects.get_or_create(
         scheduled_class=klass,
         new_teacher=sub,
-        defaults={"old_teacher": people["teacher"], "reason": "e2e cover"},
+        defaults={"old_teacher": teacher, "reason": "e2e cover"},
     )
     point = AccessPoint.objects.get_or_create(
         venue=venue, controller_id="e2e-door", defaults={"name": "E2E Door"}
@@ -128,6 +131,41 @@ def _seed_paperwork(venue, org, people, klass):
         AccessEvent.objects.create(
             access_point=point, member=None, granted=False, reason="no_access"
         )
+
+
+def _seed_extra_places(org, people, venue):
+    """Annex venue (switcher target) + capacity-1 class (waitlist journey)."""
+    from scheduling.models import ClassType, Room, ScheduledClass
+
+    annex = Venue.objects.get_or_create(
+        organization=org, slug="annex", defaults={"name": "Annex"}
+    )[0]
+    VenuePolicy.objects.get_or_create(venue=annex, valid_until=None)
+    _schedule(annex, people["teacher"], "Yoga", "Annex Room")
+    room = Room.objects.get_or_create(
+        venue=venue, name="Closet", defaults={"capacity": 1}
+    )[0]
+    start = timezone.now() + timezone.timedelta(days=1)
+    ScheduledClass.objects.filter(
+        venue=venue, room=room, starts_at__lte=timezone.now()
+    ).delete()
+    class_type = ClassType.objects.get_or_create(
+        venue=venue, name="Tiny", defaults={"duration_min": 30}
+    )[0]
+    teacher = people["sub"]
+    try:
+        ScheduledClass.objects.get_or_create(
+            venue=venue,
+            room=room,
+            teacher=teacher,
+            starts_at=start,
+            defaults={
+                "class_type": class_type,
+                "ends_at": start + timezone.timedelta(minutes=30),
+            },
+        )
+    except IntegrityError:
+        return  # rerun landed inside the previous slot: reuse it
 
 
 def _seed_extras(venue, org, people, product, klass):

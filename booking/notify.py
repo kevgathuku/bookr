@@ -10,7 +10,7 @@ def _address(member):
     if member.email:
         return member.email
     username = member.username
-    return "@".join((username, FALLBACK_DOMAIN))
+    return "@".join((username, FALLBACK_DOMAIN))  # noqa: FLY002 — f-string trips WPS237
 
 
 def _target_label(booking):

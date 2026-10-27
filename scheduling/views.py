@@ -76,8 +76,12 @@ class ScheduledClassViewSet(viewsets.ModelViewSet):
     ]
 
     def get_queryset(self):
+        venue = self.request.venue
+        param = self.request.query_params.get("venue")
+        if param is not None and param != venue.slug:
+            raise NotFound("No such venue.")
         venue_classes = (
-            ScheduledClass.objects.for_venue(self.request.venue)
+            ScheduledClass.objects.for_venue(venue)
             .select_related("class_type", "room", "teacher")
             .order_by("starts_at")
         )
