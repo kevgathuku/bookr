@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     "scheduling.apps.SchedulingConfig",
     "booking.apps.BookingConfig",
     "passes.apps.PassesConfig",
+    "access.apps.AccessConfig",
     "django.contrib.postgres",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -40,6 +41,14 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
+
+CACHES = {
+    # Locmem here and in tests; prod points this at Redis (docker ticket
+    # 4cs owns the service + django-redis wiring). TTLs stay the same.
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    }
+}
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [

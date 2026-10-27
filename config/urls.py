@@ -22,14 +22,16 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
-from config.views import healthz
+from config.views import healthz, metrics
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("healthz", healthz),
+    path("metrics/", metrics),
     path("api/v1/auth/token/", TokenObtainPairView.as_view(), name="token_obtain"),
     path("api/v1/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/v1/", include("scheduling.urls")),
     path("api/v1/", include("passes.urls")),
     path("api/v1/", include("organizations.urls")),
+    path("", include("access.urls")),
 ]

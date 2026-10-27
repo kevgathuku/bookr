@@ -1,5 +1,5 @@
 from django.db import OperationalError, connection
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 
 
 def healthz(request):
@@ -11,3 +11,9 @@ def healthz(request):
     except OperationalError:
         return JsonResponse({"status": "error"}, status=503)
     return JsonResponse({"status": "ok"})
+
+
+def metrics(request):
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+    return HttpResponse(generate_latest(), content_type=CONTENT_TYPE_LATEST)
