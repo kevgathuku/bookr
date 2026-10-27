@@ -37,7 +37,7 @@ def cancel_booking(actor, booking, *, staff_override=False, reason=""):
             raise ValidationError("Booking is already closed.")
         freed = locked.status == Booking.Status.CONFIRMED
         if staff_override:
-            refund_credit(locked)
+            refund_credit(locked, note=reason)
             locked.status = Booking.Status.CANCELLED
         else:
             target = _target(locked)

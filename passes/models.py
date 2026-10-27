@@ -97,6 +97,7 @@ class CreditLedger(models.Model):
     )
     delta = models.IntegerField()
     reason = models.CharField(max_length=16, choices=Reason.choices)
+    note = models.CharField(max_length=280, blank=True, default="")
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

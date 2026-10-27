@@ -88,6 +88,7 @@ export interface LedgerEntryItem {
 	booking: number | null;
 	delta: number;
 	reason: string;
+	note: string;
 	created_by: number | null;
 	created_at: string;
 }

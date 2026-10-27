@@ -764,6 +764,7 @@ export interface components {
             booking?: number | null;
             delta: number;
             reason: components["schemas"]["ReasonEnum"];
+            note?: string;
             created_by?: number | null;
             /** Format: date-time */
             readonly created_at: string;

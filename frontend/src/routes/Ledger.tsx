@@ -25,6 +25,7 @@ export default function Ledger() {
 							{entry.delta}
 						</span>{" "}
 						<span>{entry.reason}</span>
+						{entry.note ? <span> — {entry.note}</span> : null}
 					</li>
 				))}
 			</ul>

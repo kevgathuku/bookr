@@ -338,3 +338,31 @@ class TestPassViews:
             self._client(staff).post("/api/v1/ledger/adjust/", nor_reason).status_code
             == 400
         )
+
+
+class TestLedgerNote:
+    def test_adjust_stores_staff_note(self):
+        venue = _venue("note")
+        member = _user("noted")
+        member_pass = issue_pass(member, _product(venue))
+
+        adjust_credit(member_pass, 1, reason="goodwill", staff=_user("boss"))
+
+        row = member_pass.entries.get(reason="adjustment")
+        assert row.note == "goodwill"
+
+    def test_override_cancel_stores_note_on_refund(self):
+        from booking.cancellations import cancel_booking
+        from passes.models import CreditLedger
+
+        venue = _venue("note-cancel")
+        member = _user("noted-cancel")
+        issue_pass(member, _product(venue))
+        booking = _book(member, _class(venue))
+
+        cancel_booking(
+            _user("boss-note"), booking, staff_override=True, reason="desk-override"
+        )
+
+        refund = CreditLedger.objects.get(booking=booking, reason="refund")
+        assert refund.note == "desk-override"

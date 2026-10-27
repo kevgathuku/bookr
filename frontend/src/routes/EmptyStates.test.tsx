@@ -75,7 +75,8 @@ describe("empty states", () => {
 						member_pass: 2,
 						booking: 3,
 						delta: -1,
-						reason: "booking",
+						reason: "adjustment",
+						note: "goodwill",
 						created_by: null,
 						created_at: "2026-10-28T06:00:00Z",
 					},
@@ -86,7 +87,8 @@ describe("empty states", () => {
 		renderWithProviders("ledger");
 
 		await screen.findByTestId("ledger-row");
-		expect(screen.getByText("booking")).toBeInTheDocument();
+		expect(screen.getByText("adjustment")).toBeInTheDocument();
+		expect(screen.getByText("— goodwill", { exact: false })).toBeInTheDocument();
 		expect(screen.getByText("-1")).toBeInTheDocument();
 	});
 });

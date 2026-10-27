@@ -79,7 +79,7 @@ def spend_credit(member, booking):
     return _spend_from(limited, booking)
 
 
-def refund_credit(booking):
+def refund_credit(booking, note=""):
     """Return the spent credit; unlimited bookings spent nothing."""
     if booking.credit_tx is None:
         return None
@@ -92,6 +92,7 @@ def refund_credit(booking):
             booking=booking,
             delta=1,
             reason=CreditLedger.Reason.REFUND,
+            note=note,
         )
         member_pass.credits_used = max(0, member_pass.credits_used - 1)
         if member_pass.status == MemberPass.Status.DEPLETED:
@@ -110,6 +111,7 @@ def adjust_credit(member_pass, delta, reason, staff):
             member_pass=member_pass,
             delta=delta,
             reason=CreditLedger.Reason.ADJUSTMENT,
+            note=reason,
             created_by=staff,
         )
         member_pass.credits_used = max(

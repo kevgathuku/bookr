@@ -41,6 +41,7 @@ class CreditLedgerSerializer(serializers.ModelSerializer):
             "booking",
             "delta",
             "reason",
+            "note",
             "created_by",
             "created_at",
         ]

@@ -181,6 +181,8 @@ def test_frontdesk_desk_flow(frontend_url):
         page.get_by_text("Ledger").click()
         page.get_by_test_id("ledger").wait_for()
         page.get_by_text("adjustment").first.wait_for()
+        page.get_by_text("goodwill", exact=False).first.wait_for()
+        page.get_by_text("desk-override", exact=False).first.wait_for()
         page.get_by_text("refund").first.wait_for()
 
         browser.close()
