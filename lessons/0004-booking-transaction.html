@@ -1,44 +1,191 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 4 — The booking transaction</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 4 of 11 · Tutorial Ch. 3</p>
+<p class="course">Bookr course · Lesson 4 of 12 · Tutorial Ch. 3</p>
 <h1>The booking transaction</h1>
 <p class="why">Win: exactly one member gets the last seat, even with 20 racers. If this fails, stop — nothing later matters.</p>
-<h2>Step 1 — New app, then model</h2>
-<p><code>uv run python manage.py startapp bookings</code>, add it to <code>INSTALLED_APPS</code>. Then the <code>Booking</code>: unique <code>idempotency_key</code>, member, nullable class/appointment FKs with a check that exactly one is set (<code>condition=</code> in Django 6), status, source (<code>app</code>/frontdesk/`aggregator:&lt;slug&gt;`), credit link (stubbed until <a href="0006-credit-ledger.html">lesson 6</a>). Plus partial uniques — one active booking per member per class:</p>
-<pre>constraints = [
-    CheckConstraint(condition=(
-        Q(scheduled_class__isnull=False, appointment__isnull=True)
-        | Q(scheduled_class__isnull=True, appointment__isnull=False)),
-        name="booking_single_target"),
-    UniqueConstraint(fields=["venue", "member", "scheduled_class"],
-        condition=Q(status__in=["confirmed", "waitlisted"]),
-        name="one_active_class_booking"),
-]</pre>
-<p>This is the <strong>primary seam</strong> (see <a href="../reference/testing-cheatsheet.html">testing cheatsheet</a>).</p>
-<h2>Step 2 — The one function that books</h2>
-<p><code>bookings/services.py::book_seat(member, klass, waitlist=False, idempotency_key)</code> — the <em>only</em> code path that creates bookings. Thin views, fat service:</p>
-<pre>class SeatFull(Exception): ...
-class DuplicateBooking(Exception): ...
+<p>Lesson 3 pushed the no-double-booking rule into the database. This lesson does the same for the booking itself: one seat, many simultaneous tappers, exactly one winner. The mechanism is a database row lock (<code>SELECT ... FOR UPDATE</code>) inside a single function — <code>book_seat()</code> — that is the <em>only</em> code path allowed to create bookings. Thin views, fat service: every future channel (front desk, aggregators in lesson&nbsp;12) will call this same function instead of inventing its own booking logic. That is the most important architectural decision in the project, and it happens in this lesson.</p>
+<h2>Step 1 — New app, then the Booking model</h2>
+<pre>uv run python manage.py startapp booking</pre>
+<p>Add <code>"booking.apps.BookingConfig"</code> to <code>INSTALLED_APPS</code>. The model (extra targets and money links arrive in their own lessons — each with its own migration, so run <code>makemigrations booking</code> after every step here):</p>
+<pre>from typing import ClassVar
 
-def book_seat(member, klass, *, waitlist=False, idempotency_key):
+from django.conf import settings
+from django.db import models
+
+ACTIVE_STATUSES = ("confirmed", "waitlisted")
+
+
+class Booking(models.Model):
+    class Status(models.TextChoices):
+        CONFIRMED = "confirmed", "Confirmed"
+        WAITLISTED = "waitlisted", "Waitlisted"
+        CANCELLED = "cancelled", "Cancelled"
+        CANCELLED_LATE = "cancelled_late", "Cancelled late"
+        NO_SHOW = "no_show", "No-show"
+        COMPLETED = "completed", "Completed"
+
+    venue = models.ForeignKey(
+        "organizations.Venue", on_delete=models.CASCADE, related_name="bookings"
+    )
+    member = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="bookings"
+    )
+    scheduled_class = models.ForeignKey(
+        "scheduling.ScheduledClass",
+        on_delete=models.CASCADE,
+        related_name="bookings",
+    )
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.CONFIRMED
+    )
+    source = models.CharField(max_length=64, default="app")
+    idempotency_key = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["venue", "member", "scheduled_class"],
+                condition=models.Q(status__in=ACTIVE_STATUSES),
+                name="one_active_class_booking",
+            ),
+        ]</pre>
+<p>Four decisions. First, <code>venue</code> is stored on the booking even though the class already has one — derived at creation (<code>venue=klass.venue</code>), never taken from the client, so a crafted payload cannot file a booking under someone else's venue. Second, <code>idempotency_key</code> is globally unique: when a phone retries a tap over a flaky network, the retry carries the same key and gets back the original row instead of a second booking. Third, the partial unique: one <em>active</em> booking per member per class — cancelled rows are exempt, so rebooking after a cancel works. Fourth, <code>source</code> defaults to <code>"app"</code> and you do nothing else with it until lesson&nbsp;12; it is a free column that will later read <code>aggregator:&lt;slug&gt;</code>.</p>
+<h2>Step 2 — Typed errors, then the one function that books</h2>
+<p>Services raise typed exceptions; views translate them to HTTP. Never the reverse — the service layer must not import the web layer, or you can never call it from a Celery task, a management command, or a partner channel:</p>
+<pre># booking/errors.py — the whole file. Views map these to HTTP
+# (SeatFull/DuplicateBooking → 409); the service never imports the web layer.
+
+
+class BookingError(Exception):
+    """Base for all book_seat() failures."""
+
+
+class SeatFull(BookingError):
+    """Class is full and waitlist was not requested."""
+
+
+class DuplicateBooking(BookingError):
+    """Member already holds an active booking for this class."""</pre>
+<p>Now the function. Read it as four guards in a fixed order — each guard exists because a real failure demanded it:</p>
+<pre># booking/services.py
+from django.db import IntegrityError, transaction
+
+from booking.errors import DuplicateBooking, SeatFull
+from booking.models import ACTIVE_STATUSES, Booking
+from scheduling.models import ScheduledClass
+
+
+def _active_booking(member, klass) -> bool:
+    return Booking.objects.filter(
+        venue=klass.venue,
+        member=member,
+        scheduled_class=klass,
+        status__in=ACTIVE_STATUSES,
+    ).exists()
+
+
+def _status_for(klass, waitlist: bool) -> str:
+    confirmed_seats = Booking.objects.filter(
+        scheduled_class=klass,
+        status=Booking.Status.CONFIRMED,
+    ).count()
+    if confirmed_seats &lt; (klass.capacity or 0):
+        return Booking.Status.CONFIRMED
+    if waitlist:
+        return Booking.Status.WAITLISTED
+    raise SeatFull(f"{klass} is full.")
+
+
+def _create(member, klass, status: str, idem_key: str) -> Booking:
+    try:
+        booking = Booking.objects.create(
+            venue=klass.venue,
+            member=member,
+            scheduled_class=klass,
+            status=status,
+            idempotency_key=idem_key,
+        )
+    except IntegrityError:
+        # Lost a same-key race: the winner's row is the answer.
+        winner = Booking.objects.filter(idempotency_key=idem_key).first()
+        if winner is not None:
+            return winner
+        raise DuplicateBooking(f"{member} already booked {klass}.")
+    return booking
+
+
+def book_seat(member, klass, *, idempotency_key: str, waitlist: bool = False) -> Booking:
+    """Book one seat, serialized per class via SELECT ... FOR UPDATE."""
     with transaction.atomic():
-        klass = ScheduledClass.objects.select_for_update().get(pk=klass.pk)
-        status = "confirmed"
-        if Booking.objects.filter(scheduled_class=klass,
-                status="confirmed").count() &gt;= klass.effective_capacity():
-            if not waitlist:
-                raise SeatFull  # view → 409, offer ?waitlist=true
-            status = "waitlisted"
-        booking = Booking(member=member, scheduled_class=klass,
-            status=status, venue=klass.venue, idempotency_key=idempotency_key)
-        booking.save()
-        if status == "confirmed":
-            spend_credit(member, booking)  # raises → whole transaction rolls back
-        return booking</pre>
-<p>Views map typed errors to codes: <code>SeatFull→409</code>, <code>CreditInsufficient→402</code>, <code>DuplicateBooking→409</code>. Member login arrives here too (<code>uv add djangorestframework-simplejwt</code>) — the book endpoint authenticates the member; everything else stays service-level. No business logic in views or serializers — ever.</p>
-<h2>Step 3 — The race test (required)</h2>
-<p>With 1 free seat, fire 20 threads at <code>book_seat</code> (<code>ThreadPoolExecutor</code>, each with its own idempotency key) and assert exactly 1 confirmed. Then: same key twice → one booking; same member twice → 409. Django nuance, twice: outside <code>atomic()</code> Django autocommits, so the <code>select_for_update</code> lock only means something inside the block — and <code>TestCase</code> wraps every test in a transaction your threads can't see into, so race tests must use <code>TransactionTestCase</code> (or pytest's <code>transaction=True</code>) or all 20 threads queue behind your own uncommitted lock. If the race test fails, stop — nothing later matters.</p>
-<h2>Deliverables — check them off</h2>
+        locked = ScheduledClass.objects.select_for_update().get(pk=klass.pk)
+
+        existing = Booking.objects.filter(idempotency_key=idempotency_key).first()
+        if existing is not None:
+            return existing
+        if _active_booking(member, locked):
+            raise DuplicateBooking(f"{member} already booked {locked}.")
+
+        status = _status_for(locked, waitlist)
+        return _create(member, locked, status, idempotency_key)</pre>
+<p>Why this order matters. The row lock comes <em>first</em>: <code>select_for_update</code> makes concurrent transactions for the same class queue up instead of interleaving, so the seat count that follows is always fresh. The idempotency check comes <em>before</em> the duplicate check: a retry is not a double-booking, it is the same booking arriving twice. The <code>IntegrityError</code> fallback in <code>_create</code> covers the one race locks cannot — two requests with the same key racing past the check simultaneously: the loser reads back the winner's row instead of crashing. And notice what is <em>not</em> here: no credit spend (lesson&nbsp;6 wires the charge into exactly the marked spot), no teacher clash (lesson&nbsp;7), no channel parameter (lesson&nbsp;12). Each arrives with its own tests.</p>
+<h2>Step 3 — Thin view, mapped errors, router</h2>
+<p>The view validates, resolves the class against the request venue (404 on mismatch — crafted venue ids must not escape), and maps service errors to status codes. <code>mapped_errors</code> is a context manager so the mapping lives in one place (<code>booking/http.py</code>) instead of try/except in every view:</p>
+<pre>from booking.http import mapped_errors
+from booking.services import book_seat
+
+
+class BookingsView(APIView):
+    permission_classes: ClassVar[list] = [IsVenueMember]
+
+    def post(self, request):
+        form = BookSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+        klass = form.validated_data["scheduled_class"]
+        if klass.venue != request.venue:
+            raise NotFound("No such venue.")
+        waitlist = form.validated_data["waitlist"]
+        if request.query_params.get("waitlist") == "true":
+            waitlist = True
+        with mapped_errors():
+            booking = book_seat(
+                request.user,
+                klass,
+                idempotency_key=form.validated_data["idempotency_key"],
+                waitlist=waitlist,
+            )
+        return Response(BookingSerializer(booking).data, status=201)</pre>
+<p>Register <code>booking/urls.py</code> (<code>POST /api/v1/bookings/</code>) and include it under <code>api/v1/</code>. The <code>BookSerializer</code> takes <code>scheduled_class</code>, <code>idempotency_key</code>, and an optional <code>waitlist</code> flag — the frontend generates the key with <code>crypto.randomUUID()</code> per tap, which is why a retried tap is indistinguishable from its original.</p>
+<h2>Step 4 — The race test (20 threads, 1 seat)</h2>
+<p>Helpers first, same style as lesson&nbsp;3 (<code>_venue</code>, <code>_user</code>, plus a member and a class builder). Then the test that justifies the whole lesson — and the one pytest-django subtlety it needs:</p>
+<pre>@pytest.mark.django_db(transaction=True)
+class TestLastSeatRace:
+    def test_twenty_threads_one_seat_yields_one_confirmed(self):
+        venue = _venue(slug="race")
+        klass = _class(venue, capacity=1)
+        members = [_member(f"racer-{i}", venue) for i in range(20)]
+        outcomes = []
+
+        def attempt(i):
+            try:
+                booking = book_seat(members[i], klass, idempotency_key=f"race-{i}")
+                return booking.status
+            except SeatFull:
+                return "full"
+            finally:
+                # Threads hold their connection open; release it so the
+                # test database can tear down.
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            outcomes = list(pool.map(attempt, range(20)))
+
+        assert outcomes.count("confirmed") == 1
+        assert outcomes.count("full") == 19
+        assert klass.bookings.filter(status="confirmed").count() == 1</pre>
+<p>Two things to learn here. First, <code>transaction=True</code>: the default pytest-django marker wraps each test in an atomic block that never commits — invisible to other database connections, which is exactly what threads are. The transactional marker commits setup for real, so all 20 threads see the same class. Second, <code>connection.close()</code> in the <code>finally</code>: threads hold their connections open and the test database cannot tear down around them — leaked connections are the classic flaky-cleanup bug in threaded tests. Alongside it, write the three single-threaded guarantees: same key twice returns the one booking, same member rebooking raises, and cancelled bookings free both the seat and the member slot.</p>
+<h2>Exercises</h2>
+<p>1. Remove the <code>select_for_update</code> call and run the race test five times. Count how often it fails — that frequency is the bug rate you would ship without the lock.<br>2. Swap the guard order: duplicate-check before idempotency-check. Which existing test breaks, and what user-visible behavior changes?<br>3. Add a <code>?waitlist=true</code> end-to-end assertion: fill the class, book with the flag, confirm the waitlisted row and no charge path (there is no charge yet — note where lesson&nbsp;6 will hook in).<br>4. What happens when two requests share an idempotency key for <em>different</em> classes? Write the test, then decide whether the current answer (first booking wins) is acceptable.</p>
 <p class="progress" data-progress></p>
 <ul class="check">
 <li><label><input type="checkbox" data-id="d1"> Last-seat race: 20 threads × 1 free seat → exactly 1 confirmed, rest 409/waitlisted</label></li>
@@ -46,7 +193,7 @@ def book_seat(member, klass, *, waitlist=False, idempotency_key):
 <li><label><input type="checkbox" data-id="d3"> Same member rebooking the same class → 409</label></li>
 </ul>
 <h2>Primary source</h2>
-<p><a href="https://docs.djangoproject.com/en/6.1/topics/db/transactions/">Django transactions docs (6.1)</a> — <code>atomic</code> + <code>select_for_update</code>, the two calls this whole lesson stands on.</p>
+<p><a href="https://docs.djangoproject.com/en/6.1/topics/db/transactions/">Django 6.1 transactions</a> — <code>select_for_update</code> semantics and autocommit; then <a href="https://docs.djangoproject.com/en/6.1/topics/testing/tools/">Django test transactions</a> for why threaded tests need committed data.</p>
 <nav class="lesson-nav"><a href="0003-schedule.html">← Lesson 3</a><a href="0005-waitlist-cancels.html">Lesson 5 →</a></nav>
 <p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
 </main><script src="../assets/app.js"></script></body></html>

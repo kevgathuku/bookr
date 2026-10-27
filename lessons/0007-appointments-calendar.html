@@ -1,30 +1,35 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 7 — Appointments and calendar</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 7 of 11 · Tutorial Ch. 6</p>
+<p class="course">Bookr course · Lesson 7 of 12 · Tutorial Ch. 6</p>
 <h1>Appointments and calendar</h1>
-<p class="why">Win: bookable humans and rooms behind one fast calendar endpoint.</p>
-<h2>Step 1 — No new app, then availability models</h2>
-<p>Appointments extend <code>scheduling</code> — no new app. Models: <code>Resource</code> (room/equipment/teacher), <code>AvailabilityRule</code> (weekday, start/end, valid range), <code>AvailabilityException</code> (one date: closed or special hours), <code>Appointment</code> (member, teacher, optional resource, window, status). Rules, exceptions, and resources all belong to one venue, and slot computation never looks across venues. Rules for teachers live on a <code>Resource(type=teacher)</code> row pointing at the same person — one mechanism, not two.</p>
-<h2>Step 2 — Compute slots, don't store them</h2>
-<pre>def generate_slots(resource, day):
-    # 1. weekly rules covering `day` → base intervals
-    # 2. minus exceptions (closed or shortened)
-    # 3. minus existing appointments + classes touching the
-    #    teacher/resource, padded by venue.current_policy.booking_buffer_minutes each side
-    ...</pre>
-<p>Pure function, no database writes — unit-test it directly, including a DST-boundary day. Same exclusion constraints as classes for (venue, teacher) and (venue, resource). Cross-table clashes (appointment vs that teacher's <em>classes</em>) can't live in a DB constraint — check them in the booking service before confirming. Appointments use the 24h late-cancel window.</p>
-<h2>Step 3 — One calendar endpoint</h2>
-<p><code>GET /api/v1/calendar?from=&amp;to=&amp;teacher=&amp;room=</code> merges classes + appointments into event objects, bounded to 31 days, <code>prefetch_related</code>, paginated by day. Django nuance: <code>select_related</code> JOINs single-valued relations; <code>prefetch_related</code> is for reverse and many-valued ones — reaching for the wrong one is the classic N+1 source. Render with FullCalendar — backend just returns events fast. Check: week view on seed data under 200ms; overlapping appointment for one teacher → <code>IntegrityError</code>; back-to-back with <code>booking_buffer_minutes=10</code> → conflict.</p>
-<h2>Deliverables — check them off</h2>
+<p class="why">Win: 1-1 sessions share teachers with group classes without ever double-booking a human — and one calendar shows both.</p>
+<p>Group classes are carved in advance; appointments are negotiated into free time. The hard part is that both consume the same teachers, so the no-double-booking rule from lesson&nbsp;3 must now span two tables — and exclusion constraints cannot span tables. This lesson builds the appointment models, computes (never stores) bookable slots, merges both worlds into one calendar feed, and guards the cross-table clash in Python where the database cannot.</p>
+<h2>Step 1 — Models: resources, rules, exceptions, appointments</h2>
+<p>New app code inside <code>scheduling</code> (appointments extend scheduling — same bounded context, no new app): <code>Resource</code> (a room-like bookable: massage table, studio), <code>AvailabilityRule</code> (weekday + start/end + valid range), <code>AvailabilityException</code> (holidays, closures), <code>Appointment</code> (venue, member, teacher, optional resource, times, status). The appointment exclusions mirror lesson&nbsp;3 — <code>(venue, teacher)</code> and <code>(venue, resource)</code>, cancelled-exempt — because the same reasoning applies. Booking grows its second target here: nullable <code>appointment</code> FK plus an exactly-one check (a booking is for a class <em>or</em> an appointment, enforced in <code>clean()</code> since cross-column checks cannot be partial uniques).</p>
+<h2>Step 2 — Slots are computed, never stored</h2>
+<p><code>generate_slots(resource, day, duration_min, teacher=None)</code> returns <code>(start_utc, end_utc)</code> pairs through a pipeline worth memorizing: rules → candidate slots → minus exceptions → minus existing commitments → wall-time dedupe. Storing slots would mean invalidating them on every booking, cancel, and rule change — computing them from rules plus commitments keeps exactly one source of truth. Two subtleties to get right: the venue policy's buffer pads commitments on <em>both</em> sides (back-to-back sessions need breathing room), and DST gaps collapse in wall-time dedupe (a spring-forward hour that does not exist must not produce a phantom slot — there is a test with a real transition date, and it fails if you dedupe in UTC).</p>
+<h2>Step 3 — The cross-table clash, guarded in Python</h2>
+<p>Here is the sentence to internalize: <em>exclusion constraints cannot span tables, so Python guards appointment-vs-class here (and <code>book_seat</code> guards the reverse direction for class bookings)</em>. <code>Appointment.clean()</code> refuses a teacher holding an overlapping class; <code>book_seat</code> raises <code>TeacherUnavailable</code> when the class teacher holds an overlapping appointment. Both directions, both tested — one direction alone leaves a hole shaped exactly like a busy Tuesday. And <code>book_seat</code> never books appointments (no caller passes one yet): appointment purchase is a later lesson's seam, and the spend function would crash on a class-less booking today — a known gap, not a bug, until that lesson wires it.</p>
+<h2>Step 4 — One calendar feed, bounded</h2>
+<p>One serializer addition first: substitution rows carry teacher ids, but readers need names. Two read-only fields (the same <code>source=</code> pattern lesson&nbsp;3's later endpoints reuse everywhere):</p>
+<pre>class TeacherSubstitutionSerializer(serializers.ModelSerializer):
+    old_teacher_name = serializers.CharField(
+        source="old_teacher.username", read_only=True
+    )
+    new_teacher_name = serializers.CharField(
+        source="new_teacher.username", read_only=True
+    )</pre>
+<p><code>GET /api/v1/calendar?from=&amp;to=&amp;teacher=&amp;room=</code> merges classes and appointments into one event list (<code>kind</code> discriminates), bounded to 31 days like lesson&nbsp;4's window discipline. Each event carries UTC instants; timezone display is a client concern (venue <code>time_zone</code> travels on the venue payload). Keep it fast with <code>select_related</code> on both querysets and paginate by day — the week view renders hundreds of events, and N+1 here is the first slowdown real users feel. Appointment late-cancel gets its own window (<code>appointment_late_cancel_hours</code>, 24h default — longer than classes because a therapist cannot refill an hour like a group class refills a seat).</p>
+<h2>Exercises</h2>
+<p>1. Book a class for a teacher, then insert an overlapping appointment, then reverse the order. Both must refuse — remove one guard and show which order slips through.<br>2. DST: generate slots for a resource on your zone's spring-forward Sunday. Prove the missing hour produces no slot.<br>3. Buffer: set the policy buffer to 30 minutes and show two adjacent appointments refuse.<br>4. Calendar budget: seed 200 classes + 50 appointments, fetch the week feed, assert the query count stays flat.</p>
 <p class="progress" data-progress></p>
 <ul class="check">
-<li><label><input type="checkbox" data-id="d1"> Overlapping appointment for one teacher → <code>IntegrityError</code></label></li>
-<li><label><input type="checkbox" data-id="d2"> Week calendar on seed data renders in &lt; 200ms</label></li>
-<li><label><input type="checkbox" data-id="d3"> DST-boundary availability test passes</label></li>
-<li><label><input type="checkbox" data-id="d4"> Buffer test: back-to-back with <code>booking_buffer_minutes=10</code> conflicts</label></li>
+<li><label><input type="checkbox" data-id="d1"> Overlapping appointment for same teacher → IntegrityError; class-vs-appointment clash refused both directions</label></li>
+<li><label><input type="checkbox" data-id="d2"> DST gap test green; buffer test green</label></li>
+<li><label><input type="checkbox" data-id="d3"> Week calendar renders within budget on seed-scale data</label></li>
 </ul>
 <h2>Primary source</h2>
-<p><a href="https://fullcalendar.io/docs">FullCalendar docs</a> — the events-feed format your endpoint must speak.</p>
+<p><a href="https://docs.djangoproject.com/en/6.1/ref/models/querysets/">Django querysets</a> — <code>select_related</code> vs <code>prefetch_related</code>, the performance vocabulary this lesson leans on.</p>
 <nav class="lesson-nav"><a href="0006-credit-ledger.html">← Lesson 6</a><a href="0008-door-access.html">Lesson 8 →</a></nav>
 <p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
 </main><script src="../assets/app.js"></script></body></html>

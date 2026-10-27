@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 2 — Skeleton and multi-tenancy</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 2 of 11 · Tutorial Ch. 1</p>
+<p class="course">Bookr course · Lesson 2 of 12 · Tutorial Ch. 1</p>
 <h1>Skeleton and multi-tenancy</h1>
 <p class="why">Win: Postgres runs, migrations apply, every row belongs to exactly one venue — and every venue to one organization.</p>
 <h2>Step 1 — Scaffold and deps</h2>
@@ -8,7 +8,7 @@
 uv add "django&gt;=6.1,&lt;7" django-environ "psycopg[binary]"</pre>
 <p>Project package is <code>config</code>, not <code>bookr</code> (that name belongs to the repo). Then create only this lesson's apps:</p>
 <pre>uv run python manage.py startapp organizations</pre>
-<p><code>Organization</code>, <code>Venue</code>, <code>VenuePolicy</code>, and <code>Membership</code> live together in <code>organizations</code> — the whole tenancy context in one app, since none of them means anything without the others. Later lessons add their own app the same way — nothing before its time. Delete the generated <code>tests.py</code>/<code>views.py</code> stubs: tests live in a top-level <code>tests/</code> directory from day one (it grows into unit/api/e2e in lesson 9), views arrive per chapter.</p>
+<p><code>Organization</code>, <code>Venue</code>, <code>VenuePolicy</code>, and <code>Membership</code> live together in <code>organizations</code> — the whole tenancy context in one app, since none of them means anything without the others. Later lessons add their own app the same way — nothing before its time. Delete the generated <code>tests.py</code>/<code>views.py</code> stubs: tests live in a top-level <code>tests/</code> directory from day one (it grows markers and suites in lesson 10), views arrive per chapter.</p>
 <h2>Step 2 — Compose stack</h2>
 <p>Start Postgres via compose (the file holds only <code>db</code> for now — more services join it in later lessons):</p>
 <pre>docker compose up -d db</pre>

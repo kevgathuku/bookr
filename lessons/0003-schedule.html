@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 3 — Schedule that can't double-book</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 3 of 11 · Tutorial Ch. 2</p>
+<p class="course">Bookr course · Lesson 3 of 12 · Tutorial Ch. 2</p>
 <h1>Schedule that can't double-book</h1>
 <p class="why">Win: staff publish classes, and the database itself refuses overlapping room or teacher bookings — even when two requests arrive in the same millisecond.</p>
 <p>This is the lesson where Bookr stops trusting application code with its most important rule. You could check for overlapping classes in Python: query for clashes, then insert. That works right up until two requests interleave — both check, both see nothing, both insert, and Monday 6pm Spin has two teachers in one room. The fix is to teach the rule to Postgres itself with an <em>exclusion constraint</em>: the database rejects the second insert no matter how the requests overlap. Your job in this lesson is the models, the constraint, the tests that prove the refusal, and the first list endpoint.</p>

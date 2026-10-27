@@ -1,0 +1,32 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 10 — Tests, CI, ship</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 10 of 12 · Tutorial Ch. 9</p>
+<h1>Tests, CI, ship</h1>
+<p class="why">Win: a suite you trust and a pipeline that runs it — green on a fresh clone, following only this course.</p>
+<p>Nine lessons built the product; this one proves it and operates it. Two halves: the E2E harness that tests the running app (not just functions), and the scoped Django admin that lets owners work without API calls. Then the pipeline that runs everything on every push.</p>
+<h2>Step 1 — Markers: smoke per commit, e2e nightly</h2>
+<p>Not all tests cost the same, so they do not all run together. <code>pytestmark</code> splits the suite: unmarked backend tests run always; <code>@smoke</code> hits a live server with real Postgres (per commit); <code>@e2e</code> drives a real browser (nightly and pre-release). Declared once in <code>pyproject.toml</code>:</p>
+<pre>[tool.pytest.ini_options]
+markers = [
+    "smoke: per-commit end-to-end smoke (live server, no sleeps)",
+    "e2e: full nightly/pre-release suite (needs worker, mailpit, frontend)",
+]</pre>
+<h2>Step 2 — The harness: boot, seed, serve, smoke</h2>
+<p><code>tests/e2e/boot.sh</code> is a script with opinions, and every opinion is stated at the top: migrate, seed (including the fixed <code>--e2e</code> org with known users and short windows), serve, wait on <em>readiness</em> (bounded 60s curl loop — never bare sleeps), run smoke, and kill only what it started. Two rules worth copying into every project: fail if the port is already serving (a stray runserver makes green meaningless), and seed inside the test database with committed rows (the live-server thread cannot see uncommitted test transactions). The browser journey — login, book the only seat, second member waitlists, ledger shows both — runs against the same server the smoke tests hit, with seeded data, no mocks.</p>
+<h2>Step 3 — Operate: a scoped admin</h2>
+<p>Django gives you an admin; multi-tenancy takes most of it away and hands back exactly what each role may touch. <code>BookrAdminSite.has_permission</code> gates the whole site on back-office roles (owner, manager, frontdesk — teachers and members are denied even if flagged staff), <code>VenueScopedAdmin</code> scopes every queryset to the requester's venues (same-venue policy inline is the one exception — cross-venue inlines leak), and <code>ReadOnlyAdmin</code> covers the ledger and event logs (money and history are append-only everywhere, including here). The substitution form fills past teacher and recorder from the roster and the logged-in user — fields the form never shows, because history you can type is history you can forge.</p>
+<h2>Step 4 — Pipeline: gates in order</h2>
+<p>GitHub Actions with a real Postgres service (not SQLite — lesson&nbsp;3's constraint must exist in CI too): ruff, format check, mypy, pytest, then smoke. Each gate blocks the next; a red gate stops the line. Secrets in CI are openly insecure dummy values (<code>ci-only-insecure-key</code>) — honest fakes, never almost-real ones.</p>
+<h2>Exercises</h2>
+<p>1. Occupy port 8000 and run <code>boot.sh</code>. Read its refusal, then explain what false-green it prevents.<br>2. Break one admin scope (remove a <code>_scope_q</code>) and write the test that catches cross-venue rows.<br>3. Make smoke flaky on purpose (a bare <code>sleep</code> instead of readiness). Run it ten times and count the reds.<br>4. Log in to the admin as a teacher. List everything visible, and justify each item.</p>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> Full suite green one run; smoke green against boot.sh serving</label></li>
+<li><label><input type="checkbox" data-id="d2"> Admin: teacher/member denied; venue scoping holds; ledger read-only</label></li>
+<li><label><input type="checkbox" data-id="d3"> CI workflow green on a fresh clone following only this course</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://docs.djangoproject.com/en/6.1/ref/contrib/admin/">Django admin</a> — <code>ModelAdmin</code> hooks and site permissions, the two extension points this lesson uses.</p>
+<nav class="lesson-nav"><a href="0009-staff-apis.html">← Lesson 9</a><a href="0011-docker-dress-rehearsal.html">Lesson 11 →</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
+</main><script src="../assets/app.js"></script></body></html>

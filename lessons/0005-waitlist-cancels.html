@@ -1,36 +1,133 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 5 — Waitlist and late cancels</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 5 of 11 · Tutorial Ch. 4</p>
+<p class="course">Bookr course · Lesson 5 of 12 · Tutorial Ch. 4</p>
 <h1>Waitlist and late cancels</h1>
-<p class="why">Win: cancellations heal themselves — FIFO promotion, held seats, and late cancels that cost a credit.</p>
-<h2>Step 1 — Cancel, then promote</h2>
-<p>Waitlist order derives from booking creation time — no stored counters to corrupt. <code>cancel_booking(member, booking, by_staff=False)</code> runs in a transaction, then enqueues an idempotent Celery task (keep it in <code>bookings/tasks.py</code> — Celery's autodiscovery only looks in installed apps' <code>tasks</code> modules):</p>
-<pre>@shared_task
-def promote_waitlist(class_id):
-    klass = ScheduledClass.objects.get(pk=class_id)
-    nxt = Booking.objects.filter(
-        scheduled_class=klass, status="waitlisted").order_by("created_at").first()
-    if nxt and free_seats(klass):  # re-check inside the task: idempotent
-        nxt.status = "confirmed"
-        nxt.save()  # hold enforced by a beat sweeper: unclaimed past
-                      # waitlist_hold_minutes → seat passes to the next waiter</pre>
-<p>…next in line. Same task serves cancels, no-shows, and capacity increases — one path, not three.</p>
-<h2>Step 2 — Late-cancel policy</h2>
-<p>Compare cancel time against <code>venue.current_policy.class_late_cancel_hours</code>: outside → <code>cancelled</code> + refund (call the ledger stub from lesson 4 and log it — real money moves in <a href="0006-credit-ledger.html">lesson 6</a>); inside → <code>cancelled_late</code>, credit forfeited, strike counted. Staff override always refunds with a logged reason. No-shows: frontdesk <code>POST …/no_show</code> within 2h after end → forfeit; 3 strikes/30d flags the member (no auto-ban in v1).</p>
-<h2>Step 3 — Notify</h2>
-<p>New infra: <code>uv add celery redis</code>. Compose gains <code>redis</code> + <code>mailpit</code> services; <code>worker</code> and <code>beat</code> run as plain processes for now (they move into compose in lesson 10):</p>
-<pre>uv run celery -A config worker   # terminal 1
-uv run celery -A config beat    # terminal 2</pre>
-<p>Add <code>REDIS_URL</code> + <code>EMAIL_URL</code> to dev settings. Backend: console → mailpit, per-venue templates.</p> Wire three mails: class-cancelled, promoted, late-cancel receipt. Boundary-test with freezegun: cancel at window ± 1 minute → refund vs forfeit; hold expiry → seat passes on. <code>freeze_time</code> shifts Django's <code>timezone.now()</code> too, so window math tests deterministically.</p>
-<h2>Deliverables — check them off</h2>
+<p class="why">Win: full classes queue fairly, cancellations free seats into the queue automatically, and late cancels are marked — not refunded, not ignored.</p>
+<p>Lesson 4 booked seats. This lesson ends bookings: waitlists, holds, cancels, no-shows. One deliberate omission: <em>money</em>. Cancelling here flips status and promotes the next waiter, but moves no credits — the ledger does not exist yet. Lesson&nbsp;6 wires the refund and the promotion charge into exactly the seams marked below, and you will see why the seams were left visible. Resist the urge to build money early; the lifecycle must be correct before it is valuable.</p>
+<h2>Step 1 — Holds: one field, one task</h2>
+<p>When a seat frees, the longest-waiting member gets a time-limited hold — not the seat outright, because they might be asleep. Add the field (its own migration):</p>
+<pre>    hold_until = models.DateTimeField(null=True, blank=True)</pre>
+<p>The promotion itself runs in a Celery task, for two reasons that both matter now. First, cancellation should return fast while promotion does several writes. Second, testability: Celery's eager mode runs tasks inline, so tests exercise the real path without a broker. Development needs no broker at all — the setting defaults to eager, and the worker moves into compose in lesson&nbsp;11:</p>
+<pre># config/settings/base.py
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_EAGER", "1") == "1"</pre>
+<pre># booking/tasks.py
+from celery import shared_task
+
+
+@shared_task(name="booking.promote_waitlist")
+def promote_waitlist(booking_id=None, class_id=None):
+    """Promote the longest-waiting waiter into a free seat. Natural no-op
+    when full or empty, so retries are safe."""
+    if (booking_id is None) == (class_id is None):
+        raise ValueError("Pass exactly one of booking_id, class_id.")
+    if class_id is None:
+        trigger = Booking.objects.select_related("scheduled_class").get(pk=booking_id)
+        class_id = trigger.scheduled_class_id
+        if class_id is None:
+            return 0
+    with transaction.atomic():
+        locked = ScheduledClass.objects.select_for_update().get(pk=class_id)
+        if not _free_seat(locked):
+            return 0
+        first = (
+            Booking.objects.select_for_update()
+            .filter(scheduled_class=locked, status=Booking.Status.WAITLISTED)
+            .order_by("created_at")
+            .first()
+        )
+        if first is None:
+            return 0
+        return _promote(first)</pre>
+<p>Three patterns to steal. The task takes <em>either</em> trigger id <em>or</em> class id and refuses both/neither — one entry point for cancels, sweeps, and admin actions. Every exit that changes nothing returns 0 instead of raising, so retries and double-delivery are harmless (message queues deliver at-least-once; your tasks must assume it). And both the class and the waiter row are locked: the free-seat check and the promotion happen atomically, or two concurrent promotes hand out one seat twice. <code>_promote</code> confirms the waiter and stamps <code>hold_until</code> from the venue policy's <code>waitlist_hold_minutes</code> — and leaves an explicit seam where lesson&nbsp;6 charges the waiter's pass:</p>
+<pre>def _promote(first):
+    # Lesson 6 wires the charge here: spend the waiter's credit, so a
+    # lapsed pass keeps them queued and the seat stays open.
+    minutes = first.venue.current_policy.waitlist_hold_minutes
+    first.status = Booking.Status.CONFIRMED
+    first.hold_until = timezone.now() + timezone.timedelta(minutes=minutes)
+    first.save(update_fields=["status", "hold_until"])
+    notify.booking_promoted(first)
+    return 1</pre>
+<p>The sweeper reclaims lapsed holds on a beat (nightly in production; freezegun in tests). Same shape — lock, re-check under the lock, act — because the member might confirm between listing and locking:</p>
+<pre>@shared_task(name="booking.sweep_expired_holds")
+def sweep_expired_holds():
+    """Beat sweeper: lapsed holds cancel and the seat passes to next."""
+    now = timezone.now()
+    swept = 0
+    held = Booking.objects.filter(
+        status=Booking.Status.CONFIRMED, hold_until__lt=now
+    ).select_related("scheduled_class")
+    for booking in held:
+        with transaction.atomic():
+            locked = Booking.objects.select_for_update().get(pk=booking.pk)
+            if locked.status != Booking.Status.CONFIRMED or (
+                locked.hold_until is not None and locked.hold_until >= now
+            ):
+                continue
+            locked.status = Booking.Status.CANCELLED
+            locked.hold_until = None
+            locked.save(update_fields=["status", "hold_until"])
+            swept += 1
+            if locked.scheduled_class_id is not None:
+                promote_waitlist.delay(class_id=locked.scheduled_class_id)
+    return swept</pre>
+<h2>Step 2 — Cancel, no-show, and the strike flag</h2>
+<p>One service owns every ending (<code>booking/cancellations.py</code>), with the same lock-then-act discipline. Member cancel under the venue's window cancels; inside it marks late — and late is a <em>status</em>, not a refund decision, because money does not exist yet. Staff override skips the window (front desk needs it for real life); it takes a mandatory reason, stored in lesson&nbsp;9's ledger note:</p>
+<pre>def cancel_booking(actor, booking, *, staff_override=False, reason=""):
+    """Cancel inside a transaction; frees the seat and triggers promotion."""
+    with transaction.atomic():
+        locked = (
+            Booking.objects.select_for_update(of=("self",))
+            .select_related("scheduled_class", "appointment", "venue")
+            .get(pk=booking.pk)
+        )
+        if locked.status not in (
+            Booking.Status.CONFIRMED,
+            Booking.Status.WAITLISTED,
+        ):
+            raise ValidationError("Booking is already closed.")
+        freed = locked.status == Booking.Status.CONFIRMED
+        if staff_override:
+            locked.status = Booking.Status.CANCELLED
+        else:
+            target = _target(locked)
+            cutoff = target.starts_at - timedelta(hours=_window_hours(locked))
+            if timezone.now() <= cutoff:
+                locked.status = Booking.Status.CANCELLED
+                notify.booking_cancelled(locked)
+            else:
+                locked.status = Booking.Status.CANCELLED_LATE
+                notify.booking_late_cancel(locked)
+        locked.save(update_fields=["status"])
+        if freed and locked.scheduled_class_id is not None:
+            from booking.tasks import promote_waitlist
+
+            promote_waitlist.delay(booking_id=locked.pk)
+    return locked</pre>
+<p>The function-level import of <code>promote_waitlist</code> is deliberate: <code>booking/tasks.py</code> imports the service layer, so a top-level import would cycle. No-show forfeits without refund (front desk marks within 2h after end; outside that window the mark is refused), and the strike flag counts late-cancels plus no-shows in 30 days — <em>flag, never auto-ban</em>, because banning is a human decision:</p>
+<pre>def has_strike_flag(member):
+    """3+ late-cancels/no-shows on recent targets: flag, never auto-ban."""</pre>
+<h2>Step 3 — Mail that cannot break booking</h2>
+<p>Notices send through Django mail — console backend in dev and test (assert via <code>mail.outbox</code>), SMTP in production. One rule learned the hard way in the dress rehearsal: sending must be best-effort. An SMTP outage once turned every cancel into a 500, because the send ran inside the booking transaction. Now each notice catches its own failure and logs it:</p>
+<pre>def _send(subject, body, to):
+    # Best-effort: a mail outage must never fail the booking write.
+    try:
+        send_mail(subject, body, None, [to])
+    except Exception:
+        logger.exception("member notice failed")</pre>
+<h2>Step 4 — Endpoints and the boundary tests</h2>
+<p>Three endpoints: <code>GET /api/v1/bookings/?mine=true</code> (own bookings, newest first), <code>POST .../&lt;id&gt;/cancel/</code> (staff override via <code>{"staff_override": true, "reason": ...}</code>, reason mandatory), <code>POST .../&lt;id&gt;/no-show/</code>. Then the tests that earn the lesson: the FIFO test (cancel → first waiter confirmed with a hold, mail in outbox), the boundary test (cancel at window ±1 minute → cancelled vs cancelled_late — pick class times arithmetically, never "about an hour"), and the hold-expiry test with freezegun (freeze past <code>hold_until</code>, sweep, seat passes to next).</p>
+<h2>Exercises</h2>
+<p>1. Promote twice: call <code>promote_waitlist</code> for the same class concurrently and prove one waiter — locks, not luck.<br>2. Override without a reason through the API. Which layer refuses, and with what status?<br>3. Kill the broker (unset the eager default without starting Redis) and run the waitlist test. Read the error, then explain why eager-by-default is the right dev setting.<br>4. No-show at 2h01m after end. Then at 1h59m. Pin the boundary with a test.</p>
 <p class="progress" data-progress></p>
 <ul class="check">
-<li><label><input type="checkbox" data-id="d1"> E2E #1 green: book → full → waitlist → seat freed → first waitlister promoted + email in mailpit</label></li>
-<li><label><input type="checkbox" data-id="d2"> Boundary test: cancel at window ± 1 min → refund vs forfeit</label></li>
+<li><label><input type="checkbox" data-id="d1"> FIFO green: cancel → first waiter confirmed with hold + email in outbox</label></li>
+<li><label><input type="checkbox" data-id="d2"> Boundary test: cancel at window ± 1 min → cancelled vs cancelled_late</label></li>
 <li><label><input type="checkbox" data-id="d3"> Hold-expiry test (freezegun): expired hold passes to the next member</label></li>
 </ul>
 <h2>Primary source</h2>
-<p><a href="https://docs.celeryq.dev/en/stable/userguide/tasks.html">Celery task docs</a> — idempotent tasks with retries, the promotion job's foundation.</p>
+<p><a href="https://docs.celeryq.dev/en/stable/userguide/tasks.html">Celery tasks</a> — retries, eager mode, and why tasks must be idempotent; then <a href="https://docs.djangoproject.com/en/6.1/topics/email/">Django mail</a> for backends and <code>outbox</code>.</p>
 <nav class="lesson-nav"><a href="0004-booking-transaction.html">← Lesson 4</a><a href="0006-credit-ledger.html">Lesson 6 →</a></nav>
 <p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
 </main><script src="../assets/app.js"></script></body></html>

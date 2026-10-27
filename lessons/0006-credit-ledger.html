@@ -1,36 +1,77 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 6 — Credit ledger (MVP done)</title><link rel="stylesheet" href="../assets/style.css"></head>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 6 — Credit ledger</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 6 of 11 · Tutorial Ch. 5</p>
-<h1>Credit ledger — MVP done</h1>
-<p class="why">Win: every credit movement is auditable, races can't double-spend — and with this lesson the MVP is shippable.</p>
-<h2>Step 1 — New app, then ledger models</h2>
-<p><code>uv run python manage.py startapp passes</code>, add it to <code>INSTALLED_APPS</code>. Then <code>PassProduct</code> (credits or unlimited, validity, applicable class-type M2M blank = all), <code>MemberPass</code> (member's instance, cached counters), append-only <code>CreditLedger</code> (pass, booking, ±delta, reason, actor, timestamp). Balance is always <code>SUM(delta)</code> — cached counters update in the same transaction, history is never edited. Note: the spec's <code>pass</code> field is <code>member_pass</code> in code (<code>pass</code> is a Python keyword).</p>
-<h2>Step 2 — Spend, refund, expire</h2>
-<p><code>passes/services.py::spend_credit(member, booking)</code>: lock the chosen pass (<code>select_for_update</code>), oldest valid pass covering the class type first, unlimited passes before credit bundles. Pair it with <code>refund_credit</code>, reason-required <code>adjust_credit</code>, and a nightly beat task <code>expire_passes</code> writing expiry rows. Django nuance: under the row lock, plain <code>+=</code> plus <code>save()</code> is safe — <code>F()</code> expressions are for counters you update <em>without</code> locking:</p>
+<p class="course">Bookr course · Lesson 6 of 12 · Tutorial Ch. 5</p>
+<h1>Credit ledger</h1>
+<p class="why">Win: every credit movement is an append-only row, the balance is always the sum, and booking spends inside the same transaction as the seat.</p>
+<p>Lessons 4 and 5 booked and ended seats without money — deliberately. This lesson adds the wallet and wires it into exactly the two seams left open: the charge in <code>_create</code> and the charge in <code>_promote</code>, plus refunds on the cancel paths. The core rule fits in one sentence: <strong>balance is always <code>SUM(delta)</code></strong>. The <code>credits_used</code> counter you will see on the pass is a cache for reads, updated in the same transaction as the row — never edited directly, never trusted over the sum.</p>
+<h2>Step 1 — New app, three models</h2>
+<pre>uv run python manage.py startapp passes</pre>
+<p><code>PassProduct</code> is the catalog (venue-scoped names, like lesson&nbsp;3's types and rooms): limited packs carry a credit count, unlimited ones carry <code>null</code> — null means infinite, zero would mean empty, and confusing the two is a classic bug, so read <code>is_unlimited</code> twice:</p>
+<pre>class PassProduct(models.Model):
+    objects = VenueScopedQuerySet.as_manager()
+    venue = models.ForeignKey(
+        "organizations.Venue", on_delete=models.CASCADE, related_name="pass_products"
+    )
+    name = models.CharField(max_length=200)
+    credits_total = models.PositiveIntegerField(null=True, blank=True)
+    validity_days = models.PositiveIntegerField()
+    applicable_class_types = models.ManyToManyField(
+        "scheduling.ClassType", blank=True, related_name="pass_products"
+    )
+    transferable = models.BooleanField(default=False)</pre>
+<p><code>MemberPass</code> is one sold copy: member, product snapshot (<code>credits_total</code> copied at sale so later catalog edits never rewrite history), validity window, status, and the cached counter. <code>CreditLedger</code> is the money itself — every row carries the pass, the optional booking it settles, a signed delta, a machine reason, and a human note:</p>
+<pre>class CreditLedger(models.Model):
+    class Reason(models.TextChoices):
+        PURCHASE = "purchase", "Purchase"
+        BOOKING = "booking", "Booking"
+        REFUND = "refund", "Refund"
+        FORFEIT = "forfeit", "Forfeit"
+        EXPIRY = "expiry", "Expiry"
+        ADJUSTMENT = "adjustment", "Adjustment"
+
+    member_pass = models.ForeignKey(
+        MemberPass, on_delete=models.PROTECT, related_name="entries"
+    )
+    booking = models.ForeignKey(
+        "booking.Booking",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="settled_bookings",
+    )
+    delta = models.IntegerField()
+    reason = models.CharField(max_length=16, choices=Reason.choices)
+    note = models.CharField(max_length=280, blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)</pre>
+<p>Why a closed reason taxonomy <em>plus</em> a free-text note? Reports and reconciliation group by reason — "show me all refunds" must be a filter, not a text search. Humans write notes — "goodwill, front desk" explains <em>why</em> to the next staffer. One field cannot do both jobs; two fields can. And <code>PROTECT</code> on the pass (not <code>CASCADE</code>): money rows must survive their pass, or the audit trail develops holes exactly when it matters.</p>
+<h2>Step 2 — Spend, refund, adjust, expire</h2>
+<p>Oldest-valid-first, unlimited before limited — deterministic choice matters because tests must predict which pass gets charged:</p>
 <pre>def spend_credit(member, booking):
-    with transaction.atomic():
-        member_pass = (MemberPass.objects.select_for_update()
-             .filter(member=member, status="active",
-                     valid_until__gt=now())
-             .order_by("valid_until").first())  # FIFO; unlimited-first is a second pass
-        if member_pass is None:
-            raise CreditInsufficient
-        CreditLedger.objects.create(member_pass=member_pass, booking=booking,
-            delta=-1, reason="booking")
-        member_pass.credits_used += 1  # cache only
-        member_pass.save()</pre>
-<h2>Step 3 — Wire it into lessons 4–5</h2>
-<p>Replace the stubs: <code>book_seat</code> calls <code>spend_credit</code>; <code>cancel_booking</code> calls <code>refund_credit</code> or writes a <code>forfeit</code> row per the window rules. Extend <code>seed_demo</code>: give the members passes so the demo books end to end. Expose <code>GET /api/v1/me/passes</code> plus the ledger view (members see own, frontdesk sees the venue's). Then run both races again: last-seat <em>and</em> last-credit (20 threads × 1 credit → exactly 1 booking), plus the invariant test — ledger sums equal cached balances on seed data.</p>
-<h2>Deliverables — check them off</h2>
+    """Oldest-valid-first, unlimited before limited. Must run inside the
+    booking transaction (row locks serialize the last-credit race). Returns
+    the ledger row, or None for unlimited (nothing to deplete)."""</pre>
+<p>That docstring's first sentence is the whole concurrency story: the candidate passes are locked with <code>select_for_update</code>, so two simultaneous spends on the last credit serialize — the loser sees the depleted pass and fails instead of double-spending. Refund is the mirror (plus one, reactivated from depleted), adjust is the staff correction (mandatory reason, non-zero delta enforced — service here, HTTP endpoint in lesson&nbsp;9 with the other staff operations), and expiry zeroes lapsed balances on the beat. Every one of them runs inside a transaction with locked rows; money functions that run outside transactions are how ledgers drift from reality.</p>
+<h2>Step 3 — Wire the two seams</h2>
+<p>Open <code>booking/services.py</code> and fill the marked spot in <code>_create</code>: after the row is created, if confirmed, spend — inside the <em>same</em> transaction, so <code>CreditInsufficient</code> rolls the booking back too and nothing is ever written half-done. Waitlisted bookings spend nothing yet (no seat, no charge — promotion charges later). Unlimited passes spend nothing and leave <code>credit_tx</code> empty. Then the same single line in <code>_promote</code>, and <code>refund_credit</code> on the cancel path from lesson&nbsp;5. Three one-line edits, each with a test that fails first: book-with-no-credit aborts with no row, promotion with a lapsed pass stays queued, cancel restores the credit with a refund row.</p>
+<h2>Step 4 — Member endpoints</h2>
+<p><code>GET /api/v1/me/passes/</code> (own passes, all venues) and <code>GET /api/v1/ledger/</code> (own entries; staff see the venue's — the same view serves both by role, which lesson&nbsp;9's desk reuses). No DELETE anywhere near money: products with issued passes are <code>PROTECT</code>ed, and ledger rows are append-only by construction — there is simply no endpoint that removes them.</p>
+<h2>Exercises</h2>
+<p>1. Last-credit race: two threads, one credit, same member. Prove one <code>CreditInsufficient</code> and a balanced ledger — then remove the <code>select_for_update</code> and watch it break.<br>2. Expire a pass with a remaining balance mid-hold and sweep. Who gets what, in which order?<br>3. Change the spend order to newest-first. Which existing test fails, and is the failure testing behavior or implementation?<br>4. Unlimited pass, expired window: book. Which guard refuses, and why must validity outrank unlimitedness?</p>
 <p class="progress" data-progress></p>
 <ul class="check">
-<li><label><input type="checkbox" data-id="d1"> Last-credit race: 20 threads × 1 credit → exactly 1 booking</label></li>
-<li><label><input type="checkbox" data-id="d2"> Ledger invariant test: deltas sum to cached balance on seed data</label></li>
-<li><label><input type="checkbox" data-id="d3"> Expiry sweep writes expiry rows; booking on expired pass → 402</label></li>
-<li><label><input type="checkbox" data-id="d4"> Staff adjustment without a reason → 400; MVP demo runs end to end</label></li>
+<li><label><input type="checkbox" data-id="d1"> Spend order test: oldest-valid-first, unlimited before limited</label></li>
+<li><label><input type="checkbox" data-id="d2"> Last-credit race green; refund restores with a row; expiry zeroes</label></li>
+<li><label><input type="checkbox" data-id="d3"> Booking with no credit aborts leaving no row; promotion with lapsed pass stays queued</label></li>
 </ul>
 <h2>Primary source</h2>
-<p><a href="https://docs.djangoproject.com/en/6.1/topics/db/transactions/">Django transactions docs, revisited (6.1)</a> — same locking pattern as lesson 4, now guarding money-adjacent rows.</p>
+<p><a href="https://docs.djangoproject.com/en/6.1/topics/db/transactions/">Django transactions</a> — savepoints and <code>select_for_update</code>, the two primitives every money function here stands on.</p>
 <nav class="lesson-nav"><a href="0005-waitlist-cancels.html">← Lesson 5</a><a href="0007-appointments-calendar.html">Lesson 7 →</a></nav>
 <p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
 </main><script src="../assets/app.js"></script></body></html>
