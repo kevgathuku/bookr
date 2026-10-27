@@ -123,3 +123,29 @@ Partner/door APIs (no UI): aggregator booking/cancel/schedule feed and
   calendar/passes/ledger → `/desk` → `/teach` → `/manage/*` →
   hardening (a11y pass, skeleton/error states, codegen gate).
   Each step ends with its page's Done criteria green under `@smoke`.
+
+## 6. Verification gates (E2E after every step)
+
+No step is complete until its gate is green, and no later step starts on
+red. Each gate runs its new scope *plus all previous scopes* (regression
+is part of every gate, not a phase at the end).
+
+| After step | Gate: must all pass |
+|---|---|
+| Auth shell + `/` booking | `tsc`, eslint, codegen diff clean, `vite build`; E2E login, venue switch re-fetches, book seat, full class → 409 → waitlist join → visible in bookings |
+| Calendar / passes / ledger | Above scopes still green, plus: calendar matches list API for the same range; passes show expiry; every booking/cancel shows its ledger row with reason |
+| `/desk` | Above scopes still green, plus: roster check-in and no-show one-tappers, late-cancel override with reason, credit adjust with reason visible in ledger, door log tail renders |
+| `/teach` | Above scopes still green, plus: teacher schedule matches API, sub history shows original teacher |
+| `/manage/*` | Above scopes still green, plus: class CRUD, sub create, product create, policy retire→activate shown as history, aggregator create + token rotation (single plaintext viewing), adjustment requires reason |
+| Hardening | Full `@smoke` + full `@e2e` (SPEC §9) green in one run |
+
+Deterministic preconditions, every gate run (skip one and the gate means
+nothing): fresh `seed_demo`; per-run org with second-scale
+hold windows; mailpit purged via its API; fixed viewport + venue timezone;
+`--retries=0 --workers=1` (retries hide flakes, parallelism races seats);
+trace + video on, kept on failure only.
+
+Flake rule: a gate failing intermittently *twice* is a bug, not luck — in
+product or test, quarantined with a ticket, never re-run-to-green. A gate
+may only be waived in writing with the waived scope named and re-gated
+before release.
