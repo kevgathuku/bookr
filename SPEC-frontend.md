@@ -11,16 +11,24 @@ implementation time, then pinned in `frontend/package.json`."
 - React 18 + TypeScript `strict` + Vite. Routing: React Router. Server
   state: TanStack Query only (no redux/zustand — server data lives in the
   cache, UI ephemera in `useState`). Calendar: FullCalendar React.
-  Styling: CSS Modules + a token file (`--space`, `--color-*`); no component
-  library in v1 — semantic HTML you can keyboard through.
+  Styling: Tailwind CSS v4 (`@tailwindcss/vite` plugin, design tokens in
+  `@theme`) — utility-first, zero runtime, compiles to static CSS that
+  WhiteNoise serves like anything else. Semantic HTML throughout (keyboard
+  first; status never color-only).
 - Layout (`frontend/src/`): `routes/` (one folder per route, co-located
   loader/components), `components/` (shared only: Button, Dialog, Field,
   EmptyState, DataTest ids), `api/generated/` (codegen output, never
   hand-edited), `api/client.ts` (base fetch: base URL, auth + venue headers,
   refresh-on-401), `hooks/`, `test/e2e/` (Playwright, `@smoke`/`@e2e` tags).
-- Quality gates (CI, same workflow as backend): `tsc --noEmit`, eslint,
-  `openapi-typescript` regen + `git diff --exit-code` (schema drift breaks
-  the build), `vite build`, Playwright `@smoke`.
+- Quality gates (CI, same workflow as backend): `npm run typecheck`
+  (`tsc --noEmit`), `npm run lint` (eslint), `npm run test` (Vitest +
+  Testing Library, for hooks/utils/time-math — not for server behavior),
+  `npm run generate:api` + `git diff --exit-code` (codegen drift),
+  `npm run build`. E2E is NOT npm: it runs from repo root via
+  pytest-playwright (`uv run pytest tests/e2e -m smoke`), sharing markers
+  and fixtures with the backend suite; browsers via
+  `playwright install chromium` (CI step). Standard scripts: `dev`,
+  `build`, `preview`, `typecheck`, `lint`, `test`, `generate:api`.
 - Serving: `vite build` → Django WhiteNoise, same origin (`/api/*` API,
   `/*` app). No CORS in v1. E2E runs against Vite `preview` of the
   production build + Django + worker + db + redis + mailpit (SPEC §9).
@@ -119,6 +127,21 @@ Partner/door APIs (no UI): aggregator booking/cancel/schedule feed and
 - `data-testid` on: book/waitlist/cancel buttons, seat counts, ledger
   rows, check-in/no-show buttons, grant/deny badges, venue switcher.
   Determinism per SPEC §9 (seeded org, second-scale hold windows).
+- Boot order for any E2E run (backend must be up *before* the first spec;
+  readiness waits, never bare sleeps):
+  ```
+  docker compose up -d --wait            # db + redis + mailpit healthy
+  uv run python manage.py migrate && uv run python manage.py seed_demo --e2e
+  uv run celery -A config worker &  uv run celery -A config beat &  # then web
+  uv run python manage.py runserver 8000 &  # until lesson-10 web image exists
+  until curl -sf localhost:8000/healthz; do sleep 1; done
+  cd frontend && npm ci && npm run build && (npm run preview -- --port 4173 &)
+  until curl -sf localhost:4173 >/dev/null; do sleep 1; done
+  PLAYWRIGHT_BASE_URL=http://localhost:4173 uv run pytest tests/e2e -m smoke
+  ```
+  Teardown: kill background jobs, `docker compose down -v` (fresh DB every
+  run). `seed_demo --e2e` (backend, ticket B11 scope) creates the per-run
+  short-window org; tests never share venues, so `--workers=1` stays.
 - Build order: auth shell + `/` schedule/booking (member core) →
   calendar/passes/ledger → `/desk` → `/teach` → `/manage/*` →
   hardening (a11y pass, skeleton/error states, codegen gate).
