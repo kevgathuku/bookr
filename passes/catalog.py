@@ -29,6 +29,7 @@ class PassProductSerializer(serializers.ModelSerializer):
             "applicable_class_types",
             "transferable",
         ]
+        read_only_fields: ClassVar[list[str]] = ["venue"]
 
 
 class PassProductViewSet(viewsets.ModelViewSet):
@@ -55,9 +56,7 @@ class PassProductViewSet(viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer):
-        if serializer.validated_data["venue"] != self.request.venue:
-            raise NotFound("No such venue.")
-        serializer.save()
+        serializer.save(venue=self.request.venue)
 
     def perform_update(self, serializer):
         if serializer.instance.venue != self.request.venue:

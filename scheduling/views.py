@@ -7,14 +7,41 @@ from django.utils.dateparse import parse_datetime
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 
+from booking.http import Conflict
+from booking.models import ACTIVE_STATUSES, Booking
 from organizations.permissions import IsStaffOrReadOnly, IsVenueMember
-from scheduling.models import ScheduledClass, TeacherSubstitution
+from scheduling.models import ClassType, Room, ScheduledClass, TeacherSubstitution
 from scheduling.serializers import (
+    ClassTypeSerializer,
+    RoomSerializer,
     ScheduledClassSerializer,
     TeacherSubstitutionSerializer,
 )
 
 MAX_WINDOW = timedelta(days=31)
+
+
+class CatalogViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only room / class-type lists for staff forms."""
+
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaffOrReadOnly,
+    ]
+
+    def get_queryset(self):
+        return self.queryset.filter(venue=self.request.venue).order_by("name")
+
+
+class RoomViewSet(CatalogViewSet):
+    queryset = Room.objects.all()
+    serializer_class = RoomSerializer
+
+
+class ClassTypeViewSet(CatalogViewSet):
+    queryset = ClassType.objects.all()
+    serializer_class = ClassTypeSerializer
 
 
 class TeacherSubstitutionViewSet(viewsets.ModelViewSet):
@@ -97,6 +124,14 @@ class ScheduledClassViewSet(viewsets.ModelViewSet):
                 "Overlaps an existing class for this room or teacher.",
             )
         return created
+
+    def destroy(self, request, *args, **kwargs):
+        klass = self.get_object()
+        if Booking.objects.filter(
+            scheduled_class=klass, status__in=ACTIVE_STATUSES
+        ).exists():
+            raise Conflict("Class has active bookings.")
+        return super().destroy(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         # A crafted venue id in the payload must not escape the request venue.

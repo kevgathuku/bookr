@@ -50,6 +50,8 @@ function Shell() {
 						<>
 							{" "}
 							<Link to="/desk">Desk</Link>
+							{" "}
+							<Link to="/manage">Manage</Link>
 						</>
 					) : null}
 				</nav>

@@ -1,5 +1,11 @@
 from django.urls import path
 
+from aggregators.staff import (
+    StaffAggregatorDetailView,
+    StaffAggregatorEventsView,
+    StaffAggregatorListView,
+    StaffAggregatorRotateView,
+)
 from aggregators.views import (
     PartnerBookingsView,
     PartnerCancelView,
@@ -21,5 +27,25 @@ urlpatterns = [
         "aggregators/<slug:slug>/schedule/",
         PartnerScheduleView.as_view(),
         name="partner-schedule",
+    ),
+    path(
+        "staff/aggregators/",
+        StaffAggregatorListView.as_view(),
+        name="staff-aggregators",
+    ),
+    path(
+        "staff/aggregators/<slug:slug>/",
+        StaffAggregatorDetailView.as_view(),
+        name="staff-aggregator",
+    ),
+    path(
+        "staff/aggregators/<slug:slug>/rotate/",
+        StaffAggregatorRotateView.as_view(),
+        name="staff-aggregator-rotate",
+    ),
+    path(
+        "staff/aggregators/<slug:slug>/events/",
+        StaffAggregatorEventsView.as_view(),
+        name="staff-aggregator-events",
     ),
 ]

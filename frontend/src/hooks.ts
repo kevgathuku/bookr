@@ -207,6 +207,175 @@ export async function adjustPass(
 	});
 }
 
+export interface RoomItem {
+	id: number;
+	name: string;
+	capacity: number | null;
+}
+
+export interface ClassTypeItem {
+	id: number;
+	name: string;
+	description: string;
+	capacity_default: number | null;
+	duration_min: number;
+}
+
+export function useRooms() {
+	return useQuery({
+		queryKey: ["manage", "rooms"],
+		queryFn: () => apiJson<RoomItem[]>("/api/v1/rooms/"),
+	});
+}
+
+export function useClassTypes() {
+	return useQuery({
+		queryKey: ["manage", "class-types"],
+		queryFn: () => apiJson<ClassTypeItem[]>("/api/v1/class-types/"),
+	});
+}
+
+export interface SubstitutionItem {
+	id: number;
+	scheduled_class: number;
+	old_teacher: number;
+	new_teacher: number;
+	created_by: number | null;
+}
+
+export function useSubstitutions() {
+	return useQuery({
+		queryKey: ["manage", "substitutions"],
+		queryFn: () => apiJson<SubstitutionItem[]>("/api/v1/substitutions/"),
+	});
+}
+
+export async function createSubstitution(
+	classId: number,
+	newTeacher: number,
+): Promise<void> {
+	await apiJson("/api/v1/substitutions/", {
+		method: "POST",
+		body: JSON.stringify({ scheduled_class: classId, new_teacher: newTeacher }),
+	});
+}
+
+export interface ProductItem {
+	id: number;
+	name: string;
+	credits_total: number;
+	validity_days: number;
+}
+
+export function useProducts() {
+	return useQuery({
+		queryKey: ["manage", "products"],
+		queryFn: () => apiJson<ProductItem[]>("/api/v1/pass-products/"),
+	});
+}
+
+export async function createProduct(body: {
+	name: string;
+	credits_total: number;
+	validity_days: number;
+}): Promise<void> {
+	await apiJson("/api/v1/pass-products/", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function patchProduct(id: number, body: object): Promise<void> {
+	await apiJson(`/api/v1/pass-products/${id}/`, {
+		method: "PATCH",
+		body: JSON.stringify(body),
+	});
+}
+
+export interface PolicyItem {
+	id: number;
+	valid_from: string;
+	valid_until: string | null;
+	class_late_cancel_hours: number;
+	waitlist_hold_minutes: number;
+}
+
+export function usePolicies() {
+	return useQuery({
+		queryKey: ["manage", "policies"],
+		queryFn: () => apiJson<PolicyItem[]>("/api/v1/policies/"),
+	});
+}
+
+export async function activatePolicy(body: object): Promise<void> {
+	await apiJson("/api/v1/policies/activate/", {
+		method: "POST",
+		body: JSON.stringify(body),
+	});
+}
+
+export interface StaffAggregatorItem {
+	slug: string;
+	name: string;
+	seat_allotment: number;
+	cancel_cutoff_minutes: number;
+	commission_percent: string;
+	active: boolean;
+	webhook_url: string;
+}
+
+export function useStaffAggregators() {
+	return useQuery({
+		queryKey: ["manage", "aggregators"],
+		queryFn: () => apiJson<StaffAggregatorItem[]>("/api/v1/staff/aggregators/"),
+	});
+}
+
+export async function createStaffAggregator(body: {
+	slug: string;
+	name: string;
+	seat_allotment: number;
+}): Promise<{ api_token: string }> {
+	return apiJson<{ api_token: string }>("/api/v1/staff/aggregators/", {
+		method: "POST",
+		body: JSON.stringify(body),
+	});
+}
+
+export async function rotateStaffAggregator(slug: string): Promise<{ api_token: string }> {
+	return apiJson<{ api_token: string }>(`/api/v1/staff/aggregators/${slug}/rotate/`, {
+		method: "POST",
+	});
+}
+
+export interface AggEventItem {
+	id: number;
+	method: string;
+	path: string;
+	status_code: number;
+	created_at: string;
+}
+
+export function useAggEvents(slug: string | null) {
+	return useQuery({
+		queryKey: ["manage", "agg-events", slug],
+		queryFn: () =>
+			apiJson<AggEventItem[]>(`/api/v1/staff/aggregators/${slug}/events/`),
+		enabled: slug !== null,
+	});
+}
+
+export async function createClass(body: {
+	class_type: number;
+	room: number;
+	teacher: number;
+	starts_at: string;
+	ends_at: string;
+}): Promise<void> {
+	await apiJson("/api/v1/classes/", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function deleteClass(id: number): Promise<void> {
+	await apiJson(`/api/v1/classes/${id}/`, { method: "DELETE" });
+}
+
 export function useBookings() {
 	return useQuery({
 		queryKey: ["bookings", "mine"],

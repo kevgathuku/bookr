@@ -184,3 +184,61 @@ def test_frontdesk_desk_flow(frontend_url):
         page.get_by_text("refund").first.wait_for()
 
         browser.close()
+
+
+def test_staff_manage_flow(frontend_url):
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as driver:
+        browser = driver.chromium.launch()
+        page = browser.new_context().new_page()
+        _login(page, frontend_url, FRONTDESK)
+        page.get_by_role("link", name="Manage").click()
+        page.get_by_test_id("manage").wait_for()
+
+        # Pass product create lands in the list.
+        page.get_by_test_id("product-form-name").fill("E2E Pack")
+        page.get_by_test_id("product-form-credits").fill("5")
+        page.get_by_test_id("product-form-days").fill("30")
+        page.get_by_test_id("product-create-button").click()
+        page.locator('[data-testid^="product-name-"]').first.wait_for()
+
+        # Policy activate appends history (never edits).
+        page.get_by_test_id("policy-form-hours").fill("12")
+        page.get_by_test_id("policy-activate-button").click()
+        page.get_by_text("12h", exact=False).first.wait_for()
+
+        # Aggregator create shows the token once; rotate replaces it.
+        page.get_by_test_id("agg-form-slug").fill("e2e-aggy")
+        page.get_by_test_id("agg-form-name").fill("Aggy")
+        page.get_by_test_id("agg-create-button").click()
+        token_text = page.get_by_test_id("agg-token").inner_text()
+        assert "e2e-aggy" not in token_text
+        first_token = token_text.split(": ", 1)[1]
+        page.get_by_test_id("agg-rotate-e2e-aggy").click()
+        page.wait_for_function(
+            """(old) => {
+                const el = document.querySelector('[data-testid=agg-token]');
+                return el && !el.textContent.includes(old);
+            }""",
+            arg=first_token,
+        )
+        import requests as http_requests
+
+        fresh_token = page.wait_for_function(
+            """(old) => {
+                const el = document.querySelector('[data-testid=agg-token]');
+                const parts = el ? el.textContent.split(": ") : [];
+                return el && !el.textContent.includes(old) && parts.length > 1
+                    ? parts[1] : null;
+            }""",
+            arg=first_token,
+        )
+        feed = http_requests.get(
+            f"{frontend_url}/api/v1/aggregators/e2e-aggy/schedule/",
+            headers={"X-Partner-Token": fresh_token.json_value()},
+        )
+        assert feed.status_code == 200
+        page.get_by_test_id("agg-events-e2e-aggy").click()
+        page.get_by_text("GET", exact=False).first.wait_for()
+
+        browser.close()

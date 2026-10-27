@@ -38,6 +38,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/aggregators/{slug}/bookings/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["v1_aggregators_bookings_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/aggregators/{slug}/bookings/{external_id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["v1_aggregators_bookings_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/aggregators/{slug}/schedule/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["v1_aggregators_schedule_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/refresh/": {
         parameters: {
             query?: never;
@@ -207,6 +255,40 @@ export interface paths {
         };
         /** @description Merged classes + appointments for a bounded window (31d max). */
         get: operations["v1_calendar_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/class-types/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read-only room / class-type lists for staff forms. */
+        get: operations["v1_class_types_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/class-types/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read-only room / class-type lists for staff forms. */
+        get: operations["v1_class_types_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -453,6 +535,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read-only room / class-type lists for staff forms. */
+        get: operations["v1_rooms_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read-only room / class-type lists for staff forms. */
+        get: operations["v1_rooms_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/aggregators/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Partner-global: any venue staff may manage partners. */
+        get: operations["v1_staff_aggregators_list"];
+        put?: never;
+        /** @description Partner-global: any venue staff may manage partners. */
+        post: operations["v1_staff_aggregators_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/aggregators/{slug}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["v1_staff_aggregators_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["v1_staff_aggregators_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/staff/aggregators/{slug}/events/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["v1_staff_aggregators_events_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/aggregators/{slug}/rotate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["v1_staff_aggregators_rotate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/substitutions/": {
         parameters: {
             query?: never;
@@ -514,6 +696,14 @@ export interface components {
             delta: number;
             reason: string;
         };
+        AggregatorEvent: {
+            readonly id: number;
+            method: string;
+            path: string;
+            status_code: number;
+            /** Format: date-time */
+            readonly created_at: string;
+        };
         Book: {
             scheduled_class: number;
             idempotency_key: string;
@@ -560,6 +750,13 @@ export interface components {
         CheckResult: {
             granted: boolean;
             reason: string;
+        };
+        ClassType: {
+            readonly id: number;
+            name: string;
+            description?: string;
+            capacity_default?: number | null;
+            duration_min: number;
         };
         CreditLedger: {
             readonly id: number;
@@ -614,6 +811,23 @@ export interface components {
             id: number;
             username: string;
         };
+        PartnerBook: {
+            scheduled_class: number;
+            external_id: string;
+        };
+        PartnerClass: {
+            readonly id: number;
+            venue: number;
+            class_type: number;
+            readonly class_type_name: string;
+            readonly room_name: string;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: date-time */
+            ends_at: string;
+            status?: components["schemas"]["Status324Enum"];
+            readonly capacity: string;
+        };
         PassProduct: {
             readonly id: number;
             venue: number;
@@ -646,9 +860,19 @@ export interface components {
             /** Format: date-time */
             ends_at?: string;
             capacity_override?: number | null;
-            status?: components["schemas"]["ScheduledClassStatusEnum"];
+            status?: components["schemas"]["Status324Enum"];
             checkin_opens_minutes?: number;
             readonly capacity?: string;
+        };
+        PatchedStaffAggregator: {
+            slug?: string;
+            name?: string;
+            seat_allotment?: number;
+            cancel_cutoff_minutes?: number;
+            /** Format: decimal */
+            commission_percent?: string;
+            active?: boolean;
+            webhook_url?: string;
         };
         /**
          * @description * `purchase` - Purchase
@@ -660,6 +884,11 @@ export interface components {
          * @enum {string}
          */
         ReasonEnum: "purchase" | "booking" | "refund" | "forfeit" | "expiry" | "adjustment";
+        Room: {
+            readonly id: number;
+            name: string;
+            capacity?: number | null;
+        };
         RosterRow: {
             id: number;
             member: string;
@@ -684,9 +913,25 @@ export interface components {
             /** Format: date-time */
             ends_at: string;
             capacity_override?: number | null;
-            status?: components["schemas"]["ScheduledClassStatusEnum"];
+            status?: components["schemas"]["Status324Enum"];
             checkin_opens_minutes?: number;
             readonly capacity: string;
+        };
+        Slot: {
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: date-time */
+            ends_at: string;
+        };
+        StaffAggregator: {
+            slug: string;
+            name: string;
+            seat_allotment: number;
+            cancel_cutoff_minutes?: number;
+            /** Format: decimal */
+            commission_percent?: string;
+            active?: boolean;
+            webhook_url?: string;
         };
         /**
          * @description * `scheduled` - Scheduled
@@ -694,13 +939,7 @@ export interface components {
          *     * `completed` - Completed
          * @enum {string}
          */
-        ScheduledClassStatusEnum: "scheduled" | "cancelled" | "completed";
-        Slot: {
-            /** Format: date-time */
-            starts_at: string;
-            /** Format: date-time */
-            ends_at: string;
-        };
+        Status324Enum: "scheduled" | "cancelled" | "completed";
         TeacherSubstitution: {
             readonly id: number;
             scheduled_class: number;
@@ -785,6 +1024,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccessEvent"][];
+                };
+            };
+        };
+    };
+    v1_aggregators_bookings_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartnerBook"];
+                "application/x-www-form-urlencoded": components["schemas"]["PartnerBook"];
+                "multipart/form-data": components["schemas"]["PartnerBook"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Booking"];
+                };
+            };
+        };
+    };
+    v1_aggregators_bookings_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                external_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Booking"];
+                };
+            };
+        };
+    };
+    v1_aggregators_schedule_list: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartnerClass"][];
                 };
             };
         };
@@ -1031,6 +1343,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CalendarEvent"][];
+                };
+            };
+        };
+    };
+    v1_class_types_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassType"][];
+                };
+            };
+        };
+    };
+    v1_class_types_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this class type. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassType"];
                 };
             };
         };
@@ -1472,6 +1825,181 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VenuePolicy"];
+                };
+            };
+        };
+    };
+    v1_rooms_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"][];
+                };
+            };
+        };
+    };
+    v1_rooms_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this room. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+        };
+    };
+    v1_staff_aggregators_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAggregator"][];
+                };
+            };
+        };
+    };
+    v1_staff_aggregators_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StaffAggregator"];
+                "application/x-www-form-urlencoded": components["schemas"]["StaffAggregator"];
+                "multipart/form-data": components["schemas"]["StaffAggregator"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAggregator"];
+                };
+            };
+        };
+    };
+    v1_staff_aggregators_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAggregator"];
+                };
+            };
+        };
+    };
+    v1_staff_aggregators_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedStaffAggregator"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedStaffAggregator"];
+                "multipart/form-data": components["schemas"]["PatchedStaffAggregator"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAggregator"];
+                };
+            };
+        };
+    };
+    v1_staff_aggregators_events_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AggregatorEvent"][];
+                };
+            };
+        };
+    };
+    v1_staff_aggregators_rotate_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAggregator"];
                 };
             };
         };

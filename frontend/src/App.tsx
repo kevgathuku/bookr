@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router";
 import { AuthProvider, isDeskStaff, useAuth } from "./auth";
 import Bookings from "./routes/Bookings";
 import Calendar from "./routes/Calendar";
 import Desk from "./routes/Desk";
 import Ledger from "./routes/Ledger";
+import Manage from "./routes/Manage";
 import Login from "./routes/Login";
 import Passes from "./routes/Passes";
 import Schedule from "./routes/Schedule";
@@ -30,7 +31,7 @@ function RequireStaff() {
 	const { venue } = useVenue();
 	if (!me) return <Navigate to="/login" />;
 	if (!isDeskStaff(me, venue)) return <Navigate to="/" />;
-	return <Desk />;
+	return <Outlet />;
 }
 
 export default function App() {
@@ -47,7 +48,10 @@ export default function App() {
 								<Route path="/calendar" element={<Calendar />} />
 								<Route path="/passes" element={<Passes />} />
 								<Route path="/ledger" element={<Ledger />} />
-								<Route path="/desk" element={<RequireStaff />} />
+								<Route element={<RequireStaff />}>
+									<Route path="/desk" element={<Desk />} />
+									<Route path="/manage" element={<Manage />} />
+								</Route>
 								<Route path="*" element={<Navigate to="/" />} />
 							</Route>
 						</Routes>

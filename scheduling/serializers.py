@@ -2,7 +2,25 @@ from typing import ClassVar
 
 from rest_framework import serializers
 
-from scheduling.models import ScheduledClass, TeacherSubstitution
+from scheduling.models import ClassType, Room, ScheduledClass, TeacherSubstitution
+
+
+class RoomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Room
+        fields: ClassVar[list[str]] = ["id", "name", "capacity"]
+
+
+class ClassTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClassType
+        fields: ClassVar[list[str]] = [
+            "id",
+            "name",
+            "description",
+            "capacity_default",
+            "duration_min",
+        ]
 
 
 class ScheduledClassSerializer(serializers.ModelSerializer):

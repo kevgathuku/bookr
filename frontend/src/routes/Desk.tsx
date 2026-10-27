@@ -83,7 +83,7 @@ function RosterRowActions({ row }: { row: RosterRow }) {
 	);
 }
 
-function MemberLookup() {
+export function MemberLookup() {
 	const queryClient = useQueryClient();
 	const [query, setQuery] = useState("");
 	const [hits, setHits] = useState<MemberHit[]>([]);
