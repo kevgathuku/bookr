@@ -239,7 +239,9 @@ export interface SubstitutionItem {
 	id: number;
 	scheduled_class: number;
 	old_teacher: number;
+	old_teacher_name: string;
 	new_teacher: number;
+	new_teacher_name: string;
 	created_by: number | null;
 }
 

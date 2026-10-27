@@ -6,6 +6,7 @@ import Calendar from "./routes/Calendar";
 import Desk from "./routes/Desk";
 import Ledger from "./routes/Ledger";
 import Manage from "./routes/Manage";
+import Teach from "./routes/Teach";
 import Login from "./routes/Login";
 import Passes from "./routes/Passes";
 import Schedule from "./routes/Schedule";
@@ -48,6 +49,7 @@ export default function App() {
 								<Route path="/calendar" element={<Calendar />} />
 								<Route path="/passes" element={<Passes />} />
 								<Route path="/ledger" element={<Ledger />} />
+								<Route path="/teach" element={<Teach />} />
 								<Route element={<RequireStaff />}>
 									<Route path="/desk" element={<Desk />} />
 									<Route path="/manage" element={<Manage />} />

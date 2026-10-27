@@ -6,10 +6,11 @@ description: "Run a beads ticket queue in dependency order with minimal interven
 # Ticket loop
 
 Work the queue; don't admire it. One ticket at a time, in dependency order,
-until nothing ready remains. Pause only for critical confirmations (a config
-change the `wps` guardrail reserves for the user, a scope call that routes
-work to another ticket/phase, a missing dependency). Everything else —
-proceed.
+until nothing ready remains. Pause ONLY when a genuine decision needs the
+user (a config change the `wps` guardrail reserves for them, a scope call
+that routes work to another ticket/phase, a missing dependency, an
+ambiguous reference). A green ticket is never a pause point: record,
+commit, close, and start the next one in the same motion.
 
 ## Order
 

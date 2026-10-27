@@ -60,6 +60,15 @@ class TestMe:
         assert response.data["username"] == user.username
         assert response.data["memberships"][0]["role"] == "member"
         assert response.data["memberships"][0]["venue"] == venue.slug
+
+    def test_me_includes_identity_and_venue_time_zone(self):
+        venue = _venue()
+        user = _member(venue)
+
+        response = _client(user).get("/api/v1/me/")
+
+        assert response.status_code == 200
+        assert response.data["id"] == user.pk
         assert response.data["venues"][0]["time_zone"] == venue.time_zone
 
 

@@ -95,6 +95,8 @@ class TestSubstitution:
         )
 
         assert response.status_code == 201
+        assert response.json()["old_teacher_name"] == "old-teacher"
+        assert response.json()["new_teacher_name"] == "new-teacher"
         klass.refresh_from_db()
         assert klass.teacher == new
         row = TeacherSubstitution.objects.get(scheduled_class=klass)

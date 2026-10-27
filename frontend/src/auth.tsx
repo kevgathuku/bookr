@@ -29,12 +29,23 @@ export interface VenueInfo {
 }
 
 export interface Me {
+	id: number;
 	username: string;
 	memberships: Membership[];
 	venues: VenueInfo[];
 }
 
 const DESK_ROLES = new Set(["owner", "manager", "frontdesk"]);
+
+export function canTeach(me: Me | null, venue: string | null): boolean {
+	return (
+		me?.memberships.some(
+			(membership) =>
+				membership.role !== "member" &&
+				(membership.venue === venue || membership.venue === null),
+		) ?? false
+	);
+}
 
 export function isDeskStaff(me: Me | null, venue: string | null): boolean {
 	return (

@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Link, Outlet, useNavigate } from "react-router";
-import { isDeskStaff, useAuth } from "./auth";
+import { canTeach, isDeskStaff, useAuth } from "./auth";
 import { useVenue } from "./venue";
 
 function VenueSwitcher() {
@@ -49,9 +49,14 @@ function Shell() {
 					{isDeskStaff(me, venue) ? (
 						<>
 							{" "}
-							<Link to="/desk">Desk</Link>
-							{" "}
+							<Link to="/desk">Desk</Link> {" "}
 							<Link to="/manage">Manage</Link>
+						</>
+					) : null}
+					{canTeach(me, venue) ? (
+						<>
+							{" "}
+							<Link to="/teach">Teach</Link>
 						</>
 					) : null}
 				</nav>

@@ -773,6 +773,7 @@ export interface components {
             product: number;
         };
         Me: {
+            id: number;
             username: string;
             memberships: components["schemas"]["MeMembership"][];
             venues: components["schemas"]["MeVenue"][];
@@ -830,7 +831,7 @@ export interface components {
         };
         PassProduct: {
             readonly id: number;
-            venue: number;
+            readonly venue: number;
             name: string;
             credits_total?: number | null;
             validity_days: number;
@@ -839,7 +840,7 @@ export interface components {
         };
         PatchedPassProduct: {
             readonly id?: number;
-            venue?: number;
+            readonly venue?: number;
             name?: string;
             credits_total?: number | null;
             validity_days?: number;
@@ -944,7 +945,9 @@ export interface components {
             readonly id: number;
             scheduled_class: number;
             readonly old_teacher: number;
+            readonly old_teacher_name: string;
             new_teacher: number;
+            readonly new_teacher_name: string;
             reason?: string;
             readonly created_by: number | null;
         };

@@ -13,7 +13,7 @@
 # Celery-prescribed bootstrap, which cannot live anywhere else.
 # Per-file: seed_e2e.py ignores WPS201 — the E2E dataset touches every model
 # once by design; splitting it would scatter one dataset across modules.
-# Per-file: test_browser.py ignores WPS210/WPS213 — linear E2E scripts;
+# Per-file: test_browser.py ignores WPS202/WPS210/WPS213 — linear E2E scripts;
 # splitting further would be helpers that exist only to shorten.
 # Per-file: booking/views.py, aggregators/views.py, scheduling/views.py
 # ignore WPS201; organizations/views.py ignores WPS202 — endpoint files grow
@@ -40,6 +40,7 @@ exclude =
 
 per-file-ignores =
     tests/e2e/test_browser.py:
+        WPS202,
         WPS210,
         WPS213,
     booking/views.py:

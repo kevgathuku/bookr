@@ -242,3 +242,19 @@ def test_staff_manage_flow(frontend_url):
         page.get_by_text("GET", exact=False).first.wait_for()
 
         browser.close()
+
+
+TEACHER = ("e2e-run-teacher", "password")
+
+
+def test_teacher_schedule_flow(frontend_url):
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as driver:
+        browser = driver.chromium.launch()
+        page = browser.new_context().new_page()
+        _login(page, frontend_url, TEACHER)
+        page.get_by_role("link", name="Teach").click()
+        page.get_by_test_id("teach").wait_for()
+        page.get_by_test_id("teach-class-row").first.wait_for()
+
+        browser.close()

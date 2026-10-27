@@ -15,6 +15,7 @@ class MeVenueSerializer(serializers.Serializer):
 
 
 class MeSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
     username = serializers.CharField()
     memberships = MeMembershipSerializer(many=True)
     venues = MeVenueSerializer(many=True)

@@ -87,6 +87,7 @@ class MeView(APIView):
         )
         return Response(
             {
+                "id": request.user.pk,
                 "username": request.user.username,
                 "memberships": [
                     {

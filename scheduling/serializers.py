@@ -50,13 +50,22 @@ class ScheduledClassSerializer(serializers.ModelSerializer):
 
 
 class TeacherSubstitutionSerializer(serializers.ModelSerializer):
+    old_teacher_name = serializers.CharField(
+        source="old_teacher.username", read_only=True
+    )
+    new_teacher_name = serializers.CharField(
+        source="new_teacher.username", read_only=True
+    )
+
     class Meta:
         model = TeacherSubstitution
         fields: ClassVar[list[str]] = [
             "id",
             "scheduled_class",
             "old_teacher",
+            "old_teacher_name",
             "new_teacher",
+            "new_teacher_name",
             "reason",
             "created_by",
         ]
