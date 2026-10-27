@@ -40,7 +40,7 @@ class Venue(models.Model):
     time_zone = models.CharField(max_length=64, default="UTC")
 
     class Meta:
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["organization", "slug"], name="venue_slug_unique_per_org"
             ),
@@ -94,7 +94,7 @@ class VenuePolicy(models.Model):
 
     class Meta:
         verbose_name_plural = "venue policies"
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["venue"],
                 condition=models.Q(valid_until__isnull=True),
@@ -154,7 +154,7 @@ class Membership(models.Model):
     class Meta:
         # NULLs never equal: two spanning rows slip past this — the creation
         # service must also guard one spanning membership per user per org.
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["organization", "user", "venue"], name="member_once_per_scope"
             ),

@@ -26,7 +26,7 @@ class Resource(models.Model):
     name = models.CharField(max_length=200)
 
     class Meta:
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["venue", "name"], name="resource_unique_per_venue"
             ),
@@ -47,7 +47,7 @@ class AvailabilityRule(models.Model):
     valid_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        constraints: ClassVar[list[models.CheckConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(weekday__lte=6), name="rule_weekday_0_to_6"
             ),
@@ -77,7 +77,7 @@ class AvailabilityException(models.Model):
     closed = models.BooleanField(default=False)
 
     class Meta:
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["resource", "date"], name="exception_once_per_day"
             ),
@@ -120,9 +120,7 @@ class Appointment(models.Model):
     )
 
     class Meta:
-        constraints: ClassVar[
-            list[models.UniqueConstraint | models.CheckConstraint | ExclusionConstraint]
-        ] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(ends_at__gt=models.F("starts_at")),
                 name="appointment_ends_after_starts",

@@ -2,15 +2,13 @@
 these typed errors to HTTP (SeatFull/DuplicateBooking → 409,
 CreditInsufficient → 402)."""
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 
 from booking.errors import DuplicateBooking, SeatFull, TeacherUnavailable
 from booking.models import ACTIVE_STATUSES, Booking
 from passes.services import spend_credit
 from scheduling.models import ScheduledClass
-
-User = get_user_model()
 
 
 def _active_booking(member: User, klass: ScheduledClass) -> bool:

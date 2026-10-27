@@ -22,7 +22,9 @@ class CalendarView(generics.ListAPIView):
     """Merged classes + appointments for a bounded window (31d max)."""
 
     serializer_class = CalendarEventSerializer
-    permission_classes: ClassVar[list] = [IsVenueMember]
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
 
     def get_queryset(self):
         # DRF needs a queryset; the merged list is built in list().

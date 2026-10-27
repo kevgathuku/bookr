@@ -21,7 +21,7 @@ class PassProduct(models.Model):
     transferable = models.BooleanField(default=False)
 
     class Meta:
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["venue", "name"], name="passproduct_unique_per_venue"
             ),
@@ -107,7 +107,7 @@ class CreditLedger(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        constraints: ClassVar[list[models.CheckConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=~models.Q(delta=0),
                 name="ledger_delta_nonzero",

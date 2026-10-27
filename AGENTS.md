@@ -51,6 +51,8 @@ no API key, $0).
   Membership spanning/per-venue), `tests/` (pytest-django, factories in
   lesson 3), `docker/postgres/` + `docker-compose.yml` (db on host :5433).
 - Quality gates: `uv run ruff check .`, `uv run ruff format --check .`,
+  `DATABASE_URL=... SECRET_KEY=... uv run mypy .`,
+  `uv run flake8 <touched files>` (wemake, config in `.flake8`),
   `DATABASE_URL=... uv run pytest tests/ -q` (+ CI in `.github/`).
 - Conventions: explicit names with units (`class_late_cancel_hours`, not
   `_h`); `condition=` (Django 6.1, never `check=`); `ClassVar` on Meta

@@ -53,7 +53,7 @@ class Booking(models.Model):
     checked_in_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["venue", "member", "scheduled_class"],
                 condition=models.Q(status__in=ACTIVE_STATUSES),

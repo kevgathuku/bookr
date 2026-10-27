@@ -34,8 +34,8 @@ class PassProductViewSet(viewsets.ModelViewSet):
     """Staff catalog. No DELETE: issued passes PROTECT their product."""
 
     serializer_class = PassProductSerializer
-    permission_classes: ClassVar[list] = [IsVenueMember, IsStaffOrReadOnly]
-    http_method_names: ClassVar[list[str]] = [
+    permission_classes: ClassVar[list] = [IsVenueMember, IsStaffOrReadOnly]  # type: ignore[misc]  # DRF stubs declare these as instance vars
+    http_method_names: ClassVar[list[str]] = [  # type: ignore[misc]  # DRF stubs declare these as instance vars
         "get",
         "post",
         "patch",
@@ -67,7 +67,7 @@ class GrantSerializer(serializers.Serializer):
 class GrantView(APIView):
     """Staff sale: issue a pass + purchase ledger row."""
 
-    permission_classes: ClassVar[list] = [IsVenueMember, IsStaffOrReadOnly]
+    permission_classes: ClassVar[list] = [IsVenueMember, IsStaffOrReadOnly]  # type: ignore[misc]  # DRF stubs declare these as instance vars
 
     def post(self, request):
         form = GrantSerializer(data=request.data)

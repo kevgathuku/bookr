@@ -24,7 +24,7 @@ class AccessPoint(models.Model):
     passback_seconds = models.PositiveIntegerField(default=60)
 
     class Meta:
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["venue", "controller_id"],
                 name="controller_once_per_venue",

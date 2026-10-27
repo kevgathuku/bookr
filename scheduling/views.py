@@ -21,8 +21,16 @@ class TeacherSubstitutionViewSet(viewsets.ModelViewSet):
     """History kept: list/retrieve/create, never update/delete."""
 
     serializer_class = TeacherSubstitutionSerializer
-    permission_classes: ClassVar[list] = [IsVenueMember, IsStaffOrReadOnly]
-    http_method_names: ClassVar[list[str]] = ["get", "post", "head", "options"]
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaffOrReadOnly,
+    ]
+    http_method_names: ClassVar[list[str]] = [  # type: ignore[misc]
+        "get",
+        "post",
+        "head",
+        "options",
+    ]
 
     def get_queryset(self):
         return TeacherSubstitution.objects.filter(
@@ -59,7 +67,10 @@ def parse_window_bound(value, default):
 
 class ScheduledClassViewSet(viewsets.ModelViewSet):
     serializer_class = ScheduledClassSerializer
-    permission_classes: ClassVar[list] = [IsVenueMember, IsStaffOrReadOnly]
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaffOrReadOnly,
+    ]
 
     def get_queryset(self):
         venue_classes = (

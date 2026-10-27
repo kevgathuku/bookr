@@ -28,7 +28,7 @@ class ClassType(models.Model):
     duration_min = models.PositiveIntegerField()
 
     class Meta:
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["venue", "name"], name="classtype_unique_per_venue"
             ),
@@ -47,7 +47,7 @@ class Room(models.Model):
     capacity = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
-        constraints: ClassVar[list[models.UniqueConstraint]] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["venue", "name"], name="room_unique_per_venue"
             ),
@@ -90,9 +90,7 @@ class ScheduledClass(models.Model):
     checkin_opens_minutes = models.PositiveIntegerField(default=30)
 
     class Meta:
-        constraints: ClassVar[
-            list[models.UniqueConstraint | models.CheckConstraint | ExclusionConstraint]
-        ] = [
+        constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(ends_at__gt=models.F("starts_at")),
                 name="scheduled_class_ends_after_starts",

@@ -14,7 +14,9 @@ from scheduling.availability import generate_slots
 class AvailabilitySlotsView(APIView):
     """Day slots for one resource. Members may read (future booking flow)."""
 
-    permission_classes: ClassVar[list] = [IsVenueMember]
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
 
     def get(self, request):
         slots = generate_slots(

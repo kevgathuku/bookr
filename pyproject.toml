@@ -46,11 +46,21 @@ package = false
 DJANGO_SETTINGS_MODULE = "config.settings.dev"
 pythonpath = ["."]
 
+[tool.mypy]
+python_version = "3.14"
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+
+[tool.django-stubs]
+django_settings_module = "config.settings.dev"
+
 [dependency-groups]
 dev = [
     "django-debug-toolbar>=8.0.0",
+    "django-stubs>=6.1.2",
+    "djangorestframework-stubs>=3.18.1",
     "faker>=40.43.0",
     "flake8>=7.4.1",
+    "mypy>=2.4.0",
     "pytest-django>=4.14.0",
     "ruff>=0.17.2",
     "wemake-python-styleguide>=1.8.1",
