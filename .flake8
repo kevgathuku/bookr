@@ -13,8 +13,8 @@
 # Celery-prescribed bootstrap, which cannot live anywhere else.
 # Per-file: seed_e2e.py ignores WPS201 — the E2E dataset touches every model
 # once by design; splitting it would scatter one dataset across modules.
-# Per-file: settings/base.py ignores WPS407 — Django settings are module
-# constants by framework convention.
+# Per-file: settings/base.py ignores WPS407 (module constants by Django
+# convention) and E501 (dotted validator paths stay whole for grep).
 [flake8]
 max-line-length = 88
 extend-ignore =
@@ -34,6 +34,7 @@ exclude =
 
 per-file-ignores =
     config/settings/base.py:
+        E501,
         WPS407,
     organizations/management/commands/seed_e2e.py:
         WPS201,
