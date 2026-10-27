@@ -85,6 +85,12 @@
       "skillPath": "skills/engineering/wayfinder/SKILL.md",
       "computedHash": "71d1296ae9f1ea0397f385f72d11ca3473827f5d067df4d06c58eb03377a57ce"
     },
+    "wps": {
+      "source": "wemake-services/wemake-python-styleguide",
+      "sourceType": "github",
+      "skillPath": "wemake_python_styleguide/.agents/skills/wps/SKILL.md",
+      "computedHash": "13b4c5365c4c3aa72f6a797ee4f64375fe57cdc0c90fcfb106082ab477554e5d"
+    },
     "writing-for-agents": {
       "source": "mattpocock/skills",
       "sourceType": "github",
