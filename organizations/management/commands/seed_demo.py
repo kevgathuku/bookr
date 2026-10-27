@@ -1,15 +1,22 @@
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
-from faker import Faker
 
 from organizations.models import Membership, Organization, Venue, VenuePolicy
 
 # Seeded: same names every run, so get_or_create keeps this command re-runnable.
-Faker.seed(42)
-fake = Faker()
+# Faker imports lazily: the --e2e path shares this module but needs no names.
+
+
+def _fake():
+    from faker import Faker
+
+    Faker.seed(42)
+    return Faker()
 
 
 def _user():
+    fake = _fake()
     User = get_user_model()
     username = fake.unique.user_name()
     user, created = User.objects.get_or_create(
@@ -128,8 +135,16 @@ class Command(BaseCommand):
             action="store_true",
             help="Also seed the fixed e2e-run org (known users, short windows).",
         )
+        parser.add_argument(
+            "--e2e-only",
+            action="store_true",
+            help="Seed only the e2e-run org (no faker demo users).",
+        )
 
     def handle(self, *args, **options):
+        if options["e2e_only"]:
+            call_command("seed_e2e")
+            return
         spanning = _spanning_org()
         pinned, teacher = _per_venue_org()
         message = (
@@ -139,6 +154,4 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS(message))
         if options["e2e"]:
-            from django.core.management import call_command
-
             call_command("seed_e2e")

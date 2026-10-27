@@ -1,9 +1,21 @@
 """Member notices: cancelled, promoted, late-cancel. Console backend in
 dev/test (assert via mail.outbox); SMTP in prod through EMAIL_URL."""
 
+import logging
+
 from django.core.mail import send_mail
 
+logger = logging.getLogger(__name__)
+
 FALLBACK_DOMAIN = "example.com"
+
+
+def _send(subject, body, to):
+    # Best-effort: a mail outage must never fail the booking write.
+    try:
+        send_mail(subject, body, None, [to])
+    except Exception:
+        logger.exception("member notice failed")
 
 
 def _address(member):
@@ -24,31 +36,28 @@ def _target_label(booking):
 
 def booking_cancelled(booking):
     member = booking.member
-    send_mail(
+    _send(
         "Booking cancelled",
         f"Your booking for {_target_label(booking)} is cancelled; "
         "the credit is back on your pass.",
-        None,
-        [_address(member)],
+        _address(member),
     )
 
 
 def booking_promoted(booking):
     member = booking.member
-    send_mail(
+    _send(
         "You're off the waitlist",
         f"A seat opened for {_target_label(booking)} and it is yours. See you there.",
-        None,
-        [_address(member)],
+        _address(member),
     )
 
 
 def booking_late_cancel(booking):
     member = booking.member
-    send_mail(
+    _send(
         "Late cancellation",
         f"Cancelling {_target_label(booking)} inside the cutoff window "
         "forfeits the credit.",
-        None,
-        [_address(member)],
+        _address(member),
     )
