@@ -16,7 +16,11 @@ proceed.
 - `bd ready` shows what's unblocked. Pick by dependency impact (the ticket
   that unblocks the longest chain first); backend before frontend, MVP (P1)
   before Phase 2 (P2).
-- `bd update <id> --claim`, state its title, implement, close-out, next.
+- `bd update <id> --claim`, state its title, then deliver it THROUGH the
+  `implement` skill (read its SKILL.md, follow its loop). That skill owns
+  the delivery chain — tdd → typecheck/tests → wps → `code-review` →
+  record/graph/commit/close — so review and close-out are never skipped.
+  The gates below are the acceptance bar its work must meet. Next.
 - Never start a ticket whose dependencies are open. Never batch tickets.
 
 ## Per ticket
