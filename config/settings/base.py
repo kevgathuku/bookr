@@ -14,6 +14,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 INSTALLED_APPS = [
     "organizations.apps.OrganizationsConfig",
+    "scheduling.apps.SchedulingConfig",
+    "django.contrib.postgres",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
