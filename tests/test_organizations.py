@@ -93,13 +93,13 @@ class TestVenuePolicy:
             name="Downtown",
         )
 
-    def test_two_open_rows_rejected(self):
+    def test_two_open_rows_allowed_latest_wins(self):
         venue = self._venue()
-        VenuePolicy.objects.create(venue=venue, valid_until=None)
+        first = VenuePolicy.objects.create(venue=venue, valid_until=None)
+        second = VenuePolicy.objects.create(venue=venue, valid_until=None)
 
-        with pytest.raises(IntegrityError):
-            # Second open row: same venue, still valid_until=None.
-            VenuePolicy.objects.create(venue=venue, valid_until=None)
+        assert (first.version, second.version) == (1, 2)
+        assert venue.current_policy.pk == second.pk
 
     def test_retire(self):
         venue = self._venue()

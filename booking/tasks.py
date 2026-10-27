@@ -20,7 +20,7 @@ def _promote(first):
         ledger = spend_credit(first.member, first)
     except CreditInsufficient:
         return 0  # pass lapsed while waiting: stays queued, seat stays open
-    minutes = first.venue.current_policy.waitlist_hold_minutes
+    minutes = first.venue.policy_for(first.member).waitlist_hold_minutes
     first.credit_tx = ledger
     first.status = Booking.Status.CONFIRMED
     first.hold_until = timezone.now() + timezone.timedelta(minutes=minutes)

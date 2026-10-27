@@ -174,7 +174,7 @@ class Appointment(models.Model):
 
     def late_cancel_cutoff(self):
         """Cancel inside [cutoff, start) counts as late (24h default)."""
-        hours = self.venue.current_policy.appointment_late_cancel_hours
+        hours = self.venue.policy_for(self.member).appointment_late_cancel_hours
         return self.starts_at - timezone.timedelta(hours=hours)
 
     def __str__(self):

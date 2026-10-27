@@ -42,14 +42,14 @@ class VenueAdmin(VenueScopedAdmin):
 
 @admin.register(VenuePolicy, site=bookr_site)
 class VenuePolicyAdmin(VenueScopedAdmin):
-    list_display = ("venue", "valid_from", "valid_until")
+    list_display = ("venue", "version", "valid_from", "valid_until")
     list_filter = ("venue__organization",)
-    readonly_fields = ("valid_from",)
+    readonly_fields = ("valid_from", "version")
 
 
 @admin.register(Membership, site=bookr_site)
 class MembershipAdmin(VenueScopedAdmin):
-    list_display = ("user", "organization", "venue", "role")
+    list_display = ("user", "organization", "venue", "role", "policy")
     list_filter = ("organization", "role")
     search_fields = ("user__username",)
 

@@ -60,7 +60,28 @@ class Venue(models.Model):
 
     @property
     def current_policy(self):
-        return self.policies.get(valid_until__isnull=True)
+        policy = VenuePolicy.objects.current(self)
+        if policy is None:
+            raise VenuePolicy.DoesNotExist("VenuePolicy matching query does not exist.")
+        return policy
+
+    def policy_for(self, user):
+        """Pinned version for grandfathered holders, else current."""
+        memberships = list(
+            Membership.objects.filter(user=user).select_related("policy")
+        )
+        pinned = next((mem for mem in memberships if mem.venue_id == self.pk), None)
+        chosen = pinned or next(
+            (
+                mem
+                for mem in memberships
+                if mem.venue_id is None and mem.organization_id == self.organization_id
+            ),
+            None,
+        )
+        if chosen is not None and chosen.policy_id is not None:
+            return chosen.policy
+        return self.current_policy
 
     def __str__(self):
         return f"{self.name} ({self.organization})"
@@ -75,12 +96,23 @@ class VenuePolicyManager(models.Manager):
             )
             return self.create(venue=venue, valid_until=None, **fields)
 
+    def current(self, venue):
+        """Latest open row: overlapping windows resolve to the newest."""
+        return (
+            self.filter(venue=venue, valid_until__isnull=True)
+            .order_by("-valid_from", "-version")
+            .first()
+        )
+
 
 # Business rules, configurable row per venue — policy edits never touch identity rows.
 class VenuePolicy(models.Model):
     # Versions, never edits: retire stamps valid_until, activate inserts a row.
+    # Overlapping open rows are allowed; holders pin versions explicitly.
     objects = VenuePolicyManager()
     venue = models.ForeignKey(Venue, on_delete=models.CASCADE, related_name="policies")
+    # System-assigned per-venue sequence (Kevin: version field); save() assigns.
+    version = models.PositiveIntegerField(default=1)
     valid_from = models.DateTimeField(auto_now_add=True)
     valid_until = models.DateTimeField(null=True, blank=True)
 
@@ -94,8 +126,7 @@ class VenuePolicy(models.Model):
     appointment_late_cancel_hours = models.PositiveSmallIntegerField(
         default=24,
         help_text=(
-            "Cancel cutoff for 1-1 classes; "
-            "inside the window the credit is forfeited."
+            "Cancel cutoff for 1-1 classes; inside the window the credit is forfeited."
         ),
     )
     forfeit_late_cancel = models.BooleanField(default=True)
@@ -114,11 +145,20 @@ class VenuePolicy(models.Model):
         verbose_name_plural = "venue policies"
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
-                fields=["venue"],
-                condition=models.Q(valid_until__isnull=True),
-                name="one_active_policy_per_venue",
+                fields=["venue", "version"],
+                name="policy_version_unique_per_venue",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            latest = (
+                VenuePolicy.objects.filter(venue=self.venue)
+                .order_by("-version")
+                .first()
+            )
+            self.version = latest.version + 1 if latest else 1
+        super().save(*args, **kwargs)
 
     def retire(self):
         """Deactivate this version. Use `activate()` for the retire+insert pair."""
@@ -157,6 +197,15 @@ class Membership(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memberships"
     )
     role = models.CharField(max_length=16, choices=Role.choices)
+    # NULL: follows the venue's current policy. Set: grandfathered to that
+    # version — later activations never move the holder.
+    policy = models.ForeignKey(
+        VenuePolicy,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="holders",
+    )
 
     def clean(self):
         super().clean()

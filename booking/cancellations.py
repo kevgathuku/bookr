@@ -12,7 +12,7 @@ from passes.services import refund_credit
 
 
 def _window_hours(booking):
-    policy = booking.venue.current_policy
+    policy = booking.venue.policy_for(booking.member)
     if booking.scheduled_class_id is not None:
         return policy.class_late_cancel_hours
     return policy.appointment_late_cancel_hours
