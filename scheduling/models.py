@@ -7,6 +7,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Func, Q
 
+from organizations.tenancy import VenueScopedQuerySet
+
 # Range over [starts_at, ends_at): back-to-back classes share a bound but do
 # not overlap, so no buffer logic leaks into the constraint.
 
@@ -16,6 +18,7 @@ def _overlap_range() -> Func:
 
 
 class ClassType(models.Model):
+    objects = VenueScopedQuerySet.as_manager()
     venue = models.ForeignKey(
         "organizations.Venue", on_delete=models.CASCADE, related_name="class_types"
     )
@@ -36,6 +39,7 @@ class ClassType(models.Model):
 
 
 class Room(models.Model):
+    objects = VenueScopedQuerySet.as_manager()
     venue = models.ForeignKey(
         "organizations.Venue", on_delete=models.CASCADE, related_name="rooms"
     )
@@ -54,6 +58,8 @@ class Room(models.Model):
 
 
 class ScheduledClass(models.Model):
+    objects = VenueScopedQuerySet.as_manager()
+
     class Status(models.TextChoices):
         SCHEDULED = "scheduled", "Scheduled"
         CANCELLED = "cancelled", "Cancelled"
@@ -144,7 +150,8 @@ class ScheduledClass(models.Model):
         return self.class_type.capacity_default
 
     def __str__(self):
-        return f"{self.class_type} · {self.starts_at:%Y-%m-%d %H:%M} ({self.status})"
+        day = self.starts_at.strftime("%Y-%m-%d %H:%M")
+        return f"{self.class_type} · {day} ({self.status})"
 
 
 class TeacherSubstitution(models.Model):

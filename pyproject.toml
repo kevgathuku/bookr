@@ -20,6 +20,17 @@ dependencies = [
 # [project.scripts]
 # bookr = "bookr:main"
 
+[tool.ruff]
+# Installer-dropped agent scaffolding is not project source.
+exclude = [
+    ".agent",
+    ".claude",
+    ".codex",
+    ".cursor",
+    "graft",
+    "assets",
+]
+
 [tool.ruff.lint.per-file-ignores]
 "*/migrations/*.py" = ["RUF012"]
 

@@ -1,0 +1,67 @@
+from datetime import timedelta
+from typing import ClassVar
+
+from django.db import IntegrityError
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from rest_framework import serializers, viewsets
+from rest_framework.exceptions import NotFound
+
+from organizations.permissions import IsStaffOrReadOnly, IsVenueMember
+from scheduling.models import ScheduledClass
+from scheduling.serializers import ScheduledClassSerializer
+
+MAX_WINDOW = timedelta(days=31)
+
+
+def _parse_bound(value, default):
+    if value is None:
+        return default
+    try:
+        parsed = parse_datetime(value)
+    except ValueError, TypeError:
+        raise serializers.ValidationError("Window bounds must be datetimes.")
+    if parsed is None:
+        raise serializers.ValidationError("Window bounds must be datetimes.")
+    if timezone.is_naive(parsed):
+        return timezone.make_aware(parsed)
+    return parsed
+
+
+class ScheduledClassViewSet(viewsets.ModelViewSet):
+    serializer_class = ScheduledClassSerializer
+    permission_classes: ClassVar[list] = [IsVenueMember, IsStaffOrReadOnly]
+
+    def get_queryset(self):
+        venue_classes = (
+            ScheduledClass.objects.for_venue(self.request.venue)
+            .select_related("class_type", "room", "teacher")
+            .order_by("starts_at")
+        )
+        start, end = self._window()
+        return venue_classes.filter(starts_at__lt=end, ends_at__gt=start)
+
+    def create(self, request, *args, **kwargs):
+        try:
+            created = super().create(request, *args, **kwargs)
+        except IntegrityError:
+            # Exclusion constraint (room/teacher overlap) refused at the DB.
+            raise serializers.ValidationError(
+                "Overlaps an existing class for this room or teacher.",
+            )
+        return created
+
+    def perform_create(self, serializer):
+        # A crafted venue id in the payload must not escape the request venue.
+        payload_venue = serializer.validated_data["venue"]
+        if payload_venue != self.request.venue:
+            raise NotFound("No such venue.")
+        serializer.save()
+
+    def _window(self):
+        params = self.request.query_params
+        start = _parse_bound(params.get("from"), timezone.now())
+        end = _parse_bound(params.get("to"), start + MAX_WINDOW)
+        if end <= start or end - start > MAX_WINDOW:
+            raise serializers.ValidationError("Window must span 1s to 31d.")
+        return start, end
