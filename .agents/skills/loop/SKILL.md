@@ -61,7 +61,10 @@ happens only after review findings are fixed and gates are re-green.
 5. **Close-out, every time, in order**: ingest decisions + new facts into
    project memory (rationale included); `graft build`; commit to the
    current branch (message cites the ticket; never push unless asked);
-   close the tracker issue so the next unblocks.
+   then close the beads task with `bd close <id>` — only after the ticket's
+gates and the review fixes have re-run green (validated, not assumed).
+   The `bd close` is what unblocks the next ticket; never close before
+   validation is on record.
 
 ## Session discipline (prevents lost work)
 
