@@ -1,0 +1,61 @@
+---
+name: loop
+description: "Run a beads ticket queue in dependency order with minimal intervention: one ticket at a time from ready to closed, with gates and close-out every time."
+---
+
+# Ticket loop
+
+Work the queue; don't admire it. One ticket at a time, in dependency order,
+until nothing ready remains. Pause only for critical confirmations (a config
+change the `wps` guardrail reserves for the user, a scope call that routes
+work to another ticket/phase, a missing dependency). Everything else —
+proceed.
+
+## Order
+
+- `bd ready` shows what's unblocked. Pick by dependency impact (the ticket
+  that unblocks the longest chain first); backend before frontend, MVP (P1)
+  before Phase 2 (P2).
+- `bd update <id> --claim`, state its title, implement, close-out, next.
+- Never start a ticket whose dependencies are open. Never batch tickets.
+
+## Per ticket
+
+1. **Pre-conditions**: `graft build`; orient with `graft ask --source`
+   (spans, not whole files); memory search scoped to the project wing —
+   never re-derive rationale memory already holds.
+2. **TDD**: pytest by default at pre-agreed seams, red first, one vertical
+   slice per cycle. The full E2E gate runs only once its harness ticket
+   lands; until then the ticket's pytest scope plus all prior scopes is
+   the gate (record the substitution, don't silently narrow).
+3. **Gates** (every ticket, no exceptions): ticket scope + full suite green,
+   `makemigrations --check` clean, `ruff check` + `ruff format --check`
+   clean, `flake8` on touched files (wemake, `.flake8` scope), `mypy` clean
+   where configured (if unconfigured, note it once and move on).
+4. **Review**: two axes (Standards, Spec) reported separately; run
+   referenced skills inline where no skill/subagent tool exists and say so.
+   WPS findings go through the `wps` loop; config changes need user
+   approval (pre-approved sets live in `.flake8`, documented inline).
+5. **Close-out, every time, in order**: ingest decisions + new facts into
+   project memory (rationale included); `graft build`; commit to the
+   current branch (message cites the ticket; never push unless asked);
+   close the tracker issue so the next unblocks.
+
+## Session discipline (prevents lost work)
+
+- End every turn with the tree committed, or say plainly what is
+  uncommitted and why.
+- Interruption mid-ticket: finish the current atomic step, commit the
+  ticket's done files, then switch. Blocked on an approval: commit
+  everything done first, then ask — the question must never hold the
+  work hostage.
+- Start each turn stating active ticket + gate status in one line.
+
+## Out of scope, always
+
+- Environment/installer files (scaffolds, IDE dirs, skill drops, lockfiles
+  owned by installers): never stage, never delete, never "fix".
+- Legacy files are exempt from new gates; gate touched files only.
+- Deferred behavior gets recorded with its owner ticket, not built early
+  (no code before its ticket/phase). Missing owners become gap notes at
+  close-out, not scope creep mid-ticket.
