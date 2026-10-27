@@ -43,6 +43,8 @@ class Booking(models.Model):
     )
     source = models.CharField(max_length=64, default="app")
     idempotency_key = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    hold_until = models.DateTimeField(null=True, blank=True)
     credit_tx = models.ForeignKey(
         "passes.CreditLedger",
         on_delete=models.SET_NULL,

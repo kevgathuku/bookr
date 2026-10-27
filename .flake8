@@ -9,6 +9,8 @@
 # Per-file: scheduling/availability.py ignores WPS210/WPS221/WPS231 — the
 # slot pipeline stages (rules, candidates, filter, dedupe) are the natural
 # units; further extraction breaches the 7-member cap or contorts the loop.
+# Per-file: config/__init__.py ignores WPS300/WPS410/WPS412 — content is the
+# Celery-prescribed bootstrap, which cannot live anywhere else.
 [flake8]
 max-line-length = 88
 extend-ignore =
@@ -27,6 +29,10 @@ exclude =
     */migrations/*
 
 per-file-ignores =
+    config/__init__.py:
+        WPS300,
+        WPS410,
+        WPS412,
     scheduling/availability.py:
         WPS210,
         WPS221,

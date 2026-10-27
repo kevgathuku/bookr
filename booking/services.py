@@ -61,9 +61,11 @@ def _create(member: User, klass: ScheduledClass, status: str, idem_key: str) -> 
         raise DuplicateBooking(f"{member} already booked {klass}.")
     # Spend inside the same transaction: CreditInsufficient rolls back the
     # booking too, so nothing is ever written half-done. Unlimited passes
-    # spend nothing and leave credit_tx empty.
-    booking.credit_tx = spend_credit(member, booking)
-    booking.save(update_fields=["credit_tx"])
+    # spend nothing and leave credit_tx empty. Waitlisted bookings spend on
+    # promotion, not before — no seat, no charge.
+    if status == Booking.Status.CONFIRMED:
+        booking.credit_tx = spend_credit(member, booking)
+        booking.save(update_fields=["credit_tx"])
     return booking
 
 

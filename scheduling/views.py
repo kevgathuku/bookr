@@ -21,10 +21,12 @@ class TeacherSubstitutionViewSet(viewsets.ModelViewSet):
     """History kept: list/retrieve/create, never update/delete."""
 
     serializer_class = TeacherSubstitutionSerializer
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
         IsVenueMember,
         IsStaffOrReadOnly,
     ]
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
     http_method_names: ClassVar[list[str]] = [  # type: ignore[misc]
         "get",
         "post",
@@ -67,6 +69,7 @@ def parse_window_bound(value, default):
 
 class ScheduledClassViewSet(viewsets.ModelViewSet):
     serializer_class = ScheduledClassSerializer
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
         IsVenueMember,
         IsStaffOrReadOnly,
@@ -97,6 +100,16 @@ class ScheduledClassViewSet(viewsets.ModelViewSet):
         if payload_venue != self.request.venue:
             raise NotFound("No such venue.")
         serializer.save()
+
+    def perform_update(self, serializer):
+        # Growing seats (override or room swap) may free waitlist places.
+        watched = {"capacity_override", "room"}
+        changed = watched.intersection(serializer.validated_data)
+        super().perform_update(serializer)
+        if changed:
+            from booking.tasks import promote_waitlist
+
+            promote_waitlist.delay(class_id=serializer.instance.pk)
 
     def _window(self):
         params = self.request.query_params

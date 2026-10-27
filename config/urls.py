@@ -33,5 +33,6 @@ urlpatterns = [
     path("api/v1/", include("scheduling.urls")),
     path("api/v1/", include("passes.urls")),
     path("api/v1/", include("organizations.urls")),
+    path("api/v1/", include("booking.urls")),
     path("", include("access.urls")),
 ]
