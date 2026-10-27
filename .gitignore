@@ -174,3 +174,6 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
