@@ -37,6 +37,21 @@ def _user(username):
     return get_user_model().objects.create_user(username=username)
 
 
+def _member(username, venue):
+    """Member holding an unlimited pass: keeps seat tests credit-invisible."""
+    from passes.models import PassProduct
+    from passes.services import issue_pass
+
+    member = _user(username)
+    product, _ = PassProduct.objects.get_or_create(
+        venue=venue,
+        name="Unlimited",
+        defaults={"credits_total": None, "validity_days": 365},
+    )
+    issue_pass(member, product)
+    return member
+
+
 def _class(venue, capacity=2, **overrides):
     start = timezone.now() + timedelta(days=1)
     defaults = {
@@ -62,8 +77,8 @@ class TestBookSeat:
         venue = _venue()
         klass = _class(venue, capacity=2)
 
-        b1 = book_seat(_user("m1"), klass, idempotency_key="k1")
-        b2 = book_seat(_user("m2"), klass, idempotency_key="k2")
+        b1 = book_seat(_member("m1", venue), klass, idempotency_key="k1")
+        b2 = book_seat(_member("m2", venue), klass, idempotency_key="k2")
 
         assert b1.status == "confirmed"
         assert b2.status == "confirmed"
@@ -72,26 +87,28 @@ class TestBookSeat:
     def test_full_raises_seat_full_without_row(self):
         venue = _venue()
         klass = _class(venue, capacity=1)
-        book_seat(_user("m1"), klass, idempotency_key="k1")
+        book_seat(_member("m1", venue), klass, idempotency_key="k1")
 
         with pytest.raises(SeatFull):
-            book_seat(_user("m2"), klass, idempotency_key="k2")
+            book_seat(_member("m2", venue), klass, idempotency_key="k2")
 
         assert klass.bookings.count() == 1
 
     def test_full_with_waitlist_flag_waitlists(self):
         venue = _venue()
         klass = _class(venue, capacity=1)
-        book_seat(_user("m1"), klass, idempotency_key="k1")
+        book_seat(_member("m1", venue), klass, idempotency_key="k1")
 
-        booking = book_seat(_user("m2"), klass, idempotency_key="k2", waitlist=True)
+        booking = book_seat(
+            _member("m2", venue), klass, idempotency_key="k2", waitlist=True
+        )
 
         assert booking.status == "waitlisted"
 
     def test_same_key_twice_returns_one_booking(self):
         venue = _venue()
         klass = _class(venue)
-        member = _user("m1")
+        member = _member("m1", venue)
 
         first = book_seat(member, klass, idempotency_key="same")
         second = book_seat(member, klass, idempotency_key="same")
@@ -102,7 +119,7 @@ class TestBookSeat:
     def test_same_member_twice_raises_duplicate(self):
         venue = _venue()
         klass = _class(venue)
-        member = _user("m1")
+        member = _member("m1", venue)
         book_seat(member, klass, idempotency_key="k1")
 
         with pytest.raises(DuplicateBooking):
@@ -111,7 +128,7 @@ class TestBookSeat:
     def test_rebook_after_cancel_allowed(self):
         venue = _venue()
         klass = _class(venue, capacity=1)
-        member = _user("m1")
+        member = _member("m1", venue)
         booking = book_seat(member, klass, idempotency_key="k1")
         booking.status = "cancelled"
         booking.save()
@@ -121,19 +138,13 @@ class TestBookSeat:
 
         assert rebook.status == "confirmed"
 
-    def test_credit_hook_called_and_insufficient_aborts(self):
+    def test_no_pass_means_insufficient_and_nothing_written(self):
         venue = _venue()
         klass = _class(venue)
-        calls = []
-
-        def spend():
-            calls.append(True)
-            raise CreditInsufficient("no credits left")
 
         with pytest.raises(CreditInsufficient):
-            book_seat(_user("m1"), klass, idempotency_key="k1", spend_credit=spend)
+            book_seat(_user("broke"), klass, idempotency_key="k1")
 
-        assert calls == [True]
         assert klass.bookings.count() == 0
 
     def test_idempotency_key_unique_at_db(self):
@@ -159,7 +170,7 @@ class TestLastSeatRace:
     def test_twenty_threads_one_seat_yields_one_confirmed(self):
         venue = _venue(slug="race")
         klass = _class(venue, capacity=1)
-        members = [_user(f"racer-{i}") for i in range(20)]
+        members = [_member(f"racer-{i}", venue) for i in range(20)]
         outcomes = []
 
         def attempt(i):

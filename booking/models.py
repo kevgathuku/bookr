@@ -29,13 +29,20 @@ class Booking(models.Model):
         blank=True,
         related_name="bookings",
     )
-    # Appointment target + credit_tx land with their tickets (7q9, xts);
-    # until then every booking targets a class.
+    # Appointment target lands with its ticket (7q9); until then every
+    # booking targets a class.
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.CONFIRMED
     )
     source = models.CharField(max_length=64, default="app")
     idempotency_key = models.CharField(max_length=64, unique=True)
+    credit_tx = models.ForeignKey(
+        "passes.CreditLedger",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="settled_bookings",
+    )
     checked_in_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

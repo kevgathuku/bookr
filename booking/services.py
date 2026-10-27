@@ -2,13 +2,12 @@
 these typed errors to HTTP (SeatFull/DuplicateBooking → 409,
 CreditInsufficient → 402)."""
 
-from collections.abc import Callable
-
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 
 from booking.errors import DuplicateBooking, SeatFull
 from booking.models import ACTIVE_STATUSES, Booking
+from passes.services import spend_credit
 from scheduling.models import ScheduledClass
 
 User = get_user_model()
@@ -37,7 +36,7 @@ def _status_for(klass: ScheduledClass, waitlist: bool) -> str:
 
 def _create(member: User, klass: ScheduledClass, status: str, idem_key: str) -> Booking:
     try:
-        return Booking.objects.create(
+        booking = Booking.objects.create(
             venue=klass.venue,
             member=member,
             scheduled_class=klass,
@@ -50,6 +49,12 @@ def _create(member: User, klass: ScheduledClass, status: str, idem_key: str) -> 
         if winner is not None:
             return winner
         raise DuplicateBooking(f"{member} already booked {klass}.")
+    # Spend inside the same transaction: CreditInsufficient rolls back the
+    # booking too, so nothing is ever written half-done. Unlimited passes
+    # spend nothing and leave credit_tx empty.
+    booking.credit_tx = spend_credit(member, booking)
+    booking.save(update_fields=["credit_tx"])
+    return booking
 
 
 def book_seat(
@@ -58,14 +63,8 @@ def book_seat(
     *,
     idempotency_key: str,
     waitlist: bool = False,
-    spend_credit: Callable[[], None] | None = None,
 ) -> Booking:
-    """Book one seat, serialized per class via SELECT ... FOR UPDATE.
-
-    spend_credit is a stub seam until the passes ticket wires the real ledger:
-    called inside the transaction, its return ignored, its
-    CreditInsufficient propagated with nothing written.
-    """
+    """Book one seat, serialized per class via SELECT ... FOR UPDATE."""
     with transaction.atomic():
         locked = ScheduledClass.objects.select_for_update().get(pk=klass.pk)
 
@@ -76,6 +75,4 @@ def book_seat(
             raise DuplicateBooking(f"{member} already booked {locked}.")
 
         status = _status_for(locked, waitlist)
-        if spend_credit is not None:
-            spend_credit()
         return _create(member, locked, status, idempotency_key)

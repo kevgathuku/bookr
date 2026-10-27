@@ -16,6 +16,7 @@ INSTALLED_APPS = [
     "organizations.apps.OrganizationsConfig",
     "scheduling.apps.SchedulingConfig",
     "booking.apps.BookingConfig",
+    "passes.apps.PassesConfig",
     "django.contrib.postgres",
     "django.contrib.admin",
     "django.contrib.auth",
