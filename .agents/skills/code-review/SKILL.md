@@ -33,7 +33,7 @@ Look for the originating spec, in this order:
 
 ### 3. Identify the standards sources
 
-Search the repo for every file that documents how code should be written. When `CODING_STANDARDS.md` or `CONTRIBUTING.md` exists, it must be on the list. For Python changes `.flake8` (wemake-python-styleguide) is always a standards source — enforced as a mechanical gate, not reasoned about (see below).
+Search the repo for every file that documents how code should be written. When `CODING_STANDARDS.md` or `CONTRIBUTING.md` exists, it must be on the list. For Python changes `.flake8` (wemake-python-styleguide) is always a standards source — enforced via the `wps` skill loop, not reasoned about (see below). The repo's `.flake8` ignores are pre-approved; any further config change needs user approval.
 
 On top of whatever the repo documents, the Standards axis always carries the **smell baseline** below: a fixed set of Fowler code smells (_Refactoring_, ch.3) that applies even when a repo documents nothing. Two rules bind it:
 
@@ -62,7 +62,7 @@ Issue both sub-agent calls together, in the foreground, and aggregate the report
 **Standards sub-agent prompt** should include:
 
 - The full diff command and commit list.
-- The mechanical wemake gate output: run `uv run flake8` on the diff's touched Python files first and paste the result into the Standards report verbatim (legacy-file findings are exempt — gate covers touched files only, per the scope note in `.flake8`).
+- The wemake gate: call the Skill tool with `wps` on the diff's touched Python files first (it runs the flake8 loop to exit 0); paste its final result into the Standards report verbatim. Scope is touched files only — legacy-file findings are exempt, per the scope note in `.flake8`.
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
 - The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
 

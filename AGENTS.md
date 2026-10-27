@@ -159,3 +159,22 @@ bd prime                # Refresh Beads context
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
+
+## Reuse before creating (merged from workspace template)
+
+Before writing new code, check the codebase first (graft ask/grep, then
+raw grep): if something exists that's ~80% of the need, extend it; if
+about to copy-paste, extract to a shared module instead. Prefer the
+smallest complete change (see ponytail rules in the session prompt).
+
+## File size (merged from workspace template)
+
+One module = one concern; split on unrelated exports or when a file
+stops being skimmable. (Within Django apps this composes with app-by-
+feature layout; wemake WPS202 already caps module members for new code.)
+
+## Verify functionality (merged from workspace template)
+
+If it isn't tested, it doesn't work: unit scope per ticket, all prior
+scopes stay green, lint gates (`ruff`, plus `flake8` on touched files
+per the implement skill), and the E2E gate once the harness lands.
