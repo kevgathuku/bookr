@@ -5,7 +5,7 @@ CreditInsufficient → 402)."""
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 
-from booking.errors import DuplicateBooking, SeatFull
+from booking.errors import DuplicateBooking, SeatFull, TeacherUnavailable
 from booking.models import ACTIVE_STATUSES, Booking
 from passes.services import spend_credit
 from scheduling.models import ScheduledClass
@@ -32,6 +32,18 @@ def _status_for(klass: ScheduledClass, waitlist: bool) -> str:
     if waitlist:
         return Booking.Status.WAITLISTED
     raise SeatFull(f"{klass} is full.")
+
+
+def _teacher_clash(klass) -> bool:
+    from scheduling.appointments import Appointment
+
+    return Appointment.objects.filter(
+        venue=klass.venue,
+        teacher=klass.teacher,
+        status=Appointment.Status.SCHEDULED,
+        starts_at__lt=klass.ends_at,
+        ends_at__gt=klass.starts_at,
+    ).exists()
 
 
 def _create(member: User, klass: ScheduledClass, status: str, idem_key: str) -> Booking:
@@ -75,4 +87,6 @@ def book_seat(
             raise DuplicateBooking(f"{member} already booked {locked}.")
 
         status = _status_for(locked, waitlist)
+        if _teacher_clash(locked):
+            raise TeacherUnavailable(f"{locked.teacher} is booked elsewhere.")
         return _create(member, locked, status, idempotency_key)

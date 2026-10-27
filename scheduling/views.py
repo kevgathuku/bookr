@@ -14,7 +14,7 @@ from scheduling.serializers import ScheduledClassSerializer
 MAX_WINDOW = timedelta(days=31)
 
 
-def _parse_bound(value, default):
+def parse_window_bound(value, default):
     if value is None:
         return default
     try:
@@ -60,8 +60,8 @@ class ScheduledClassViewSet(viewsets.ModelViewSet):
 
     def _window(self):
         params = self.request.query_params
-        start = _parse_bound(params.get("from"), timezone.now())
-        end = _parse_bound(params.get("to"), start + MAX_WINDOW)
+        start = parse_window_bound(params.get("from"), timezone.now())
+        end = parse_window_bound(params.get("to"), start + MAX_WINDOW)
         if end <= start or end - start > MAX_WINDOW:
             raise serializers.ValidationError("Window must span 1s to 31d.")
         return start, end

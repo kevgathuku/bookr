@@ -16,3 +16,7 @@ class CreditInsufficient(BookingError):
 
 class DuplicateBooking(BookingError):
     """Member already holds an active booking for this class."""
+
+
+class TeacherUnavailable(BookingError):
+    """Teacher holds an overlapping appointment (maps to 409)."""

@@ -29,6 +29,13 @@ class Booking(models.Model):
         blank=True,
         related_name="bookings",
     )
+    appointment = models.ForeignKey(
+        "scheduling.Appointment",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="bookings",
+    )
     # Appointment target lands with its ticket (7q9); until then every
     # booking targets a class.
     status = models.CharField(
@@ -52,12 +59,20 @@ class Booking(models.Model):
                 condition=models.Q(status__in=ACTIVE_STATUSES),
                 name="one_active_class_booking",
             ),
+            models.UniqueConstraint(
+                fields=["venue", "member", "appointment"],
+                condition=models.Q(status__in=ACTIVE_STATUSES),
+                name="one_active_appointment_booking",
+            ),
         ]
 
     def clean(self):
         super().clean()
-        if self.scheduled_class_id is None:
-            raise ValidationError({"scheduled_class": "A booking must target a class."})
+        targets = [self.scheduled_class_id, self.appointment_id]
+        if sum(target is not None for target in targets) != 1:
+            raise ValidationError(
+                "A booking targets exactly one of class, appointment."
+            )
 
     def __str__(self):
         return f"{self.member} → {self.scheduled_class} ({self.status})"
