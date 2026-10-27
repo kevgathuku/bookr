@@ -39,3 +39,43 @@ re-read whole files.
 After big code changes, refresh the graph with `graft build` (deterministic,
 no API key, $0).
 <!-- graft:end -->
+
+## Project structure
+
+- Contracts: `SPEC.md` (backend), `SPEC-frontend.md` (React+TS SPA),
+  `.scratch/bookr-platform/spec.md` (ticket copy). (Human learning track —
+  `TUTORIAL.md`, `lessons/` — intentionally omitted here; agents build
+  from the contracts, not the tutorials.)
+- Code: `config/` (project, settings package `base/dev/prod`, strict env),
+  `organizations/` (tenancy: Organization → Venue → VenuePolicy versions +
+  Membership spanning/per-venue), `tests/` (pytest-django, factories in
+  lesson 3), `docker/postgres/` + `docker-compose.yml` (db on host :5433).
+- Quality gates: `uv run ruff check .`, `uv run ruff format --check .`,
+  `DATABASE_URL=... uv run pytest tests/ -q` (+ CI in `.github/`).
+- Conventions: explicit names with units (`class_late_cancel_hours`, not
+  `_h`); `condition=` (Django 6.1, never `check=`); `ClassVar` on Meta
+  constraint lists (RUF012); no code before its lesson.
+
+## Project memory (mempal, wing `bookr`) — mandatory
+
+A mempal store is initialized for this folder (wing `bookr`). It exists so
+no agent ever re-discovers what a prior session already learned. These are
+requirements, not suggestions:
+
+- **Read before deciding.** Before taking any decision in an area you're
+  about to work in, query memory first: `mempal_search` scoped to wing
+  `bookr` (past decisions, rationale, bug history, why things are shaped
+  as they are), or `mempal_brief` for a citation-first brief on the topic.
+  If you haven't seen the memory protocol this session, call
+  `mempal_status` once first. Never reason from files alone when memory
+  may hold the rationale — the files show what, memory shows why.
+- **Record every decision.** When a decision is reached — naming, model
+  shape, constraint choice, tooling call, rejected alternative — persist it
+  with `mempal_ingest` (wing `bookr` is required; include the rationale,
+  not just the outcome). Default writes are evidence drawers: content +
+  wing only; use `dry_run=true` to preview first.
+- **Record new information discovered.** Bug causes, environment quirks
+  (ports, versions, machine-specific behavior), corrected assumptions,
+  verification results — if a future agent would benefit, ingest it.
+- **Cite, don't duplicate.** Memory results carry `drawer_id`/`source_file`
+  citations; reference them instead of re-recording the same fact.
