@@ -237,6 +237,33 @@ class TestHoldSweep:
         assert swept >= 1
         assert second.status == Booking.Status.CANCELLED
 
+    def test_expired_hold_refunds_spent_credit(self):
+        from booking.tasks import sweep_expired_holds
+        from passes.models import CreditLedger
+        from passes.services import issue_pass
+
+        venue = _venue("refund-sweep")
+        klass = _class(venue, capacity=1)
+        holder = _member(venue, "holder")
+        product, _ = PassProduct.objects.get_or_create(
+            venue=venue,
+            name="Pack",
+            defaults={"credits_total": 10, "validity_days": 30},
+        )
+        issue_pass(holder, product)
+        confirmed = _book(holder, klass, "r1")
+        assert confirmed.credit_tx is not None
+        confirmed.hold_until = timezone.now() - timedelta(minutes=1)
+        confirmed.save(update_fields=["hold_until"])
+
+        sweep_expired_holds()
+
+        confirmed.refresh_from_db()
+        assert confirmed.status == Booking.Status.CANCELLED
+        assert CreditLedger.objects.filter(
+            booking=confirmed, reason=CreditLedger.Reason.REFUND
+        ).exists()
+
 
 class TestBookingEndpoints:
     def test_book_cancel_flow(self):

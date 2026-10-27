@@ -256,3 +256,35 @@ class TestRecentEvents:
         elapsed.sort()
 
         assert elapsed[18] < 1  # p95 proxy; seed-scale must stay far under
+
+
+class TestStaleGrant:
+    def test_cancel_inside_ttl_denies_on_recheck(self):
+        from access.services import decide
+        from booking.cancellations import cancel_booking
+
+        venue = _venue("stale-door")
+        point, _token = _point(venue)
+        teacher = _user("stale-teacher")
+        member = _user("stale-member")
+        Membership.objects.create(
+            organization=venue.organization,
+            venue=venue,
+            user=member,
+            role=Membership.Role.MEMBER,
+        )
+        product = PassProduct.objects.create(
+            venue=venue, name="Single", credits_total=1, validity_days=30
+        )
+        issue_pass(member, product)
+        start = timezone.now() - timedelta(minutes=5)
+        klass = _class(venue, teacher, start)
+        booking = book_seat(member, klass, idempotency_key="stale-1")
+
+        granted, _reason, _booking = decide(point, member)
+        assert granted is True
+        cancel_booking(member, booking)
+
+        granted, _reason, _recheck = decide(point, member)
+
+        assert granted is False

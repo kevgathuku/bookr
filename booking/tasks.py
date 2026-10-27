@@ -5,7 +5,7 @@ from django.utils import timezone
 from booking import notify
 from booking.errors import CreditInsufficient
 from booking.models import Booking
-from passes.services import spend_credit
+from passes.services import refund_credit, spend_credit
 
 
 def _free_seat(locked):
@@ -72,6 +72,7 @@ def sweep_expired_holds():
                 locked.hold_until is not None and locked.hold_until >= now
             ):
                 continue
+            refund_credit(locked)
             locked.status = Booking.Status.CANCELLED
             locked.hold_until = None
             locked.save(update_fields=["status", "hold_until"])

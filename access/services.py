@@ -32,11 +32,14 @@ def decide(access_point, member):
     cached = cache.get(key)
     if cached is None:
         return _store(access_point, member, key)
-    return (
-        cached["granted"],
-        cached["reason"],
-        Booking.objects.filter(pk=cached["booking_id"]).first(),
-    )
+    if cached["booking_id"] is None:
+        return cached["granted"], cached["reason"], None
+    booking = Booking.objects.filter(pk=cached["booking_id"]).first()
+    if booking is None or booking.status in ACTIVE_STATUSES:
+        return cached["granted"], cached["reason"], booking
+    # Grant went stale (booking cancelled inside the TTL): re-evaluate.
+    cache.delete(key)
+    return _store(access_point, member, key)
 
 
 def _store(access_point, member, key):
