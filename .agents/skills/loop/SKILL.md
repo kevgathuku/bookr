@@ -25,6 +25,11 @@ proceed.
 
 ## Per ticket
 
+Fixed order — never reorder, never skip: pre-conditions → TDD slices →
+gates → review → fixes → re-gate → close-out. The ticket's final commit
+happens only after review findings are fixed and gates are re-green.
+(Interim commits of done slices are fine; the close-out commit is not.)
+
 1. **Pre-conditions**: `graft build`; orient with `graft ask --source`
    (spans, not whole files); memory search scoped to the project wing —
    never re-derive rationale memory already holds. Prefer graft for ALL
@@ -34,13 +39,21 @@ proceed.
    slice per cycle. The full E2E gate runs only once its harness ticket
    lands; until then the ticket's pytest scope plus all prior scopes is
    the gate (record the substitution, don't silently narrow).
-3. **Gates** (every ticket, no exceptions): ticket scope + full suite green,
-   `makemigrations --check` clean, `ruff check` + `ruff format --check`
-   clean, `flake8` on touched files (wemake, `.flake8` scope), `mypy` clean
-   where configured (if unconfigured, note it once and move on).
-4. **Review**: three axes (Standards, Spec, Necessity) reported separately; run
-   referenced skills inline where no skill/subagent tool exists and say so.
-   WPS findings go through the `wps` loop; config changes need user
+3. **Gates** (every ticket, no exceptions — run the commands, don't trust
+   memory of an earlier green): ticket scope + full suite green;
+   E2E scope for the ticket plus all previously-green scopes;
+   `makemigrations --check` clean; `ruff check` + `ruff format --check`
+   clean; `flake8` on touched files (wemake, `.flake8` scope); `mypy` clean
+   where configured (if unconfigured, note it once and move on). Frontend
+   tickets add: `tsc --noEmit`, `biome check .`, `vitest run`, production
+   `build`, codegen `generate:api` with no drift. Backend tickets with API
+   changes add: schema builds with errors 0.
+4. **Review**: three axes (Standards, Spec, Necessity) reported separately.
+   A summary is not a review: read the `ponytail-review` SKILL.md and run
+   its pass on the ticket's diff, emitting its output format (What this
+   change does / numbered findings / Verdict) before the close-out commit.
+   Run referenced skills inline where no skill/subagent tool exists and say
+   so. WPS findings go through the `wps` loop; config changes need user
    approval (pre-approved sets live in `.flake8`, documented inline).
    Standing rule: structural WPS findings whose fix would degrade intent
    (endpoint-file growth per ticket, linear E2E scripts) take the
