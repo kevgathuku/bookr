@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
-import { AuthProvider, useAuth } from "./auth";
+import { AuthProvider, isDeskStaff, useAuth } from "./auth";
 import Bookings from "./routes/Bookings";
 import Calendar from "./routes/Calendar";
+import Desk from "./routes/Desk";
 import Ledger from "./routes/Ledger";
 import Login from "./routes/Login";
 import Passes from "./routes/Passes";
@@ -24,6 +25,14 @@ function RequireVenue() {
 	return <ScheduleRoute />;
 }
 
+function RequireStaff() {
+	const { me } = useAuth();
+	const { venue } = useVenue();
+	if (!me) return <Navigate to="/login" />;
+	if (!isDeskStaff(me, venue)) return <Navigate to="/" />;
+	return <Desk />;
+}
+
 export default function App() {
 	return (
 		<QueryClientProvider client={queryClient}>
@@ -38,6 +47,7 @@ export default function App() {
 								<Route path="/calendar" element={<Calendar />} />
 								<Route path="/passes" element={<Passes />} />
 								<Route path="/ledger" element={<Ledger />} />
+								<Route path="/desk" element={<RequireStaff />} />
 								<Route path="*" element={<Navigate to="/" />} />
 							</Route>
 						</Routes>

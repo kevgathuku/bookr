@@ -1,17 +1,29 @@
+import datetime
 from typing import ClassVar
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import serializers
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from booking.cancellations import cancel_booking, mark_no_show
+from booking.cancellations import cancel_booking, check_in, mark_no_show
 from booking.http import mapped_errors
 from booking.models import Booking
 from booking.serializers import BookingSerializer, BookSerializer
 from booking.services import book_seat
 from organizations.permissions import IsStaff, IsVenueMember, staff_covering
+
+
+class RosterRowSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    member = serializers.CharField()
+    class_title = serializers.CharField()
+    starts_at = serializers.DateTimeField()
+    status = serializers.CharField()
+    checked_in_at = serializers.DateTimeField(allow_null=True)
 
 
 class BookingsView(APIView):
@@ -121,6 +133,77 @@ class NoShowView(APIView):
         except DjangoValidationError as error:
             raise ValidationError(str(error))
         return Response(BookingSerializer(booking).data)
+
+
+class CheckinView(APIView):
+    """Frontdesk stamps a confirmed booking as checked in."""
+
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaff,
+    ]
+
+    @extend_schema(request=None, responses=BookingSerializer)
+    def post(self, request, pk):
+        booking = (
+            Booking.objects.filter(pk=pk, venue=request.venue)
+            .select_related("scheduled_class", "appointment")
+            .first()
+        )
+        if booking is None:
+            raise NotFound("No such venue.")
+        try:
+            booking = check_in(request.user, booking)
+        except DjangoValidationError as error:
+            raise ValidationError(str(error))
+        return Response(BookingSerializer(booking).data)
+
+
+class RosterView(APIView):
+    """Frontdesk day roster: venue bookings with member + class info."""
+
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaff,
+    ]
+
+    @extend_schema(
+        responses=RosterRowSerializer(many=True),
+        parameters=[OpenApiParameter("date", str, required=False)],
+    )
+    def get(self, request):
+        target = request.query_params.get("date")
+        try:
+            day = (
+                datetime.date.fromisoformat(target) if target else timezone.localdate()
+            )
+        except ValueError:
+            raise ValidationError("date must be YYYY-MM-DD.")
+        rows = (
+            Booking.objects.filter(
+                venue=request.venue, scheduled_class__starts_at__date=day
+            )
+            .select_related("member", "scheduled_class__class_type")
+            .order_by("scheduled_class__starts_at")
+        )
+        return Response(
+            RosterRowSerializer(
+                [
+                    {
+                        "id": booking.pk,
+                        "member": booking.member.username,
+                        "class_title": booking.scheduled_class.class_type.name,
+                        "starts_at": booking.scheduled_class.starts_at,
+                        "status": booking.status,
+                        "checked_in_at": booking.checked_in_at,
+                    }
+                    for booking in rows
+                ],
+                many=True,
+            ).data
+        )
 
 
 class MineView(APIView):

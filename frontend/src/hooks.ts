@@ -126,6 +126,87 @@ export function useLedger() {
 	});
 }
 
+export interface RosterRow {
+	id: number;
+	member: string;
+	class_title: string;
+	starts_at: string;
+	status: string;
+	checked_in_at: string | null;
+}
+
+export function useRoster(date: string | null) {
+	const params = date ? `?date=${encodeURIComponent(date)}` : "";
+	return useQuery({
+		queryKey: ["desk", "roster", date ?? "today"],
+		queryFn: () => apiJson<RosterRow[]>(`/api/v1/bookings/roster/${params}`),
+	});
+}
+
+export interface MemberHit {
+	id: number;
+	username: string;
+}
+
+export async function searchMembers(query: string): Promise<MemberHit[]> {
+	return apiJson<MemberHit[]>(
+		`/api/v1/members/search/?q=${encodeURIComponent(query)}`,
+	);
+}
+
+export function useMemberPasses(memberId: number | null) {
+	return useQuery({
+		queryKey: ["desk", "passes", memberId],
+		queryFn: () => apiJson<MemberPassItem[]>(`/api/v1/passes/?member=${memberId}`),
+		enabled: memberId !== null,
+	});
+}
+
+export interface DoorEvent {
+	id: number;
+	access_point: number;
+	member: number | null;
+	granted: boolean;
+	reason: string;
+}
+
+export function useDoorEvents() {
+	return useQuery({
+		queryKey: ["desk", "door-events"],
+		queryFn: () => apiJson<DoorEvent[]>("/api/v1/access/events/"),
+		refetchInterval: 15000,
+	});
+}
+
+export async function checkinBooking(bookingId: number): Promise<void> {
+	await apiJson(`/api/v1/bookings/${bookingId}/checkin/`, { method: "POST" });
+}
+
+export async function noShowBooking(bookingId: number): Promise<void> {
+	await apiJson(`/api/v1/bookings/${bookingId}/no-show/`, { method: "POST" });
+}
+
+export async function cancelBookingOverride(
+	bookingId: number,
+	reason: string,
+): Promise<void> {
+	await apiJson(`/api/v1/bookings/${bookingId}/cancel/`, {
+		method: "POST",
+		body: JSON.stringify({ staff_override: true, reason }),
+	});
+}
+
+export async function adjustPass(
+	passId: number,
+	delta: number,
+	reason: string,
+): Promise<void> {
+	await apiJson("/api/v1/ledger/adjust/", {
+		method: "POST",
+		body: JSON.stringify({ member_pass: passId, delta, reason }),
+	});
+}
+
 export function useBookings() {
 	return useQuery({
 		queryKey: ["bookings", "mine"],

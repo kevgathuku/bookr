@@ -7,7 +7,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from organizations.permissions import IsStaffOrReadOnly, IsVenueMember
+from organizations.permissions import IsStaff, IsStaffOrReadOnly, IsVenueMember
 from organizations.tenancy import STAFF_ROLES, _covers
 from passes.models import CreditLedger, MemberPass
 from passes.services import adjust_credit
@@ -65,6 +65,25 @@ class MyPassesView(generics.ListAPIView):
     def get_queryset(self):
         return (
             MemberPass.objects.filter(member=self.request.user)
+            .select_related("product")
+            .order_by("valid_until")
+        )
+
+
+class MemberPassesView(generics.ListAPIView):
+    """Frontdesk lists one member's passes by ?member= id."""
+
+    serializer_class = MemberPassSerializer
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaff,
+    ]
+
+    def get_queryset(self):
+        member_id = self.request.query_params.get("member")
+        return (
+            MemberPass.objects.filter(member_id=member_id)
             .select_related("product")
             .order_by("valid_until")
         )

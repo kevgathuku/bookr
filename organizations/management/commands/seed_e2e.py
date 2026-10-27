@@ -37,6 +37,7 @@ _PEOPLE_SPECS = (
     ("stranger", "e2e-run-stranger", Membership.Role.MEMBER),
     ("sub", "e2e-run-sub", Membership.Role.TEACHER),
     ("booker", "e2e-run-booker", Membership.Role.MEMBER),
+    ("frontdesk", "e2e-run-frontdesk", Membership.Role.FRONTDESK),
 )
 
 

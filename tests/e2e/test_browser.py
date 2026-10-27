@@ -104,3 +104,83 @@ def test_member_views_calendar_passes_ledger(frontend_url):
         assert "purchase" in page.content()
 
         browser.close()
+
+
+FRONTDESK = ("e2e-run-frontdesk", "password")
+
+
+def _book_tiny(base_url):
+    import uuid
+
+    anonymous = requests.Session()
+    token = anonymous.post(
+        f"{base_url}/api/v1/auth/token/",
+        json={"username": MEMBER[0], "password": MEMBER[1]},
+    ).json()["access"]
+    member = requests.Session()
+    member.headers.update(
+        {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "X-Venue-Slug": "main",
+        }
+    )
+    tiny_id = _tiny_id(base_url)
+    booked = member.post(
+        f"{base_url}/api/v1/bookings/",
+        json={"scheduled_class": tiny_id, "idempotency_key": uuid.uuid4().hex},
+    )
+    assert booked.status_code == 201, booked.text
+    return tiny_id
+
+
+def test_frontdesk_desk_flow(frontend_url):
+    playwright = pytest.importorskip("playwright.sync_api")
+    _book_tiny(frontend_url)
+    with playwright.sync_playwright() as driver:
+        browser = driver.chromium.launch()
+        page = browser.new_context().new_page()
+        _login(page, frontend_url, FRONTDESK)
+
+        # Desk link shows for staff; roster lists tomorrow's booking.
+        page.get_by_role("link", name="Desk").click()
+        page.get_by_test_id("desk").wait_for()
+        tomorrow = page.evaluate(
+            "() => new Date(Date.now() + 86400000).toISOString().slice(0, 10)"
+        )
+        page.get_by_test_id("roster-date").fill(tomorrow)
+        page.get_by_test_id("roster-row").first.wait_for()
+
+        # Keyboard-only check-in: focus + Enter stamps the badge.
+        page.locator('[data-testid^="checkin-button-"]').first.focus()
+        page.keyboard.press("Enter")
+        page.locator('[data-testid^="checked-in-"]').first.wait_for()
+
+        # Member lookup by keyboard: autofocused search submits on Enter.
+        search = page.get_by_test_id("member-search")
+        search.fill("e2e-run-member")
+        search.press("Enter")
+        page.locator('[data-testid^="member-hit-"]').first.click()
+        page.get_by_test_id("member-panel").wait_for()
+
+        # Credit adjust with a reason lands in the ledger.
+        page.get_by_test_id("adjust-pass").select_option(index=1)
+        page.get_by_test_id("adjust-reason").fill("goodwill")
+        page.get_by_test_id("adjust-button").click()
+        page.get_by_text("Adjustment saved.").wait_for()
+
+        # Late-cancel override with a reason cancels the booking.
+        row = page.locator('[data-testid="roster-row"]').first
+        row.get_by_placeholder("Override reason").fill("desk-override")
+        row.get_by_role("button", name="Override cancel").click()
+        page.get_by_text("cancelled", exact=False).first.wait_for()
+
+        # Member sees the adjust + refund rows with reasons in ledger UI.
+        page.get_by_text("Log out").click()
+        _login(page, frontend_url, MEMBER)
+        page.get_by_text("Ledger").click()
+        page.get_by_test_id("ledger").wait_for()
+        page.get_by_text("adjustment").first.wait_for()
+        page.get_by_text("refund").first.wait_for()
+
+        browser.close()

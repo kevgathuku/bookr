@@ -130,6 +130,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/bookings/{id}/checkin/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Frontdesk stamps a confirmed booking as checked in. */
+        post: operations["v1_bookings_checkin_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/bookings/{id}/no-show/": {
         parameters: {
             query?: never;
@@ -156,6 +173,23 @@ export interface paths {
         };
         /** @description Own bookings, newest first. */
         get: operations["v1_bookings_me_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bookings/roster/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Frontdesk day roster: venue bookings with member + class info. */
+        get: operations["v1_bookings_roster_list"];
         put?: never;
         post?: never;
         delete?: never;
@@ -281,6 +315,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/members/search/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Frontdesk finds venue members by username fragment. */
+        get: operations["v1_members_search_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pass-products/": {
         parameters: {
             query?: never;
@@ -315,6 +366,23 @@ export interface paths {
         head?: never;
         /** @description Staff catalog. No DELETE: issued passes PROTECT their product. */
         patch: operations["v1_pass_products_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/passes/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Frontdesk lists one member's passes by ?member= id. */
+        get: operations["v1_passes_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/passes/grant/": {
@@ -542,6 +610,10 @@ export interface components {
          * @enum {string}
          */
         MemberPassStatusEnum: "active" | "expired" | "depleted";
+        MemberSearch: {
+            id: number;
+            username: string;
+        };
         PassProduct: {
             readonly id: number;
             venue: number;
@@ -588,6 +660,16 @@ export interface components {
          * @enum {string}
          */
         ReasonEnum: "purchase" | "booking" | "refund" | "forfeit" | "expiry" | "adjustment";
+        RosterRow: {
+            id: number;
+            member: string;
+            class_title: string;
+            /** Format: date-time */
+            starts_at: string;
+            status: string;
+            /** Format: date-time */
+            checked_in_at: string | null;
+        };
         ScheduledClass: {
             readonly id: number;
             venue: number;
@@ -852,6 +934,27 @@ export interface operations {
             };
         };
     };
+    v1_bookings_checkin_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Booking"];
+                };
+            };
+        };
+    };
     v1_bookings_no_show_create: {
         parameters: {
             query?: never;
@@ -888,6 +991,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Booking"][];
+                };
+            };
+        };
+    };
+    v1_bookings_roster_list: {
+        parameters: {
+            query?: {
+                date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RosterRow"][];
                 };
             };
         };
@@ -1132,6 +1256,27 @@ export interface operations {
             };
         };
     };
+    v1_members_search_list: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberSearch"][];
+                };
+            };
+        };
+    };
     v1_pass_products_list: {
         parameters: {
             query?: never;
@@ -1220,6 +1365,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PassProduct"];
+                };
+            };
+        };
+    };
+    v1_passes_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberPass"][];
                 };
             };
         };

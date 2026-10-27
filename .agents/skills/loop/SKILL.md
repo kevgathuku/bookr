@@ -42,6 +42,9 @@ proceed.
    referenced skills inline where no skill/subagent tool exists and say so.
    WPS findings go through the `wps` loop; config changes need user
    approval (pre-approved sets live in `.flake8`, documented inline).
+   Standing rule: structural WPS findings whose fix would degrade intent
+   (endpoint-file growth per ticket, linear E2E scripts) take the
+   documented per-file-ignore without asking.
 5. **Close-out, every time, in order**: ingest decisions + new facts into
    project memory (rationale included); `graft build`; commit to the
    current branch (message cites the ticket; never push unless asked);

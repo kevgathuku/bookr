@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Link, Outlet, useNavigate } from "react-router";
-import { useAuth } from "./auth";
+import { isDeskStaff, useAuth } from "./auth";
 import { useVenue } from "./venue";
 
 function VenueSwitcher() {
@@ -34,6 +34,7 @@ function VenueSwitcher() {
 
 function Shell() {
 	const { me, logout } = useAuth();
+	const { venue } = useVenue();
 	const navigate = useNavigate();
 	useEffect(() => {
 		if (!localStorage.getItem("bookr.refresh")) navigate("/login");
@@ -45,6 +46,12 @@ function Shell() {
 					<Link to="/">Schedule</Link> <Link to="/calendar">Calendar</Link>{" "}
 					<Link to="/bookings">My bookings</Link>{" "}
 					<Link to="/passes">Passes</Link> <Link to="/ledger">Ledger</Link>
+					{isDeskStaff(me, venue) ? (
+						<>
+							{" "}
+							<Link to="/desk">Desk</Link>
+						</>
+					) : null}
 				</nav>
 				<VenueSwitcher />
 				{me ? (

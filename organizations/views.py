@@ -1,6 +1,7 @@
 from typing import ClassVar
 
-from drf_spectacular.utils import extend_schema
+from django.db.models import Q
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import generics, serializers
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -126,3 +127,43 @@ class CurrentPolicyView(APIView):
         if policy is None:
             raise NotFound("No such venue.")
         return Response(VenuePolicySerializer(policy).data)
+
+
+class MemberSearchSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+
+
+class MemberSearchView(APIView):
+    """Frontdesk finds venue members by username fragment."""
+
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaff,
+    ]
+
+    @extend_schema(
+        responses=MemberSearchSerializer(many=True),
+        parameters=[OpenApiParameter("q", str, required=False)],
+    )
+    def get(self, request):
+        fragment = request.query_params.get("q", "")
+        members = (
+            Membership.objects.filter(
+                Q(venue=request.venue)
+                | Q(venue=None, organization=request.venue.organization),
+                user__username__icontains=fragment,
+            )
+            .select_related("user")
+            .order_by("user__username")[:20]
+        )
+        return Response(
+            MemberSearchSerializer(
+                [
+                    {"id": membership.user.pk, "username": membership.user.username}
+                    for membership in members
+                ],
+                many=True,
+            ).data
+        )

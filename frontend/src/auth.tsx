@@ -34,6 +34,18 @@ export interface Me {
 	venues: VenueInfo[];
 }
 
+const DESK_ROLES = new Set(["owner", "manager", "frontdesk"]);
+
+export function isDeskStaff(me: Me | null, venue: string | null): boolean {
+	return (
+		me?.memberships.some(
+			(membership) =>
+				DESK_ROLES.has(membership.role) &&
+				(membership.venue === venue || membership.venue === null),
+		) ?? false
+	);
+}
+
 interface AuthState {
 	me: Me | null;
 	recovered: boolean;

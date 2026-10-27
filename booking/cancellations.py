@@ -57,6 +57,21 @@ def cancel_booking(actor, booking, *, staff_override=False, reason=""):
     return locked
 
 
+def check_in(actor, booking):
+    """Frontdesk stamps a confirmed booking as checked in."""
+    with transaction.atomic():
+        locked = (
+            Booking.objects.select_for_update(of=("self",))
+            .select_related("scheduled_class", "appointment")
+            .get(pk=booking.pk)
+        )
+        if locked.status != Booking.Status.CONFIRMED:
+            raise ValidationError("Only confirmed bookings can check in.")
+        locked.checked_in_at = timezone.now()
+        locked.save(update_fields=["checked_in_at"])
+    return locked
+
+
 def mark_no_show(actor, booking):
     """Frontdesk marks a confirmed booking within 2h after end. Forfeits."""
     with transaction.atomic():
