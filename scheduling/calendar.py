@@ -22,6 +22,7 @@ class CalendarView(generics.ListAPIView):
     """Merged classes + appointments for a bounded window (31d max)."""
 
     serializer_class = CalendarEventSerializer
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
         IsVenueMember,
     ]

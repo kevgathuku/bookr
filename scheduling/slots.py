@@ -14,6 +14,7 @@ from scheduling.availability import generate_slots
 class AvailabilitySlotsView(APIView):
     """Day slots for one resource. Members may read (future booking flow)."""
 
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
         IsVenueMember,
     ]

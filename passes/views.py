@@ -73,7 +73,10 @@ class LedgerView(generics.ListAPIView):
     """Own entries for members; whole-venue entries for covering staff."""
 
     serializer_class = CreditLedgerSerializer
-    permission_classes: ClassVar[list] = [IsVenueMember]  # type: ignore[misc]  # DRF stubs declare these as instance vars
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
 
     def get_queryset(self):
         entries = CreditLedger.objects.select_related(
@@ -93,7 +96,11 @@ class LedgerView(generics.ListAPIView):
 class AdjustView(APIView):
     """Staff correction with mandatory reason. Returns the pass."""
 
-    permission_classes: ClassVar[list] = [IsVenueMember, IsStaffOrReadOnly]  # type: ignore[misc]  # DRF stubs declare these as instance vars
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaffOrReadOnly,
+    ]
 
     def post(self, request):
         form = AdjustSerializer(data=request.data)

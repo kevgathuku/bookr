@@ -28,7 +28,11 @@ class PolicyListView(generics.ListAPIView):
     """Version history, newest first. Staff only; versions never edit."""
 
     serializer_class = VenuePolicySerializer
-    permission_classes: ClassVar[list] = [IsVenueMember, IsStaff]  # type: ignore[misc]  # DRF stubs declare these as instance vars
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaff,
+    ]
 
     def get_queryset(self):
         return VenuePolicy.objects.filter(venue=self.request.venue).order_by(
@@ -47,7 +51,11 @@ class ActivateSerializer(serializers.Serializer):
 class PolicyActivateView(APIView):
     """Retire the open version + insert the successor, atomically."""
 
-    permission_classes: ClassVar[list] = [IsVenueMember, IsStaff]  # type: ignore[misc]  # DRF stubs declare these as instance vars
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaff,
+    ]
 
     def post(self, request):
         form = ActivateSerializer(data=request.data)
