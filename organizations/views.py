@@ -100,6 +100,7 @@ class MeView(APIView):
                         "organization": venue.organization.slug,
                         "slug": venue.slug,
                         "name": venue.name,
+                        "time_zone": venue.time_zone,
                     }
                     for venue in venues
                 ],

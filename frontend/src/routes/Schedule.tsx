@@ -1,7 +1,15 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button, EmptyState, ErrorText } from "../components";
-import { bookClass, type ClassItem, useBookings, useClasses } from "../hooks";
+import {
+	BOOK_ERROR_MESSAGE,
+	type BookError,
+	bookClass,
+	bookErrorOf,
+	type ClassItem,
+	useBookings,
+	useClasses,
+} from "../hooks";
 
 function formatTime(iso: string): string {
 	return new Date(iso).toLocaleString([], {
@@ -13,7 +21,7 @@ function formatTime(iso: string): string {
 
 function ClassRow({ klass, booked }: { klass: ClassItem; booked: boolean }) {
 	const queryClient = useQueryClient();
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<BookError | null>(null);
 	const booking = useMutation({
 		mutationFn: (waitlist: boolean) =>
 			bookClass(klass.id, crypto.randomUUID(), waitlist),
@@ -21,16 +29,7 @@ function ClassRow({ klass, booked }: { klass: ClassItem; booked: boolean }) {
 			setError(null);
 			void queryClient.invalidateQueries();
 		},
-		onError: (failure: unknown) => {
-			const status = (failure as { status?: number }).status;
-			if (status === 409) {
-				setError("Class is full.");
-			} else if (status === 402) {
-				setError("No credits left on your passes.");
-			} else {
-				setError("Booking failed. Try again.");
-			}
-		},
+		onError: (failure: unknown) => setError(bookErrorOf(failure)),
 	});
 
 	return (
@@ -49,7 +48,7 @@ function ClassRow({ klass, booked }: { klass: ClassItem; booked: boolean }) {
 					>
 						Book
 					</Button>
-					{error === "Class is full." ? (
+					{error === "full" ? (
 						<Button
 							testId={`waitlist-button-${klass.id}`}
 							disabled={booking.isPending}
@@ -60,7 +59,7 @@ function ClassRow({ klass, booked }: { klass: ClassItem; booked: boolean }) {
 					) : null}
 				</>
 			)}
-			{error ? <ErrorText message={error} /> : null}
+			{error ? <ErrorText message={BOOK_ERROR_MESSAGE[error]} /> : null}
 		</li>
 	);
 }

@@ -11,6 +11,7 @@ class MeVenueSerializer(serializers.Serializer):
     organization = serializers.CharField()
     slug = serializers.CharField()
     name = serializers.CharField()
+    time_zone = serializers.CharField()
 
 
 class MeSerializer(serializers.Serializer):

@@ -56,8 +56,13 @@ def _e2e_org():
         slug="e2e-run", defaults={"name": "E2E Run"}
     )[0]
     venue = Venue.objects.get_or_create(
-        organization=org, slug="main", defaults={"name": "Main"}
+        organization=org,
+        slug="main",
+        defaults={"name": "Main", "time_zone": "Africa/Nairobi"},
     )[0]
+    if venue.time_zone == "UTC":
+        venue.time_zone = "Africa/Nairobi"
+        venue.save(update_fields=["time_zone"])
     VenuePolicy.objects.update_or_create(
         venue=venue,
         valid_until=None,
@@ -138,8 +143,13 @@ def _seed_extra_places(org, people, venue):
     from scheduling.models import ClassType, Room, ScheduledClass
 
     annex = Venue.objects.get_or_create(
-        organization=org, slug="annex", defaults={"name": "Annex"}
+        organization=org,
+        slug="annex",
+        defaults={"name": "Annex", "time_zone": "Africa/Nairobi"},
     )[0]
+    if annex.time_zone == "UTC":
+        annex.time_zone = "Africa/Nairobi"
+        annex.save(update_fields=["time_zone"])
     VenuePolicy.objects.get_or_create(venue=annex, valid_until=None)
     _schedule(annex, people["teacher"], "Yoga", "Annex Room")
     room = Room.objects.get_or_create(

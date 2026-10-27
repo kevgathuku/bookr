@@ -7,6 +7,9 @@ from scheduling.models import ScheduledClass, TeacherSubstitution
 
 class ScheduledClassSerializer(serializers.ModelSerializer):
     capacity = serializers.ReadOnlyField()
+    class_type_name = serializers.CharField(source="class_type.name", read_only=True)
+    room_name = serializers.CharField(source="room.name", read_only=True)
+    teacher_name = serializers.CharField(source="teacher.username", read_only=True)
 
     class Meta:
         model = ScheduledClass
@@ -14,8 +17,11 @@ class ScheduledClassSerializer(serializers.ModelSerializer):
             "id",
             "venue",
             "class_type",
+            "class_type_name",
             "room",
+            "room_name",
             "teacher",
+            "teacher_name",
             "starts_at",
             "ends_at",
             "capacity_override",

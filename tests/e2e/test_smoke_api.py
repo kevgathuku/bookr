@@ -73,6 +73,23 @@ def test_login_and_schedule(base_url):
     assert _upcoming(api, member) != []
 
 
+def test_calendar_matches_class_list(base_url):
+    api = f"{base_url}/api/v1"
+    member = _login(base_url, f"{ORG_SLUG}-member")
+    start = timezone.now()
+    end = start + timedelta(days=7)
+    params = {"from": start.isoformat(), "to": end.isoformat()}
+
+    listed = member.get(f"{api}/classes/", params=params)
+    assert listed.status_code == 200
+    events = member.get(f"{api}/calendar/", params=params)
+    assert events.status_code == 200
+    class_events = [event for event in events.json() if event["kind"] == "class"]
+    assert {event["id"] for event in class_events} == {
+        klass["id"] for klass in listed.json()
+    }
+
+
 def test_book_cancel_refund(base_url):
     api = f"{base_url}/api/v1"
     member = _login(base_url, f"{ORG_SLUG}-member")

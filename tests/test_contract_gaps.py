@@ -60,6 +60,7 @@ class TestMe:
         assert response.data["username"] == user.username
         assert response.data["memberships"][0]["role"] == "member"
         assert response.data["memberships"][0]["venue"] == venue.slug
+        assert response.data["venues"][0]["time_zone"] == venue.time_zone
 
 
 class TestPolicyCurrent:

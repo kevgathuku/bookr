@@ -25,6 +25,7 @@ export interface VenueInfo {
 	organization: string;
 	slug: string;
 	name: string;
+	time_zone: string;
 }
 
 export interface Me {

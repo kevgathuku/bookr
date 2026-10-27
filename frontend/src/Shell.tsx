@@ -42,7 +42,9 @@ function Shell() {
 		<div>
 			<header>
 				<nav>
-					<Link to="/">Schedule</Link> <Link to="/bookings">My bookings</Link>
+					<Link to="/">Schedule</Link> <Link to="/calendar">Calendar</Link>{" "}
+					<Link to="/bookings">My bookings</Link>{" "}
+					<Link to="/passes">Passes</Link> <Link to="/ledger">Ledger</Link>
 				</nav>
 				<VenueSwitcher />
 				{me ? (

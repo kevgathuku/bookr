@@ -521,6 +521,7 @@ export interface components {
             organization: string;
             slug: string;
             name: string;
+            time_zone: string;
         };
         MemberPass: {
             readonly id: number;
@@ -563,8 +564,11 @@ export interface components {
             readonly id?: number;
             venue?: number;
             class_type?: number;
+            readonly class_type_name?: string;
             room?: number;
+            readonly room_name?: string;
             teacher?: number;
+            readonly teacher_name?: string;
             /** Format: date-time */
             starts_at?: string;
             /** Format: date-time */
@@ -588,8 +592,11 @@ export interface components {
             readonly id: number;
             venue: number;
             class_type: number;
+            readonly class_type_name: string;
             room: number;
+            readonly room_name: string;
             teacher: number;
+            readonly teacher_name: string;
             /** Format: date-time */
             starts_at: string;
             /** Format: date-time */

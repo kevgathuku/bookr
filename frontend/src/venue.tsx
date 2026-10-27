@@ -32,3 +32,27 @@ export function useVenue(): VenueState {
 	if (!state) throw new Error("useVenue needs VenueProvider");
 	return state;
 }
+
+export function venueTimeZone(
+	me: { venues: { slug: string; time_zone: string }[] } | null,
+	venue: string | null,
+): string {
+	return me?.venues.find((info) => info.slug === venue)?.time_zone ?? "UTC";
+}
+
+export function formatInVenueTimeZone(iso: string, timeZone: string): string {
+	const options: Intl.DateTimeFormatOptions = {
+		dateStyle: "medium",
+		timeStyle: "short",
+	};
+	try {
+		return new Intl.DateTimeFormat("en-GB", { ...options, timeZone }).format(
+			new Date(iso),
+		);
+	} catch {
+		// Unknown zone (see bookr-w1u): show UTC, never blank the page.
+		return new Intl.DateTimeFormat("en-GB", { ...options, timeZone: "UTC" }).format(
+			new Date(iso),
+		);
+	}
+}
