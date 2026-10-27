@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Link, Outlet, useNavigate } from "react-router";
 import { canTeach, isDeskStaff, useAuth } from "./auth";
+import { ErrorBoundary, RouteFocus } from "./route-ux";
 import { useVenue } from "./venue";
 
 function VenueSwitcher() {
@@ -70,7 +71,11 @@ function Shell() {
 					</span>
 				) : null}
 			</header>
-			<Outlet />
+			<ErrorBoundary>
+				<RouteFocus>
+					<Outlet />
+				</RouteFocus>
+			</ErrorBoundary>
 		</div>
 	);
 }

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "../api/client";
 import { Button, EmptyState, ErrorText } from "../components";
+import { SkeletonList } from "../route-ux";
 import { useBookings } from "../hooks";
 
 export default function Bookings() {
@@ -12,7 +13,7 @@ export default function Bookings() {
 		onSuccess: () => queryClient.invalidateQueries(),
 	});
 
-	if (bookings.isPending) return <p>Loading bookings…</p>;
+	if (bookings.isPending) return <SkeletonList />;
 	if (bookings.isError) return <ErrorText message="Could not load bookings." />;
 	const active = bookings.data.filter((b) =>
 		["confirmed", "waitlisted"].includes(b.status),

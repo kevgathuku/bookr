@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useAuth } from "../auth";
 import { Button, EmptyState, ErrorText } from "../components";
+import { SkeletonList } from "../route-ux";
 import {
 	BOOK_ERROR_MESSAGE,
 	type BookError,
@@ -74,7 +75,7 @@ export default function Calendar() {
 	}, [classes.data]);
 	const selected = (events.data ?? []).find((event) => event.id === selectedId);
 
-	if (events.isPending || classes.isPending) return <p>Loading calendar…</p>;
+	if (events.isPending || classes.isPending) return <SkeletonList />;
 	if (events.isError) return <ErrorText message="Could not load calendar." />;
 	return (
 		<main>

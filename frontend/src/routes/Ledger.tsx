@@ -1,5 +1,6 @@
 import { useAuth } from "../auth";
 import { EmptyState, ErrorText } from "../components";
+import { SkeletonList } from "../route-ux";
 import { useLedger } from "../hooks";
 import { formatInVenueTimeZone, useVenue, venueTimeZone } from "../venue";
 
@@ -9,7 +10,7 @@ export default function Ledger() {
 	const timeZone = venueTimeZone(me, venue);
 	const ledger = useLedger();
 
-	if (ledger.isPending) return <p>Loading ledger…</p>;
+	if (ledger.isPending) return <SkeletonList />;
 	if (ledger.isError) return <ErrorText message="Could not load ledger." />;
 	if (ledger.data.length === 0)
 		return <EmptyState message="No credit movements yet." />;

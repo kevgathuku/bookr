@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button, EmptyState, ErrorText } from "../components";
+import { SkeletonList } from "../route-ux";
 import {
 	BOOK_ERROR_MESSAGE,
 	type BookError,
@@ -68,7 +69,7 @@ export default function Schedule({ venue }: { venue: string | null }) {
 	const classes = useClasses(venue);
 	const bookings = useBookings();
 
-	if (classes.isPending || bookings.isPending) return <p>Loading schedule…</p>;
+	if (classes.isPending || bookings.isPending) return <SkeletonList />;
 	if (classes.isError) return <ErrorText message="Could not load classes." />;
 	const bookedIds = new Set(
 		(bookings.data ?? [])

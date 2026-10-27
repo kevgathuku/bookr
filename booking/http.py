@@ -30,12 +30,9 @@ def mapped_errors():
     """Raise service errors as their HTTP equivalents."""
     try:
         yield
-    except (
-        SeatFull,
-        DuplicateBooking,
-        TeacherUnavailable,
-        AllotmentExhausted,
-    ) as error:
+    except (SeatFull, DuplicateBooking, TeacherUnavailable) as error:
+        raise Conflict(str(error))
+    except AllotmentExhausted as error:
         raise Conflict(str(error))
     except CreditInsufficient as error:
         raise PaymentRequired(str(error))

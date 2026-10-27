@@ -19,6 +19,9 @@
 # ignore WPS201; organizations/views.py ignores WPS202 — endpoint files grow
 # one view per staff ticket by design; splitting by ticket would scatter the
 # API surface across modules.
+# Per-file: booking/services.py ignores WPS211 — book_seat/_create channel
+# kwargs (spend_credits, source) stay explicit; bundling them into an
+# options object would obscure the seat-lock hot path.
 # Per-file: organizations/models.py ignores legacy E501/WPS237/WPS601 (long help
 # strings + attribute shadowing predate the gates; this ticket's diff is the
 # time_zone validator only).
@@ -54,6 +57,8 @@ per-file-ignores =
         WPS201,
     scheduling/views.py:
         WPS201,
+    booking/services.py:
+        WPS211,
     organizations/models.py:
         E501,
         WPS237,

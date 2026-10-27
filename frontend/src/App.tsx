@@ -6,6 +6,7 @@ import Calendar from "./routes/Calendar";
 import Desk from "./routes/Desk";
 import Ledger from "./routes/Ledger";
 import Manage from "./routes/Manage";
+import { NotFound } from "./route-ux";
 import Teach from "./routes/Teach";
 import Login from "./routes/Login";
 import Passes from "./routes/Passes";
@@ -54,7 +55,7 @@ export default function App() {
 									<Route path="/desk" element={<Desk />} />
 									<Route path="/manage" element={<Manage />} />
 								</Route>
-								<Route path="*" element={<Navigate to="/" />} />
+								<Route path="*" element={<NotFound />} />
 							</Route>
 						</Routes>
 					</BrowserRouter>

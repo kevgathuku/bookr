@@ -43,6 +43,20 @@ describe("apiFetch refresh", () => {
 		);
 	});
 
+	it("clears auth and heads to login when refresh fails", async () => {
+		setAccessToken("old-access");
+		setRefreshToken("bad-refresh");
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(new Response(null, { status: 401 }))
+			.mockResolvedValueOnce(new Response(null, { status: 401 }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await apiJson("/api/v1/me/").catch(() => null);
+
+		expect(localStorage.getItem("bookr.refresh")).toBeNull();
+	});
+
 	it("sends the venue header", async () => {
 		localStorage.setItem("bookr.venue", "main");
 		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([]));

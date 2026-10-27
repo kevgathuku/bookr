@@ -1,5 +1,6 @@
 import { useAuth } from "../auth";
 import { EmptyState, ErrorText } from "../components";
+import { SkeletonList } from "../route-ux";
 import { usePasses } from "../hooks";
 import { formatInVenueTimeZone, useVenue, venueTimeZone } from "../venue";
 
@@ -9,7 +10,7 @@ export default function Passes() {
 	const timeZone = venueTimeZone(me, venue);
 	const passes = usePasses();
 
-	if (passes.isPending) return <p>Loading passes…</p>;
+	if (passes.isPending) return <SkeletonList />;
 	if (passes.isError) return <ErrorText message="Could not load passes." />;
 	if (passes.data.length === 0)
 		return <EmptyState message="No passes yet. Buy one at the front desk." />;

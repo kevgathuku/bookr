@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useAuth } from "../auth";
 import { EmptyState, ErrorText } from "../components";
+import { SkeletonList } from "../route-ux";
 import { useCalendarEvents, useClasses, useSubstitutions } from "../hooks";
 import { formatInVenueTimeZone, useVenue, venueTimeZone } from "../venue";
 
@@ -18,7 +19,7 @@ export default function Teach() {
 	const subs = useSubstitutions();
 
 	if (classes.isPending || appointments.isPending || subs.isPending)
-		return <p>Loading teaching schedule…</p>;
+		return <SkeletonList />;
 	if (classes.isError || appointments.isError || subs.isError)
 		return <ErrorText message="Could not load teaching schedule." />;
 	const mine = (classes.data ?? []).filter((klass) => klass.teacher === me?.id);
