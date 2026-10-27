@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 2 — Skeleton and multi-tenancy</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 2 of 11 · Tutorial Ch. 1</p>
+<p class="course">Bookr course · Lesson 2 of 12 · Tutorial Ch. 1</p>
 <h1>Skeleton and multi-tenancy</h1>
 <p class="why">Win: Postgres runs, migrations apply, every row belongs to exactly one venue — and every venue to one organization.</p>
 <h2>Step 1 — Scaffold and deps</h2>
@@ -8,7 +8,7 @@
 uv add "django&gt;=6.1,&lt;7" django-environ "psycopg[binary]"</pre>
 <p>Project package is <code>config</code>, not <code>bookr</code> (that name belongs to the repo). Then create only this lesson's apps:</p>
 <pre>uv run python manage.py startapp organizations</pre>
-<p><code>Organization</code>, <code>Venue</code>, <code>VenuePolicy</code>, and <code>Membership</code> live together in <code>organizations</code> — the whole tenancy context in one app, since none of them means anything without the others. Later lessons add their own app the same way — nothing before its time. Delete the generated <code>tests.py</code>/<code>views.py</code> stubs: tests live in a top-level <code>tests/</code> directory from day one (it grows into unit/api/e2e in lesson 9), views arrive per chapter.</p>
+<p><code>Organization</code>, <code>Venue</code>, <code>VenuePolicy</code>, and <code>Membership</code> live together in <code>organizations</code> — the whole tenancy context in one app, since none of them means anything without the others. Later lessons add their own app the same way — nothing before its time. Delete the generated <code>tests.py</code>/<code>views.py</code> stubs: tests live in a top-level <code>tests/</code> directory from day one (it grows markers and suites in lesson 10), views arrive per chapter.</p>
 <h2>Step 2 — Compose stack</h2>
 <p>Start Postgres via compose (the file holds only <code>db</code> for now — more services join it in later lessons):</p>
 <pre>docker compose up -d db</pre>
@@ -46,17 +46,27 @@ class Venue(models.Model):
 
 class VenuePolicy(models.Model):
     # Versions, never edits: retire stamps valid_until, activate inserts a row.
+    # Overlapping open rows are allowed; holders pin versions explicitly.
     venue = models.ForeignKey(Venue, on_delete=models.CASCADE,
         related_name="policies")
+    # System-assigned per-venue sequence (save() assigns); staff never pick
+    # numbers. The version identifies applicable rows without joining.
+    version = models.PositiveIntegerField(default=1)
     valid_from = models.DateTimeField(auto_now_add=True)
     valid_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["venue"],
-                condition=models.Q(valid_until__isnull=True),
-                name="one_active_policy_per_venue"),
+            models.UniqueConstraint(fields=["venue", "version"],
+                name="policy_version_unique_per_venue"),
         ]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            latest = (VenuePolicy.objects.filter(venue=self.venue)
+                .order_by("-version").first())
+            self.version = latest.version + 1 if latest else 1
+        super().save(*args, **kwargs)
     class_late_cancel_hours = models.PositiveSmallIntegerField(default=8,
         help_text="Group-class cutoff: cancels inside the window forfeit the credit.")
     appointment_late_cancel_hours = models.PositiveSmallIntegerField(default=24,
@@ -83,13 +93,31 @@ class VenuePolicy(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE, related_name="memberships")
     role = models.CharField(max_length=16, choices=Role.choices)
+    # NULL: follows the venue's current policy. Set: grandfathered to that
+    # version — later activations never move the holder.
+    policy = models.ForeignKey(VenuePolicy,
+        on_delete=models.PROTECT,
+        null=True, blank=True, related_name="holders")
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["organization", "user", "venue"],
                 name="member_once_per_scope"),
         ]</pre>
-<p>Why this shape: a role is meaningless without its organization — "manager at A, member at B" can't be expressed with Django's global Groups, so the role sits on the join row and Groups stay out of it (reach for them later only if the Django admin needs per-model permissions). Why nullable venue: the organization sets one rule — <code>spanning</code> (venue NULL, covers every venue) or <code>per_venue</code> (venue required, enforced where memberships are created, since a check constraint can't compare across tables). Two sharp edges to know: the unique index is on (org, user, venue), and NULLs never equal in Postgres — so nothing stops two spanning rows for one user; guard that in the creation service (one spanning membership per user per org). App-level checks alone would race; the index makes the loser fail no matter the timing.</p>
+<p>Why this shape: a role is meaningless without its organization — "manager at A, member at B" can't be expressed with Django's global Groups, so the role sits on the join row and Groups stay out of it — including in the admin, which gates on the same row via custom permission methods (ADR-0005). Why nullable venue: the organization sets one rule — <code>spanning</code> (venue NULL, covers every venue) or <code>per_venue</code> (venue required, enforced where memberships are created, since a check constraint can't compare across tables). Two sharp edges to know: the unique index is on (org, user, venue), and NULLs never equal in Postgres — so nothing stops two spanning rows for one user; guard that in the creation service (one spanning membership per user per org). App-level checks alone would race; the index makes the loser fail no matter the timing.</p>
+<h3>4b — Policy versions and grandfathering</h3>
+<p>Policies version themselves: every <code>activate()</code> retires the open row and inserts the successor with the next number, and overlapping open rows are allowed — the unique constraint is on <code>(venue, version)</code>, not on "one open row". Resolution lives on the venue: <code>policy_for(user)</code> returns a pinned holder's version, else the latest open row (<code>current()</code> on the manager). Null means current, so there is deliberately no backfill migration — writing foreign keys for everyone would freeze them to today's version and defeat every future activation. Deleting a pinned version is <code>PROTECT</code>ed: history with holders must not vanish. Cancel windows, waitlist holds, and appointment cutoffs all resolve through <code>policy_for</code> from lesson&nbsp;5 on; the availability buffer stays venue-level (no member in scope).</p>
+<pre>def activate(self, venue, **fields):
+    """Retire the open row (if any) and insert the successor."""
+    with transaction.atomic():
+        self.filter(venue=venue, valid_until__isnull=True).update(
+            valid_until=timezone.now())
+        return self.create(venue=venue, valid_until=None, **fields)
+
+def current(self, venue):
+    """Latest open row: overlapping windows resolve to the newest."""
+    return (self.filter(venue=venue, valid_until__isnull=True)
+        .order_by("-valid_from", "-version").first())</pre>
 <h2>Step 5 — Seed + prove it</h2>
 <p>Write <code>organizations/management/commands/seed_demo.py</code>: 2 orgs (one spanning, one per-venue) + 4 venues — a spanning member (org A), a member pinned to venue B1, and a teacher at B2. No rooms or classes — <code>scheduling</code> doesn't exist yet; lesson 3 extends the seed, lesson 6 adds passes. Nothing here takes requests yet (no views, no middleware — those arrive with the first endpoint in lesson 3), so proof is at the model layer: migrate, seed, and run the constraint tests in <code>tests/</code>. Run:</p>
 <pre>uv run python manage.py makemigrations

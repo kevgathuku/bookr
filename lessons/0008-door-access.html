@@ -1,32 +1,30 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 9 — Door access</title><link rel="stylesheet" href="../assets/style.css"></head>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 8 — Door access</title><link rel="stylesheet" href="../assets/style.css"></head>
 <body><main>
-<p class="course">Bookr course · Lesson 8 of 11 · Tutorial Ch. 7</p>
+<p class="course">Bookr course · Lesson 8 of 12 · Tutorial Ch. 7</p>
 <h1>Door access</h1>
-<p class="why">Win: a knock on <code>POST /api/access/check</code> gets grant/deny in under 200ms — and an outage never opens the door.</p>
-<h2>Step 1 — New app, then the check (read-only)</h2>
-<p><code>uv run python manage.py startapp access</code>, add it to <code>INSTALLED_APPS</code>. Models: <code>AccessPoint</code> (controller id per venue), <code>AccessEvent</code> (every knock with its reason). The view deducts nothing — it only reads:</p>
-<pre>def access_check(request):
-    member = identify(request)          # per-controller token auth
-    grant = has_active_pass(member) \
-        or has_live_booking(member, window=(-15, +duration)) \
-        or is_staff(member)
-    AccessEvent.objects.create(member=member, access_point=...,
-        granted=grant, reason=...)
-    return JsonResponse({"granted": grant})</pre>
-<p>Keep the hot path lean (skip DRF serialization if profiling says so). Anti-passback: same member within ~60s replays the prior decision without a new row.</p>
-<h2>Step 2 — Cache + fail closed</h2>
-<p>Cache member validity in Redis (60s TTL), DB fallback underneath — configured once in <code>CACHES</code> (<code>django.core.cache.backends.redis.RedisCache</code>), after which Django's cache API is identical whatever the backend. Then the drill that matters: kill the database in staging and knock — the door must <strong>deny + log</strong>, never hang or open. Fail-closed is a tested behavior, not a belief. Load-test to p95 &lt; 200ms (k6 or locust).</p>
-<h2>Step 3 — Expose + observe</h2>
-<p>Recent events visible to frontdesk; emit the <code>door_grants_total</code> metric. E2E #2: upcoming booking → grant; expired pass + no booking → deny; assert both rows exist in <code>AccessEvent</code>.</p>
-<h2>Deliverables — check them off</h2>
+<p class="why">Win: a controller at the door admits members with live bookings or active passes — and denies everything else, including the database being down.</p>
+<p>Physical access inverts every assumption so far: the unhappy path is the <em>safe</em> path. A booking page that errors is an inconvenience; a door that opens on error is a break-in. So this lesson builds one pure decision function with a single overriding rule — <strong>any outage denies</strong> — plus the token-scoped API controllers use, an event log of every identified attempt, and a Prometheus counter for the dashboard.</p>
+<h2>Step 1 — Points, tokens, and events</h2>
+<p><code>AccessPoint</code> is a door: venue, name, controller id (unique per venue), a hashed controller token, and a passback window. Tokens follow the same rule as lesson&nbsp;12's partner tokens will: <code>set_token()</code> returns the plaintext exactly once and stores only the hash — if it leaks, rotate it; there is nothing to "remind" you of:</p>
+<pre>    def set_token(self):
+        """Rotate the controller secret. Plaintext shown once, hash stored."""</pre>
+<p><code>AccessEvent</code> logs every identified attempt: point, member (nullable — strangers get rows too), granted boolean, machine reason, optional booking. The log is the audit trail and the anti-passback memory in one table.</p>
+<h2>Step 2 — The decision function</h2>
+<p><code>decide(access_point, member)</code> returns <code>(granted, reason, booking_or_None)</code> through an ordered cascade — first match wins, cheapest check first:</p>
+<p><strong>1. Passback replay.</strong> Same member, same door, inside <code>passback_seconds</code> (60s default): return the prior verdict without a new row. Tailgating protection works both directions — a recent deny replays as deny, so hammering the reader changes nothing.<br><strong>2. Cached verdict.</strong> A 60s cache keyed <code>door:&lt;point&gt;:&lt;member&gt;</code> absorbs reader chatter — but a cached grant re-checks the linked booking's status first, because a member who cancels inside the TTL must not walk in on a stale grant.<br><strong>3. Fresh evaluation.</strong> Active pass → grant. Live booking window (15 minutes around class time) → grant with the booking attached. Covering staff → grant. Else deny with a reason that says which check failed.</p>
+<p>And the rule over all of it: any database failure denies. The cache exists for latency, not availability — a down database is a locked door, never an open one. Write the fail-closed drill as a test (mock the database down, assert deny), because the day you need it, it is too late to add it.</p>
+<h2>Step 3 — Token-scoped check API and the tail</h2>
+<p><code>POST /api/access/check/</code> authenticates the <em>controller</em> (per-point token, not a member JWT — doors are not users), calls <code>decide</code>, logs the event, and bumps <code>door_grants_total{venue_id}</code> on grants. Front desk reads the tail at <code>GET /api/v1/access/events/</code> (staff-only, newest first, capped at 100 — unbounded tails are a latency incident waiting for a busy Saturday). The Prometheus counter rides on <code>/metrics/</code> next to <code>/healthz</code>: grants per venue, the one number that tells you the doors are alive.</p>
+<h2>Exercises</h2>
+<p>1. Fail-closed drill: break the database connection mid-test and prove deny. Then break the cache instead — what changes?<br>2. Cancel inside the TTL: grant, cancel the booking, re-check within 60 seconds. Prove deny, then explain which line does it.<br>3. Passback both ways: grant then deny the same member within the window (revoke the pass between taps). What replays?<br>4. p95: time 1,000 checks against seed data. Where does the time go — and what does the cache buy you?</p>
 <p class="progress" data-progress></p>
 <ul class="check">
-<li><label><input type="checkbox" data-id="d1"> E2E #2: upcoming booking → grant; expired pass + no booking → deny; both rows in <code>AccessEvent</code></label></li>
-<li><label><input type="checkbox" data-id="d2"> Fail-closed drill done: DB killed in staging → deny + log</label></li>
-<li><label><input type="checkbox" data-id="d3"> p95 check latency under 200ms; passback test passes</label></li>
+<li><label><input type="checkbox" data-id="d1"> Grant with booking, deny without: both log AccessEvent rows with reasons</label></li>
+<li><label><input type="checkbox" data-id="d2"> Fail-closed drill green; cancel-inside-TTL re-check denies</label></li>
+<li><label><input type="checkbox" data-id="d3"> p95 check latency budgeted; door tail capped and staff-readable</label></li>
 </ul>
 <h2>Primary source</h2>
-<p><a href="https://docs.djangoproject.com/en/6.1/topics/cache/">Django cache docs (6.1)</a> — the Redis TTL pattern the hot path depends on.</p>
-<nav class="lesson-nav"><a href="0007-appointments-calendar.html">← Lesson 7</a><a href="0009-tests-ci-ship.html">Lesson 9 →</a></nav>
+<p><a href="https://prometheus.io/docs/instrumenting/writing_clientlibs/">Prometheus instrumentation</a> — counters and label discipline; one counter per event type, labels for dimensions.</p>
+<nav class="lesson-nav"><a href="0007-appointments-calendar.html">← Lesson 7</a><a href="0009-staff-apis.html">Lesson 9 →</a></nav>
 <p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
 </main><script src="../assets/app.js"></script></body></html>

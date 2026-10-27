@@ -1,0 +1,30 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 11 — Docker dress rehearsal</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 11 of 12 · Tutorial Ch. 10</p>
+<h1>Docker dress rehearsal</h1>
+<p class="why">Win: the app you verified locally runs from images on a clean machine — the last step before any cloud.</p>
+<p>Everything so far ran on your machine, with your database, your environment, your luck. The dress rehearsal removes all three: build images, boot the production compose file, migrate as a one-off, seed, and prove the whole flow against containers. Then destroy everything and prove it again from zero — if it is not green from scratch, it is not shippable.</p>
+<h2>Step 1 — The image, layer by layer</h2>
+<p><code>uv add gunicorn</code> (frozen lockfile — reproducible builds start here), then a three-stage <code>Dockerfile</code> where every stage justifies itself: a Node stage builds the member SPA (Django serves it same-origin, so the image needs it); a <code>uv sync --frozen --no-dev</code> builder stage resolves locked Python deps (no dev tools in production); a slim runtime stage runs as non-root, bakes <code>collectstatic</code> at build time, and serves <code>config.wsgi</code> with gunicorn. One rule over all of it: <strong>no secrets in the image</strong> — <code>SECRET_KEY</code>, <code>DATABASE_URL</code>, everything arrives as environment. Verify with <code>docker inspect</code>: the Env list must contain none of them. (The build-time <code>collectstatic</code> needs dummy values to import settings — visibly fake ones, passed only to that one <code>RUN</code> line.)</p>
+<h2>Step 2 — Prod compose: web, worker, beat</h2>
+<p><code>docker-compose.prod.yml</code> grows db, redis, web, worker, and beat. Dev keeps the db-only file and the runserver; prod gets gunicorn plus <code>CELERY_EAGER=0</code> (the default-eager setting from lesson&nbsp;5 flips here — tasks must leave the request path in production). Pin a distinct project <code>name:</code>: without it, <code>up</code> replaces the dev database container, because both files define a <code>db</code> service and default to the directory name. That exact accident is why the runbook exists. Migrations are a one-off, never part of boot:</p>
+<pre>docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml run --rm web python manage.py migrate
+docker compose -f docker-compose.prod.yml run --rm web python manage.py seed_demo --e2e-only</pre>
+<p>The <code>--e2e-only</code> flag seeds just the fixed org (no faker demo users — and faker imports lazily for the same reason, so the seed command runs in an image without dev dependencies).</p>
+<h2>Step 3 — Verify like a stranger, then destroy it</h2>
+<p>Pretend you have never seen this app: <code>/healthz</code> → 200, admin login works, book → cancel → refund visible through the containers. Expect the rehearsal to find real bugs — here it found three: the mail outage that 500'd cancels (lesson&nbsp;5's best-effort notices), the shared compose project name, and the seed's hard faker dependency. Then the proof: <code>down -v</code>, rebuild, migrate, seed, green again. Write <code>docs/rollback-runbook.md</code> now — previous image tag plus how migrations go backwards — before you need it, because needing it is the wrong time to design it.</p>
+<h2>Exercises</h2>
+<p>1. Inspect the image layers and justify each one out loud. Remove one and show what breaks.<br>2. <code>docker inspect</code> the Env: prove no secret baked in. Then break the rule deliberately (hardcode one) and watch the lesson it teaches.<br>3. Roll back a migration on the compose database following your own runbook. Time yourself.<br>4. Kill Redis mid-booking with eager off. What does the user see, and which line decides it?</p>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> Image builds with no secrets; every layer justified</label></li>
+<li><label><input type="checkbox" data-id="d2"> Prod compose boots green; migrations apply as a one-off from zero</label></li>
+<li><label><input type="checkbox" data-id="d3"> Smoke + one manual booking pass against containers; down -v → rebuild → green</label></li>
+<li><label><input type="checkbox" data-id="d4"> Rollback runbook written (prev tag + backwards migration plan)</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://docs.docker.com/build/building/multi-stage/">Docker multi-stage builds</a> — small, secret-free images, the whole point of step&nbsp;1.</p>
+<nav class="lesson-nav"><a href="0010-tests-ci-ship.html">← Lesson 10</a><a href="0012-aggregators.html">Lesson 12 →</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for.</p>
+</main><script src="../assets/app.js"></script></body></html>

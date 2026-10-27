@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lesson 12 — Aggregators</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main>
+<p class="course">Bookr course · Lesson 12 of 12 · Tutorial Ch. 11</p>
+<h1>Aggregators</h1>
+<p class="why">Win: a stranger's platform books your seats — within allotment, idempotently, billed to them, never touching member passes.</p>
+<p>Phase 2 starts here, and only here: partners multiply every booking-path bug onto someone else's platform, so this lesson is gated on all eleven before it. An aggregator (think ClassPass) books seats under contract terms — a seat allotment per class, its own cancel cutoff, commission — without member passes and without member logins. New app (<code>startapp aggregators</code>), because this is a new bounded context with its own auth, not an extension of the member one.</p>
+<h2>Step 1 — Partner models and token auth</h2>
+<p><code>Aggregator</code> (slug, hashed token, seat allotment, contract cutoff, commission, active, webhook URL/secret, plus a service user — a real User row that stands in as the booking's member, created unusable-passworded so it can never log in), <code>AggregatorBooking</code> (partner + external id → booking, unique together), <code>AggregatorEventLog</code> (every inbound call — reconciliation evidence). Authentication is per-partner tokens over a separate router, <code>POST /api/v1/aggregators/&lt;slug&gt;/bookings</code>, with three rules that all matter: hash the presented token with sha256 and compare with <code>hmac.compare_digest</code> against the stored hash — never user passwords, never plain <code>==</code> (plain equality leaks via timing; <code>compare_digest</code> is the stdlib answer). Rotate by saving a new hash — the old token 401s everywhere immediately, which is also its test. Throttle per partner, and note the gap honestly: failed authentications carry no partner identity, so throttling starts <em>after</em> auth — brute force is infeasible against 256-bit tokens, but know where your rate limit begins.</p>
+<h2>Step 2 — Book within allotment, idempotently</h2>
+<p>Enforce <code>min(allotment, free seats)</code>, then reuse lesson&nbsp;4's <code>book_seat</code> — same seats, same locks, two new keyword arguments (<code>spend_credits=False</code>, <code>source="aggregator:&lt;slug&gt;"</code>): aggregators are just another channel, and inventing a second booking write would split the seat-lock discipline. The idempotency pattern deserves memorization, because the naive version has a named bug:</p>
+<pre>link = AggregatorBooking.objects.filter(
+    aggregator=partner, external_id=external_id
+).first()
+if link is not None:
+    if link.booking.scheduled_class_id != klass.pk:
+        raise DuplicateBooking("external_id already books another class.")
+    return link.booking, False
+with transaction.atomic():
+    booking = book_seat(...)
+    # Count AFTER the seat lock is held: a parallel retry serializes
+    # behind us and sees our booking, so the cap holds.
+    held = AggregatorBooking.objects.filter(...).count()
+    if held + 1 > partner.seat_allotment:
+        raise AllotmentExhausted("Allotment exhausted.")
+    try:
+        AggregatorBooking.objects.create(...)
+    except IntegrityError:
+        # Lost the race; return the winner.
+        ...</pre>
+<p>Never <code>get_or_create(defaults={"booking": book_seat(...)})</code> — arguments evaluate before the call, so the seat would book on every retry, hit or not. And the count goes <em>after</em> the lock: counted before, two parallel retries both see zero and both book past an allotment of one. Their late-cancel uses the contract cutoff, billed to nobody's passes (there are none to touch), and partner cancels promote the member waitlist exactly like member cancels — two channels, one behavior. Log every request first: replaying the event log must reproduce booking state, and that replay is the reconciliation test.</p>
+<h2>Step 3 — Outbound feed, webhooks, and rotation</h2>
+<p>Read-only <code>GET .../schedule?from&amp;to</code> (bounded like every list before it) serves a slim serializer — no staff usernames leave the building; partners get ids and names, never login identifiers. Change webhooks go out over Celery with backoff retries, HMAC-signed with the per-partner secret; verify signatures in tests, both directions (valid verifies, tampered rejects). Then the four acceptance checks that close the course: same <code>external_id</code> twice → one booking; past allotment → 409; rotated token → old 401s; bad webhook signature → rejected; event-log replay → identical state.</p>
+<h2>Exercises</h2>
+<p>1. Remove the class-mismatch guard and reuse one external id across two classes. Describe the customer-visible damage.<br>2. Move the allotment count before the lock and run parallel retries. Count the over-bookings.<br>3. Cancel a partner booking with members waiting. Who gets the seat, and which line decides it?<br>4. Design the next channel (front-desk walk-ins?) on top of <code>book_seat</code>. What parameters does it need, and what must it never touch?</p>
+<p class="progress" data-progress></p>
+<ul class="check">
+<li><label><input type="checkbox" data-id="d1"> Same external_id twice → one booking; over-allotment → 409; rotated → 401</label></li>
+<li><label><input type="checkbox" data-id="d2"> Webhook signature verifies; tampered rejects; event-log replay reproduces state</label></li>
+<li><label><input type="checkbox" data-id="d3"> Partner cancel promotes the member waitlist; no passes touched anywhere</label></li>
+</ul>
+<h2>Primary source</h2>
+<p><a href="https://docs.djangoproject.com/en/6.1/topics/auth/">Django authentication</a> — custom authentication classes, the hook the partner token auth hangs on.</p>
+<nav class="lesson-nav"><a href="0011-docker-dress-rehearsal.html">← Lesson 11</a></nav>
+<p class="followup">Stuck or unsure? Ask your agent-teacher a follow-up question — that's what it's here for. Course complete: every lesson's deliverables checked — claim your MVP 🎓</p>
+</main><script src="../assets/app.js"></script></body></html>
