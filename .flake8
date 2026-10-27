@@ -6,6 +6,9 @@
 #   WPS432  max_length= / choices= literals in field declarations
 #   WPS347  Q/F expression imports are the required pattern
 #   WPS458  `django.db.models` + `django.db` imports collide by necessity
+# Per-file: scheduling/availability.py ignores WPS210/WPS221/WPS231 — the
+# slot pipeline stages (rules, candidates, filter, dedupe) are the natural
+# units; further extraction breaches the 7-member cap or contorts the loop.
 [flake8]
 max-line-length = 88
 extend-ignore =
@@ -24,6 +27,10 @@ exclude =
     */migrations/*
 
 per-file-ignores =
+    scheduling/availability.py:
+        WPS210,
+        WPS221,
+        WPS231,
     tests/*:
         E501,
         WPS111,

@@ -1,5 +1,6 @@
 from typing import ClassVar
 
+from django.contrib.auth import get_user_model
 from rest_framework import generics, serializers
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -9,6 +10,8 @@ from organizations.permissions import IsStaffOrReadOnly, IsVenueMember
 from organizations.tenancy import STAFF_ROLES, _covers
 from passes.models import CreditLedger, MemberPass
 from passes.services import adjust_credit
+
+User = get_user_model()
 
 
 class MemberPassSerializer(serializers.ModelSerializer):

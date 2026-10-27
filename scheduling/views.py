@@ -8,10 +8,39 @@ from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 
 from organizations.permissions import IsStaffOrReadOnly, IsVenueMember
-from scheduling.models import ScheduledClass
-from scheduling.serializers import ScheduledClassSerializer
+from scheduling.models import ScheduledClass, TeacherSubstitution
+from scheduling.serializers import (
+    ScheduledClassSerializer,
+    TeacherSubstitutionSerializer,
+)
 
 MAX_WINDOW = timedelta(days=31)
+
+
+class TeacherSubstitutionViewSet(viewsets.ModelViewSet):
+    """History kept: list/retrieve/create, never update/delete."""
+
+    serializer_class = TeacherSubstitutionSerializer
+    permission_classes: ClassVar[list] = [IsVenueMember, IsStaffOrReadOnly]
+    http_method_names: ClassVar[list[str]] = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        return TeacherSubstitution.objects.filter(
+            scheduled_class__venue=self.request.venue
+        ).select_related("scheduled_class", "old_teacher", "new_teacher")
+
+    def perform_create(self, serializer):
+        from django.db import transaction
+
+        klass = serializer.validated_data["scheduled_class"]
+        if klass.venue != self.request.venue:
+            raise NotFound("No such venue.")
+        with transaction.atomic():
+            locked = ScheduledClass.objects.select_for_update().get(pk=klass.pk)
+            old_teacher = locked.teacher
+            locked.teacher = serializer.validated_data["new_teacher"]
+            locked.save()
+            serializer.save(old_teacher=old_teacher, created_by=self.request.user)
 
 
 def parse_window_bound(value, default):
