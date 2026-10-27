@@ -32,7 +32,7 @@ proceed.
    `makemigrations --check` clean, `ruff check` + `ruff format --check`
    clean, `flake8` on touched files (wemake, `.flake8` scope), `mypy` clean
    where configured (if unconfigured, note it once and move on).
-4. **Review**: two axes (Standards, Spec) reported separately; run
+4. **Review**: three axes (Standards, Spec, Necessity) reported separately; run
    referenced skills inline where no skill/subagent tool exists and say so.
    WPS findings go through the `wps` loop; config changes need user
    approval (pre-approved sets live in `.flake8`, documented inline).
