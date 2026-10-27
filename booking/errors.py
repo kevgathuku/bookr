@@ -18,5 +18,9 @@ class DuplicateBooking(BookingError):
     """Member already holds an active booking for this class."""
 
 
+class AllotmentExhausted(BookingError):
+    """Partner holds no more seats on this class."""
+
+
 class TeacherUnavailable(BookingError):
     """Teacher holds an overlapping appointment (maps to 409)."""

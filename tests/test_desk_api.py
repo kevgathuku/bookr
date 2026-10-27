@@ -61,7 +61,9 @@ class TestRoster:
     def test_roster_rejects_bad_date(self):
         venue = _venue()
 
-        response = _client(_staff(venue)).get("/api/v1/bookings/roster/?date=not-a-date")
+        response = _client(_staff(venue)).get(
+            "/api/v1/bookings/roster/?date=not-a-date"
+        )
 
         assert response.status_code == 400
 

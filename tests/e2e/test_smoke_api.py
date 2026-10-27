@@ -132,3 +132,66 @@ def test_door_grants_member_denies_stranger(base_url):
 
     assert granted.json()["granted"] is True
     assert denied.json()["granted"] is False
+
+
+def _partner_client(base_url, slug="e2e-partner", allotment=1):
+    from django.contrib.auth import get_user_model
+
+    from aggregators.models import Aggregator
+    from aggregators.tokens import new_token
+    from scheduling.models import ScheduledClass
+
+    api = f"{base_url}/api/v1"
+    service_user = get_user_model().objects.create_user(username=f"svc-{slug}")
+    raw, token_hash = new_token()
+    partner = Aggregator.objects.create(
+        slug=slug,
+        name=slug.title(),
+        api_token_hash=token_hash,
+        seat_allotment=allotment,
+        service_user=service_user,
+    )
+    tiny = ScheduledClass.objects.filter(room__capacity=1).order_by("id").first()
+    client = requests.Session()
+    client.headers.update({"Content-Type": "application/json", "X-Partner-Token": raw})
+    return partner, tiny, client, f"{api}/aggregators/{slug}/bookings/"
+
+
+def test_partner_channel_idempotent(base_url):
+    from aggregators.models import AggregatorBooking
+
+    partner, tiny, partner_client, url = _partner_client(base_url)
+
+    first = partner_client.post(
+        url, json={"scheduled_class": tiny.pk, "external_id": "e1"}
+    )
+    second = partner_client.post(
+        url, json={"scheduled_class": tiny.pk, "external_id": "e1"}
+    )
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert first.json()["id"] == second.json()["id"]
+    assert AggregatorBooking.objects.filter(aggregator=partner).count() == 1
+
+
+def test_partner_channel_capped_rotated(base_url):
+    from aggregators.tokens import rotate
+
+    partner, tiny, partner_client, url = _partner_client(base_url, slug="e2e-cap")
+
+    over = partner_client.post(
+        url, json={"scheduled_class": tiny.pk, "external_id": "e2"}
+    )
+    assert over.status_code == 201
+    full = partner_client.post(
+        url, json={"scheduled_class": tiny.pk, "external_id": "e3"}
+    )
+    assert full.status_code == 409
+
+    _fresh_raw, fresh_hash = rotate()
+    partner.api_token_hash = fresh_hash
+    partner.save(update_fields=["api_token_hash"])
+    stale = partner_client.post(
+        url, json={"scheduled_class": tiny.pk, "external_id": "e4"}
+    )
+    assert stale.status_code == 401

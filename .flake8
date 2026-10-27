@@ -16,8 +16,9 @@
 # Per-file: test_browser.py ignores WPS210/WPS213 — linear E2E scripts;
 # splitting further would be helpers that exist only to shorten.
 # Per-file: booking/views.py ignores WPS201, organizations/views.py ignores
-# WPS202 — endpoint files grow one view per staff ticket by design; splitting
-# by ticket would scatter the API surface across modules.
+# WPS202, aggregators/views.py ignores WPS201 — endpoint files grow one view
+# per staff ticket by design; splitting by ticket would scatter the API
+# surface across modules.
 # Per-file: settings/base.py ignores WPS407 (module constants by Django
 # convention) and E501 (dotted validator paths stay whole for grep).
 [flake8]
@@ -45,6 +46,8 @@ per-file-ignores =
         WPS201,
     organizations/views.py:
         WPS202,
+    aggregators/views.py:
+        WPS201,
     config/settings/base.py:
         E501,
         WPS407,

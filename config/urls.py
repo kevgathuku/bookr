@@ -36,6 +36,7 @@ urlpatterns = [
     path("api/v1/", include("passes.urls")),
     path("api/v1/", include("organizations.urls")),
     path("api/v1/", include("booking.urls")),
+    path("api/v1/", include("aggregators.urls")),
     path("", include("access.urls")),
     re_path(r"^(?!api/|admin/|healthz|metrics).*$", spa),
 ]

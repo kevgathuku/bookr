@@ -44,13 +44,21 @@ def _teacher_clash(klass) -> bool:
     ).exists()
 
 
-def _create(member: User, klass: ScheduledClass, status: str, idem_key: str) -> Booking:
+def _create(
+    member: User,
+    klass: ScheduledClass,
+    status: str,
+    idem_key: str,
+    spend_credits: bool = True,
+    source: str = "app",
+) -> Booking:
     try:
         booking = Booking.objects.create(
             venue=klass.venue,
             member=member,
             scheduled_class=klass,
             status=status,
+            source=source,
             idempotency_key=idem_key,
         )
     except IntegrityError:
@@ -63,7 +71,7 @@ def _create(member: User, klass: ScheduledClass, status: str, idem_key: str) -> 
     # booking too, so nothing is ever written half-done. Unlimited passes
     # spend nothing and leave credit_tx empty. Waitlisted bookings spend on
     # promotion, not before — no seat, no charge.
-    if status == Booking.Status.CONFIRMED:
+    if status == Booking.Status.CONFIRMED and spend_credits:
         booking.credit_tx = spend_credit(member, booking)
         booking.save(update_fields=["credit_tx"])
     return booking
@@ -75,6 +83,8 @@ def book_seat(
     *,
     idempotency_key: str,
     waitlist: bool = False,
+    spend_credits: bool = True,
+    source: str = "app",
 ) -> Booking:
     """Book one seat, serialized per class via SELECT ... FOR UPDATE."""
     with transaction.atomic():
@@ -89,4 +99,4 @@ def book_seat(
         status = _status_for(locked, waitlist)
         if _teacher_clash(locked):
             raise TeacherUnavailable(f"{locked.teacher} is booked elsewhere.")
-        return _create(member, locked, status, idempotency_key)
+        return _create(member, locked, status, idempotency_key, spend_credits, source)

@@ -18,6 +18,7 @@ INSTALLED_APPS = [
     "booking.apps.BookingConfig",
     "passes.apps.PassesConfig",
     "access.apps.AccessConfig",
+    "aggregators.apps.AggregatorsConfig",
     "django.contrib.postgres",
     "django.contrib.admin",
     "django.contrib.auth",
