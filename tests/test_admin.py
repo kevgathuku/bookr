@@ -1,0 +1,235 @@
+from datetime import timedelta
+
+import pytest
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+from django.test import Client
+from django.utils import timezone
+
+from access.models import AccessEvent, AccessPoint
+from organizations.admin_mixins import bookr_site
+from organizations.models import Membership, Organization, Venue
+from passes.models import CreditLedger
+from scheduling.models import ClassType, Room, ScheduledClass
+
+pytestmark = pytest.mark.django_db
+
+#  Admin seam (Django admin UI, not the API)
+#  - Every ModelAdmin scopes rows to the staffer's venues: venue-A staff
+#    is blind to venue-B rows (proven on the class changelist).
+#  - CreditLedger + AccessEvent are read-only (add/change/delete refuse).
+#  - api_token_hash is readonly; rotation happens through tooling only.
+#  - Back-office is owner/manager (+frontdesk fallback) by membership role;
+#    teacher/member never enter — even inside a Django Group (groups are
+#    not roles; ADR-0005).
+
+
+def _user(username, staff=False):
+    user = get_user_model().objects.create_user(username=username)
+    user.is_staff = staff
+    user.save()
+    return user
+
+
+def _org(slug):
+    return Organization.objects.create(slug=slug, name=slug.title())
+
+
+def _venue(org, slug):
+    return Venue.objects.create(organization=org, slug=slug, name=slug.title())
+
+
+def _membership(org, user, role, venue=None):
+    return Membership.objects.create(
+        organization=org, venue=venue, user=user, role=role
+    )
+
+
+def _class(venue, teacher):
+    start = timezone.now() + timedelta(days=1)
+    class_type = ClassType.objects.create(venue=venue, name="Spin", duration_min=45)
+    room = Room.objects.create(venue=venue, name="Studio", capacity=20)
+    return ScheduledClass.objects.create(
+        venue=venue,
+        class_type=class_type,
+        room=room,
+        teacher=teacher,
+        starts_at=start,
+        ends_at=start + timedelta(hours=1),
+    )
+
+
+def _admin_client(user):
+    client = Client()
+    client.force_login(user)
+    return client
+
+
+class TestVenueScoping:
+    def test_venue_a_staff_blind_to_venue_b(self):
+        org = _org("org")
+        venue_a, venue_b = _venue(org, "a-main"), _venue(org, "b-annex")
+        teacher = _user("teacher")
+        class_a = _class(venue_a, teacher)
+        _class(venue_b, teacher)
+        manager = _user("manager", staff=True)
+        _membership(org, manager, Membership.Role.MANAGER, venue_a)
+
+        response = _admin_client(manager).get("/admin/scheduling/scheduledclass/")
+
+        assert response.status_code == 200
+        assert response.context["cl"].result_count == 1
+        assert list(response.context["cl"].result_list) == [class_a]
+
+    def test_spanning_owner_sees_both(self):
+        org = _org("org")
+        venue_a, venue_b = _venue(org, "a-main"), _venue(org, "b-annex")
+        teacher = _user("teacher")
+        _class(venue_a, teacher)
+        _class(venue_b, teacher)
+        owner = _user("owner", staff=True)
+        _membership(org, owner, Membership.Role.OWNER)
+
+        response = _admin_client(owner).get("/admin/scheduling/scheduledclass/")
+
+        assert response.status_code == 200
+        assert response.context["cl"].result_count == 2
+
+
+class TestRoleGate:
+    def test_teacher_with_staff_flag_denied(self):
+        org = _org("org")
+        venue = _venue(org, "main")
+        teacher = _user("teacher", staff=True)
+        _membership(org, teacher, Membership.Role.TEACHER, venue)
+
+        response = _admin_client(teacher).get("/admin/")
+
+        assert response.status_code in (302, 403)
+
+    def test_group_membership_grants_nothing(self):
+        org = _org("org")
+        venue = _venue(org, "main")
+        teacher = _user("teacher", staff=True)
+        group, _ = Group.objects.get_or_create(name="managers")
+        teacher.groups.add(group)
+        _membership(org, teacher, Membership.Role.TEACHER, venue)
+
+        response = _admin_client(teacher).get("/admin/scheduling/scheduledclass/")
+
+        assert response.status_code in (302, 403)
+
+    def test_frontdesk_fallback_allowed(self):
+        org = _org("org")
+        venue = _venue(org, "main")
+        desk = _user("desk", staff=True)
+        _membership(org, desk, Membership.Role.FRONTDESK, venue)
+
+        response = _admin_client(desk).get("/admin/")
+
+        assert response.status_code == 200
+
+    def test_member_denied(self):
+        org = _org("org")
+        venue = _venue(org, "main")
+        member = _user("member", staff=True)
+        _membership(org, member, Membership.Role.MEMBER, venue)
+
+        response = _admin_client(member).get("/admin/")
+
+        assert response.status_code in (302, 403)
+
+    def test_add_form_ignores_forged_history(self):
+        from scheduling.models import TeacherSubstitution
+
+        org = _org("org")
+        venue = _venue(org, "main")
+        old = _user("old-teacher")
+        klass = _class(venue, old)
+        manager = _user("manager", staff=True)
+        _membership(org, manager, Membership.Role.MANAGER, venue)
+        impostor = _user("impostor")
+        new_teacher = _user("new-teacher")
+
+        response = _admin_client(manager).post(
+            "/admin/scheduling/teachersubstitution/add/",
+            {
+                "scheduled_class": klass.pk,
+                "old_teacher": impostor.pk,
+                "new_teacher": new_teacher.pk,
+                "created_by": impostor.pk,
+                "reason": "forged",
+            },
+        )
+
+        assert response.status_code == 302
+        row = TeacherSubstitution.objects.get(scheduled_class=klass)
+        assert row.old_teacher == old
+        assert row.created_by == manager
+
+
+class TestReadOnlyAudit:
+    def test_ledger_rejects_add_change_delete(self):
+        org = _org("org")
+        venue = _venue(org, "main")
+        manager = _user("manager", staff=True)
+        _membership(org, manager, Membership.Role.MANAGER, venue)
+        model_admin = bookr_site._registry[CreditLedger]
+        request = _request(manager)
+
+        assert model_admin.has_add_permission(request) is False
+        assert model_admin.has_change_permission(request) is False
+        assert model_admin.has_delete_permission(request) is False
+        assert model_admin.has_view_permission(request) is True
+
+    def test_access_events_reject_add_change_delete(self):
+        org = _org("org")
+        venue = _venue(org, "main")
+        manager = _user("manager", staff=True)
+        _membership(org, manager, Membership.Role.MANAGER, venue)
+        model_admin = bookr_site._registry[AccessEvent]
+        request = _request(manager)
+
+        assert model_admin.has_add_permission(request) is False
+        assert model_admin.has_delete_permission(request) is False
+
+    def test_add_url_refuses(self):
+        org = _org("org")
+        venue = _venue(org, "main")
+        manager = _user("manager", staff=True)
+        _membership(org, manager, Membership.Role.MANAGER, venue)
+
+        response = _admin_client(manager).get("/admin/passes/creditledger/add/")
+
+        assert response.status_code == 403
+
+
+class TestTokenHash:
+    def test_hash_readonly_rotation_tooling(self):
+        org = _org("org")
+        venue = _venue(org, "main")
+        manager = _user("manager", staff=True)
+        _membership(org, manager, Membership.Role.MANAGER, venue)
+        point = AccessPoint.objects.create(venue=venue, name="Door", controller_id="d1")
+        model_admin = bookr_site._registry[AccessPoint]
+
+        assert "api_token_hash" in model_admin.readonly_fields
+        assert "rotate_token" in model_admin.actions
+
+        model_admin.rotate_token(
+            _request(manager), AccessPoint.objects.filter(pk=point.pk)
+        )
+        point.refresh_from_db()
+
+        assert point.api_token_hash != ""
+
+
+def _request(user):
+    from django.contrib.messages.storage.fallback import FallbackStorage
+    from django.test import RequestFactory
+
+    request = RequestFactory().get("/admin/")
+    request.user = user
+    request.session = {}
+    request._messages = FallbackStorage(request)
+    return request
