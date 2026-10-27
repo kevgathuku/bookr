@@ -11,7 +11,7 @@ Non-goals (v1): payments/PSP integration, native mobile apps, dynamic pricing, m
 
 - Tenancy: single DB, shared schema. `Organization` is the tenant root (the business); `Venue` is one location under it. Every tenant-scoped row carries its `venue FK`; venues carry their `organization FK`. Enforce via middleware (resolve `X-Venue-Slug`, derive the org; staff's venue from membership) + queryset mixin `VenueScopedManager`. No cross-organization FKs. Unique constraints scoped to `(venue, ...)` (slugs to `(organization, ...)`).
 - Membership scope is per organization: `spanning` (one membership covers all its venues, `venue` NULL) or `per_venue` (membership pins one venue, `venue` required — enforced at creation). A teacher working two venues in a per-venue org simply holds two memberships.
-- Roles (per membership): `owner, manager, teacher, frontdesk, member`. Use Django groups + per-object check (`is_teacher_of(class)`). Staff ≠ superuser. Aggregator access via scoped API tokens, never user passwords. Cross-organization or cross-venue access returns **404**, not 403 (no id leaks).
+- Roles (per membership): `owner, manager, teacher, frontdesk, member`. Roles live on `Membership` — Django's global Groups cannot express per-tenant roles, so Groups are not used; domain checks and the admin both read the membership row (admin via custom `has_*_permission` methods, ADR-0005). Staff ≠ superuser. Aggregator access via scoped API tokens, never user passwords. Cross-organization or cross-venue access returns **404**, not 403 (no id leaks).
 
 **Data model** (all fields in §3.7):
 
@@ -580,7 +580,7 @@ Verdict per user class:
 
 | Role | Default admin? | Notes |
 |---|---|---|
-| owner, manager | YES, if scoped | Covers all back-office CRUD — provided (1) every ModelAdmin filters querysets to the staffer's venue(s) (`get_queryset`; default admin does NOT do this — without it venue A's staff sees venue B), (2) audit models read-only (`CreditLedger`, `AggregatorEventLog`, `AccessEvent`: no add/change/delete), (3) secrets never editable (`api_token_hash` via rotation tooling only). Staff ≠ superuser; per-model rights via Groups. |
+| owner, manager | YES, if scoped | Covers all back-office CRUD — provided (1) every ModelAdmin filters querysets to the staffer's venue(s) (`get_queryset`; default admin does NOT do this — without it venue A's staff sees venue B), (2) audit models read-only (`CreditLedger`, `AggregatorEventLog`, `AccessEvent`: no add/change/delete), (3) secrets never editable (`api_token_hash` via rotation tooling only). Staff ≠ superuser; per-model rights via custom permission methods reading the membership row, not Groups. |
 | frontdesk | PARTIAL | Admin works as fallback, but a check-in queue needs the React `/desk` UI — admin takes ~6 clicks per check-in, unusable with a line. |
 | teacher, member | NO | Never grant staff flags; React only. |
 | aggregators, door controllers | NO | Token-scoped APIs only, never user accounts. |
