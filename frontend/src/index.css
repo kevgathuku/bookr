@@ -8,3 +8,27 @@
 	--color-bad: #b91c1c;
 	--font-sans: ui-sans-serif, system-ui, sans-serif;
 }
+
+@layer base {
+	input:not([type="checkbox"]):not([type="radio"]),
+	select,
+	textarea {
+		@apply rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900;
+	}
+	input:focus-visible,
+	select:focus-visible,
+	textarea:focus-visible {
+		@apply outline-2 outline-offset-1 outline-brand;
+	}
+}
+
+/* FullCalendar standard-theme accents follow the brand. */
+:root {
+	--fc-button-bg-color: #4f46e5;
+	--fc-button-border-color: #4f46e5;
+	--fc-button-hover-bg-color: #3730a3;
+	--fc-button-hover-border-color: #3730a3;
+	--fc-button-active-bg-color: #3730a3;
+	--fc-button-active-border-color: #3730a3;
+	--fc-today-bg-color: #eef2ff;
+}

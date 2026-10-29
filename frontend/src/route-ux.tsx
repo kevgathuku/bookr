@@ -1,17 +1,20 @@
 import { Component, type ReactNode, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router";
+import { Button } from "./components";
 
 export function SkeletonList({ rows = 3 }: { rows?: number }) {
 	return (
-		<div aria-busy="true" aria-label="Loading">
-			{Array.from({ length: rows }, (_, index) => (
-				<div
-					// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows
-					key={index}
-					className="my-2 h-6 animate-pulse rounded bg-gray-200"
-				/>
-			))}
-		</div>
+		<main className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
+			<div aria-busy="true" aria-label="Loading">
+				{Array.from({ length: rows }, (_, index) => (
+					<div
+						// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows
+						key={index}
+						className="my-2 h-6 animate-pulse rounded bg-gray-200"
+					/>
+				))}
+			</div>
+		</main>
 	);
 }
 
@@ -38,10 +41,17 @@ export function RouteFocus({ children }: { children: ReactNode }) {
 
 export function NotFound() {
 	return (
-		<main>
-			<h1 data-testid="not-found">Page not found</h1>
-			<p>This page does not exist.</p>
-			<Link to="/">Back to schedule</Link>
+		<main className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
+			<h1 data-testid="not-found" className="text-3xl font-bold tracking-tight">
+				Page not found
+			</h1>
+			<p className="mt-1 text-sm text-slate-500">This page does not exist.</p>
+			<Link
+				to="/"
+				className="mt-4 inline-block font-semibold text-brand hover:underline"
+			>
+				Back to schedule
+			</Link>
 		</main>
 	);
 }
@@ -63,15 +73,22 @@ export class ErrorBoundary extends Component<
 	render() {
 		if (this.state.failed) {
 			return (
-				<main>
-					<h1 data-testid="error-page">Something went wrong</h1>
-					<p>Please try again.</p>
-					<button
-						type="button"
-						onClick={() => this.setState({ failed: false })}
+				<main className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
+					<h1
+						data-testid="error-page"
+						className="text-3xl font-bold tracking-tight"
 					>
-						Retry
-					</button>
+						Something went wrong
+					</h1>
+					<p className="mt-1 text-sm text-slate-500">Please try again.</p>
+					<div className="mt-4">
+						<Button
+							type="button"
+							onClick={() => this.setState({ failed: false })}
+						>
+							Retry
+						</Button>
+					</div>
 				</main>
 			);
 		}

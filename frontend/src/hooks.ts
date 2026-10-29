@@ -14,6 +14,7 @@ export interface ClassItem {
 	ends_at: string;
 	status: string;
 	capacity: number | null;
+	spots_left: number | null;
 }
 
 export interface BookingItem {

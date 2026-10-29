@@ -22,33 +22,40 @@ export default function Login() {
 	}
 
 	return (
-		<main>
-			<h1>Log in to Bookr</h1>
-			<form onSubmit={submit}>
-				<Field label="Username" htmlFor="username">
-					<input
-						data-testid="username"
-						id="username"
-						value={username}
-						onChange={(event) => setUsername(event.target.value)}
-						autoComplete="username"
-					/>
-				</Field>
-				<Field label="Password" htmlFor="password">
-					<input
-						data-testid="password"
-						id="password"
-						type="password"
-						value={password}
-						onChange={(event) => setPassword(event.target.value)}
-						autoComplete="current-password"
-					/>
-				</Field>
-				{error ? <ErrorText message={error} /> : null}
-				<Button testId="login-button" type="submit">
-					Log in
-				</Button>
-			</form>
+		<main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
+			<div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+				<p className="text-xl font-bold tracking-tight">Bookr</p>
+				<h1 className="mt-1 text-3xl font-bold tracking-tight">
+					Log in to Bookr
+				</h1>
+				<form onSubmit={submit} className="mt-6 space-y-4">
+					<Field label="Username" htmlFor="username">
+						<input
+							data-testid="username"
+							id="username"
+							className="mt-1 w-full"
+							value={username}
+							onChange={(event) => setUsername(event.target.value)}
+							autoComplete="username"
+						/>
+					</Field>
+					<Field label="Password" htmlFor="password">
+						<input
+							data-testid="password"
+							id="password"
+							className="mt-1 w-full"
+							type="password"
+							value={password}
+							onChange={(change) => setPassword(change.target.value)}
+							autoComplete="current-password"
+						/>
+					</Field>
+					{error ? <ErrorText message={error} /> : null}
+					<Button testId="login-button" type="submit" className="w-full">
+						Log in
+					</Button>
+				</form>
+			</div>
 		</main>
 	);
 }

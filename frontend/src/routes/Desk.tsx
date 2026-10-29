@@ -1,13 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useAuth } from "../auth";
-import { Button, EmptyState, ErrorText } from "../components";
+import { Button, EmptyState, ErrorText, Pill } from "../components";
 import {
 	adjustPass,
 	cancelBookingOverride,
 	checkinBooking,
-	noShowBooking,
 	type MemberHit,
+	noShowBooking,
 	type RosterRow,
 	searchMembers,
 	useDoorEvents,
@@ -108,9 +108,10 @@ export function MemberLookup() {
 	});
 
 	return (
-		<section>
-			<h2>Member lookup</h2>
+		<section className="mt-8">
+			<h2 className="text-lg font-semibold">Member lookup</h2>
 			<form
+				className="mt-3 flex flex-wrap items-center gap-2"
 				onSubmit={(event) => {
 					event.preventDefault();
 					setMember(null);
@@ -132,7 +133,10 @@ export function MemberLookup() {
 				<ul>
 					{hits.map((hit) => (
 						<li key={hit.id}>
-							<Button testId={`member-hit-${hit.id}`} onClick={() => setMember(hit)}>
+							<Button
+								testId={`member-hit-${hit.id}`}
+								onClick={() => setMember(hit)}
+							>
 								{hit.username}
 							</Button>
 						</li>
@@ -140,7 +144,10 @@ export function MemberLookup() {
 				</ul>
 			) : null}
 			{member ? (
-				<div data-testid="member-panel">
+				<div
+					data-testid="member-panel"
+					className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+				>
 					<p>Adjusting credits for {member.username}</p>
 					{passes.data && passes.data.length > 0 ? (
 						<form
@@ -157,7 +164,8 @@ export function MemberLookup() {
 								<option value="">Pick a pass</option>
 								{passes.data.map((pass) => (
 									<option key={pass.id} value={pass.id}>
-										{pass.product_name} ({pass.credits_total - pass.credits_used} left)
+										{pass.product_name} (
+										{pass.credits_total - pass.credits_used} left)
 									</option>
 								))}
 							</select>{" "}
@@ -206,15 +214,21 @@ export default function Desk() {
 	const doors = useDoorEvents();
 
 	return (
-		<main>
-			<h1 data-testid="desk">Front desk</h1>
-			<section>
-				<h2>Roster</h2>
+		<main className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
+			<h1 data-testid="desk" className="text-3xl font-bold tracking-tight">
+				Front desk
+			</h1>
+			<p className="mt-1 text-sm text-slate-500">
+				Roster, member lookup, and door log for this venue.
+			</p>
+			<section className="mt-8">
+				<h2 className="text-lg font-semibold">Roster</h2>
 				<input
 					data-testid="roster-date"
 					type="date"
 					value={date}
 					onChange={(change) => setDate(change.target.value)}
+					className="mt-3"
 				/>
 				{roster.isPending ? (
 					<p>Loading roster…</p>
@@ -223,22 +237,31 @@ export default function Desk() {
 				) : roster.data.length === 0 ? (
 					<EmptyState message="No bookings this day." />
 				) : (
-					<ul>
+					<ul className="mt-3 space-y-3">
 						{roster.data.map((row) => (
-							<li key={row.id} data-testid="roster-row">
-								<span>
-									{row.member} — {row.class_title} —{" "}
-									{formatInVenueTimeZone(row.starts_at, timeZone)} — {row.status}
-								</span>{" "}
-								<RosterRowActions row={row} />
+							<li
+								key={row.id}
+								data-testid="roster-row"
+								className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+							>
+								<p className="font-semibold">
+									{row.member} — {row.class_title}{" "}
+									<span className="font-normal text-slate-500">
+										{formatInVenueTimeZone(row.starts_at, timeZone)} ·{" "}
+										{row.status}
+									</span>
+								</p>{" "}
+								<div className="mt-2">
+									<RosterRowActions row={row} />
+								</div>
 							</li>
 						))}
 					</ul>
 				)}
 			</section>
 			<MemberLookup />
-			<section>
-				<h2>Door log</h2>
+			<section className="mt-8">
+				<h2 className="text-lg font-semibold">Door log</h2>
 				{doors.isPending ? (
 					<p>Loading door log…</p>
 				) : doors.isError ? (
@@ -246,10 +269,17 @@ export default function Desk() {
 				) : doors.data.length === 0 ? (
 					<EmptyState message="No door events yet." />
 				) : (
-					<ul>
+					<ul className="mt-3 space-y-3">
 						{doors.data.slice(0, 10).map((event) => (
-							<li key={event.id} data-testid="door-row">
-								{event.granted ? "Granted" : "Denied"} — {event.reason}
+							<li
+								key={event.id}
+								data-testid="door-row"
+								className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+							>
+								<Pill tone={event.granted ? "ok" : "bad"}>
+									{event.granted ? "Granted" : "Denied"}
+								</Pill>{" "}
+								<span className="text-sm text-slate-500">{event.reason}</span>
 							</li>
 						))}
 					</ul>

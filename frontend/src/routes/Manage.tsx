@@ -4,12 +4,12 @@ import { Button, EmptyState, ErrorText } from "../components";
 import {
 	activatePolicy,
 	type ClassTypeItem,
-	type ProductItem,
 	createClass,
 	createProduct,
 	createStaffAggregator,
 	createSubstitution,
 	deleteClass,
+	type ProductItem,
 	patchProduct,
 	rotateStaffAggregator,
 	useAggEvents,
@@ -75,9 +75,10 @@ function ClassSection() {
 		setForm((prior) => ({ ...prior, [key]: value }));
 
 	return (
-		<section>
-			<h2>Classes</h2>
+		<section className="mt-8">
+			<h2 className="text-lg font-semibold">Classes</h2>
 			<form
+				className="mt-3 flex flex-wrap items-center gap-2"
 				onSubmit={(event) => {
 					event.preventDefault();
 					create.mutate();
@@ -131,18 +132,29 @@ function ClassSection() {
 					value={form.ends_at}
 					onChange={(change) => set("ends_at")(change.target.value)}
 				/>{" "}
-				<Button testId="class-create-button" type="submit" disabled={create.isPending}>
+				<Button
+					testId="class-create-button"
+					type="submit"
+					disabled={create.isPending}
+				>
 					Create class
 				</Button>
 			</form>
 			{(classes.data ?? []).length === 0 ? (
 				<EmptyState message="No classes this week." />
 			) : (
-				<ul>
+				<ul className="mt-3 space-y-3">
 					{(classes.data ?? []).map((klass) => (
-						<li key={klass.id} data-testid="manage-class-row">
-							<span>
-								{klass.class_type_name} — {klass.room_name} — {klass.status}
+						<li
+							key={klass.id}
+							data-testid="manage-class-row"
+							className="flex items-center gap-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+						>
+							<span className="min-w-0 flex-1 font-semibold">
+								{klass.class_type_name} — {klass.room_name}{" "}
+								<span className="font-normal text-slate-500">
+									{klass.status}
+								</span>
 							</span>{" "}
 							<Button
 								testId={`class-delete-${klass.id}`}
@@ -179,9 +191,10 @@ function SubSection() {
 	});
 
 	return (
-		<section>
-			<h2>Substitutions</h2>
+		<section className="mt-8">
+			<h2 className="text-lg font-semibold">Substitutions</h2>
 			<form
+				className="mt-3 flex flex-wrap items-center gap-2"
 				onSubmit={(event) => {
 					event.preventDefault();
 					create.mutate();
@@ -211,13 +224,21 @@ function SubSection() {
 						</option>
 					))}
 				</select>{" "}
-				<Button testId="sub-create-button" type="submit" disabled={create.isPending}>
+				<Button
+					testId="sub-create-button"
+					type="submit"
+					disabled={create.isPending}
+				>
 					Assign substitute
 				</Button>
 			</form>
-			<ul>
+			<ul className="mt-3 space-y-3">
 				{(subs.data ?? []).map((sub) => (
-					<li key={sub.id} data-testid="sub-row">
+					<li
+						key={sub.id}
+						data-testid="sub-row"
+						className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+					>
 						Class {sub.scheduled_class}: {sub.old_teacher} → {sub.new_teacher}
 					</li>
 				))}
@@ -240,7 +261,10 @@ function ProductRow({ product }: { product: ProductItem }) {
 		onError: () => setError("Rename failed. Try again."),
 	});
 	return (
-		<li data-testid="product-row">
+		<li
+			data-testid="product-row"
+			className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+		>
 			<input
 				data-testid={`product-name-${product.id}`}
 				value={name}
@@ -276,9 +300,10 @@ function ProductSection() {
 		onError: tools.fail,
 	});
 	return (
-		<section>
-			<h2>Pass products</h2>
+		<section className="mt-8">
+			<h2 className="text-lg font-semibold">Pass products</h2>
 			<form
+				className="mt-3 flex flex-wrap items-center gap-2"
 				onSubmit={(event) => {
 					event.preventDefault();
 					create.mutate();
@@ -302,11 +327,15 @@ function ProductSection() {
 					value={days}
 					onChange={(change) => setDays(change.target.value)}
 				/>{" "}
-				<Button testId="product-create-button" type="submit" disabled={create.isPending}>
+				<Button
+					testId="product-create-button"
+					type="submit"
+					disabled={create.isPending}
+				>
 					Create product
 				</Button>
 			</form>
-			<ul>
+			<ul className="mt-3 space-y-3">
 				{(products.data ?? []).map((product) => (
 					<ProductRow key={product.id} product={product} />
 				))}
@@ -321,15 +350,19 @@ function PolicySection() {
 	const tools = useRefresh(["manage", "policies"]);
 	const [hours, setHours] = useState("8");
 	const activate = useMutation({
-		mutationFn: () => activatePolicy({ class_late_cancel_hours: Number(hours) }),
+		mutationFn: () =>
+			activatePolicy({ class_late_cancel_hours: Number(hours) }),
 		onSuccess: tools.refresh,
 		onError: tools.fail,
 	});
 
 	return (
-		<section>
-			<h2>Policies (history, never edited)</h2>
+		<section className="mt-8">
+			<h2 className="text-lg font-semibold">
+				Policies (history, never edited)
+			</h2>
 			<form
+				className="mt-3 flex flex-wrap items-center gap-2"
 				onSubmit={(event) => {
 					event.preventDefault();
 					activate.mutate();
@@ -341,13 +374,21 @@ function PolicySection() {
 					value={hours}
 					onChange={(change) => setHours(change.target.value)}
 				/>{" "}
-				<Button testId="policy-activate-button" type="submit" disabled={activate.isPending}>
+				<Button
+					testId="policy-activate-button"
+					type="submit"
+					disabled={activate.isPending}
+				>
 					Activate new version
 				</Button>
 			</form>
-			<ul>
+			<ul className="mt-3 space-y-3">
 				{(policies.data ?? []).map((policy) => (
-					<li key={policy.id} data-testid="policy-row">
+					<li
+						key={policy.id}
+						data-testid="policy-row"
+						className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+					>
 						{policy.valid_from} → {policy.valid_until ?? "open"} (
 						{policy.class_late_cancel_hours}h)
 					</li>
@@ -384,9 +425,10 @@ function AggregatorSection() {
 	});
 
 	return (
-		<section>
-			<h2>Aggregators</h2>
+		<section className="mt-8">
+			<h2 className="text-lg font-semibold">Aggregators</h2>
 			<form
+				className="mt-3 flex flex-wrap items-center gap-2"
 				onSubmit={(event) => {
 					event.preventDefault();
 					create.mutate();
@@ -404,14 +446,24 @@ function AggregatorSection() {
 					value={name}
 					onChange={(change) => setName(change.target.value)}
 				/>{" "}
-				<Button testId="agg-create-button" type="submit" disabled={create.isPending}>
+				<Button
+					testId="agg-create-button"
+					type="submit"
+					disabled={create.isPending}
+				>
 					Create partner
 				</Button>
 			</form>
-			{token ? <p data-testid="agg-token">Token (shown once): {token}</p> : null}
-			<ul>
+			{token ? (
+				<p data-testid="agg-token">Token (shown once): {token}</p>
+			) : null}
+			<ul className="mt-3 space-y-3">
 				{(partners.data ?? []).map((partner) => (
-					<li key={partner.slug} data-testid="agg-row">
+					<li
+						key={partner.slug}
+						data-testid="agg-row"
+						className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+					>
 						{partner.slug} (allotment {partner.seat_allotment}){" "}
 						<Button
 							testId={`agg-rotate-${partner.slug}`}
@@ -433,13 +485,17 @@ function AggregatorSection() {
 				(events.data ?? []).length === 0 ? (
 					<EmptyState message="No calls logged for this partner yet." />
 				) : (
-				<ul>
-					{(events.data ?? []).map((event) => (
-						<li key={event.id} data-testid="agg-event-row">
-							{event.method} {event.path} → {event.status_code}
-						</li>
-					))}
-				</ul>
+					<ul className="mt-3 space-y-3">
+						{(events.data ?? []).map((event) => (
+							<li
+								key={event.id}
+								data-testid="agg-event-row"
+								className="rounded-2xl border border-slate-200 bg-white p-4 font-mono text-sm shadow-sm"
+							>
+								{event.method} {event.path} → {event.status_code}
+							</li>
+						))}
+					</ul>
 				)
 			) : null}
 			{tools.error ? <ErrorText message={tools.error} /> : null}
@@ -449,8 +505,13 @@ function AggregatorSection() {
 
 export default function Manage() {
 	return (
-		<main>
-			<h1 data-testid="manage">Manage</h1>
+		<main className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
+			<h1 data-testid="manage" className="text-3xl font-bold tracking-tight">
+				Manage
+			</h1>
+			<p className="mt-1 text-sm text-slate-500">
+				Classes, subs, products, policy versions, aggregators.
+			</p>
 			<ClassSection />
 			<SubSection />
 			<ProductSection />

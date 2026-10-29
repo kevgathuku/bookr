@@ -1,12 +1,12 @@
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
+import momentTimezonePlugin from "@fullcalendar/moment-timezone";
 import FullCalendar from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useAuth } from "../auth";
 import { Button, EmptyState, ErrorText } from "../components";
-import { SkeletonList } from "../route-ux";
 import {
 	BOOK_ERROR_MESSAGE,
 	type BookError,
@@ -16,6 +16,7 @@ import {
 	useCalendarEvents,
 	useClasses,
 } from "../hooks";
+import { SkeletonList } from "../route-ux";
 import { formatInVenueTimeZone, useVenue, venueTimeZone } from "../venue";
 
 function currentWeekRange(): { from: string; to: string } {
@@ -78,10 +79,15 @@ export default function Calendar() {
 	if (events.isPending || classes.isPending) return <SkeletonList />;
 	if (events.isError) return <ErrorText message="Could not load calendar." />;
 	return (
-		<main>
-			<h1 data-testid="calendar">Calendar</h1>
-			<div>
-				<label>
+		<main className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
+			<h1 data-testid="calendar" className="text-3xl font-bold tracking-tight">
+				Calendar
+			</h1>
+			<p className="mt-1 text-sm text-slate-500">
+				Week grid in venue time — pick an event to book it.
+			</p>
+			<div className="mt-4 flex items-center gap-3 text-sm">
+				<label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2">
 					Teacher{" "}
 					<select
 						data-testid="calendar-teacher-filter"
@@ -91,6 +97,7 @@ export default function Calendar() {
 								change.target.value === "" ? null : Number(change.target.value),
 							)
 						}
+						className="bg-transparent font-medium outline-none"
 					>
 						<option value="">All</option>
 						{teachers.map(([id, name]) => (
@@ -99,8 +106,8 @@ export default function Calendar() {
 							</option>
 						))}
 					</select>
-				</label>{" "}
-				<label>
+				</label>
+				<label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2">
 					Room{" "}
 					<select
 						data-testid="calendar-room-filter"
@@ -110,6 +117,7 @@ export default function Calendar() {
 								change.target.value === "" ? null : Number(change.target.value),
 							)
 						}
+						className="bg-transparent font-medium outline-none"
 					>
 						<option value="">All</option>
 						{rooms.map(([id, name]) => (
@@ -124,9 +132,16 @@ export default function Calendar() {
 				<EmptyState message="No classes this week." />
 			) : (
 				<FullCalendar
-					plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+					key={timeZone}
+					plugins={[
+						dayGridPlugin,
+						timeGridPlugin,
+						interactionPlugin,
+						momentTimezonePlugin,
+					]}
 					initialView="timeGridWeek"
 					timeZone={timeZone}
+					eventColor="#4f46e5"
 					events={calendarEventsForWeek(events.data)}
 					datesSet={(info) =>
 						setRange({
@@ -146,10 +161,15 @@ export default function Calendar() {
 				/>
 			)}
 			{selected ? (
-				<div data-testid="calendar-selection">
-					<p>
+				<div
+					data-testid="calendar-selection"
+					className="mt-4 flex items-center gap-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+				>
+					<p className="min-w-0 flex-1 font-semibold">
 						{selected.title} —{" "}
-						{formatInVenueTimeZone(selected.starts_at, timeZone)}
+						<span className="font-normal text-slate-500">
+							{formatInVenueTimeZone(selected.starts_at, timeZone)}
+						</span>
 					</p>
 					<Button
 						testId={`calendar-book-button-${selected.id}`}
