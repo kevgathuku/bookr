@@ -135,6 +135,7 @@ dependencies = [
     { name = "prometheus-client" },
     { name = "psycopg", extra = ["binary"] },
     { name = "redis" },
+    { name = "tzdata" },
     { name = "whitenoise" },
 ]
 
@@ -169,6 +170,7 @@ requires-dist = [
     { name = "prometheus-client", specifier = ">=0.26.0" },
     { name = "psycopg", extras = ["binary"] },
     { name = "redis", specifier = ">=8.1.0" },
+    { name = "tzdata", specifier = ">=2026.5" },
     { name = "whitenoise", specifier = ">=6.12.0" },
 ]
 
