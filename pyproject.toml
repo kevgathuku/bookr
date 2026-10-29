@@ -20,6 +20,7 @@ dependencies = [
     "prometheus-client>=0.26.0",
     "psycopg[binary]",
     "redis>=8.1.0",
+    "tzdata>=2026.5",
     "whitenoise>=6.12.0",
 ]
 

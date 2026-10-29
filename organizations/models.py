@@ -12,7 +12,7 @@ def _iana_time_zone(value):
     falling back to UTC in venue-time display."""
     try:
         ZoneInfo(value)
-    except ZoneInfoNotFoundError, ValueError:
+    except ZoneInfoNotFoundError, ValueError, TypeError:
         raise ValidationError(f"Unknown time zone: {value}.")
 
 

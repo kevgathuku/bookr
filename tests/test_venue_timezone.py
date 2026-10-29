@@ -1,7 +1,7 @@
 import pytest
 from django.core.exceptions import ValidationError
 
-from organizations.models import Organization, Venue
+from organizations.models import Organization, Venue, _iana_time_zone
 
 pytestmark = pytest.mark.django_db
 
@@ -36,3 +36,8 @@ class TestVenueTimeZone:
 
         with pytest.raises(ValidationError):
             venue.full_clean()
+
+    @pytest.mark.parametrize("bad_value", [None, 123])
+    def test_non_string_zone_fails(self, bad_value):
+        with pytest.raises(ValidationError):
+            _iana_time_zone(bad_value)
