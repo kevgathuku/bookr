@@ -45,14 +45,9 @@ export function formatInVenueTimeZone(iso: string, timeZone: string): string {
 		dateStyle: "medium",
 		timeStyle: "short",
 	};
-	try {
-		return new Intl.DateTimeFormat("en-GB", { ...options, timeZone }).format(
-			new Date(iso),
-		);
-	} catch {
-		// Unknown zone (see bookr-w1u): show UTC, never blank the page.
-		return new Intl.DateTimeFormat("en-GB", { ...options, timeZone: "UTC" }).format(
-			new Date(iso),
-		);
-	}
+	// Zones are validated at the backend (Venue.time_zone); an unknown zone
+	// here means corrupt data and should surface, not render as UTC.
+	return new Intl.DateTimeFormat("en-GB", { ...options, timeZone }).format(
+		new Date(iso),
+	);
 }

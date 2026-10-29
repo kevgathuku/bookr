@@ -51,9 +51,10 @@ describe("venue time display", () => {
 		expect(text).toContain("09:00");
 	});
 
-	it("falls back to UTC on an unknown zone instead of crashing", () => {
-		const text = formatInVenueTimeZone("2026-10-28T06:00:00Z", "Narnia/Nowhere");
-		expect(text).toContain("06:00");
+	it("throws on an unknown zone: validity is owned by the backend", () => {
+		expect(() =>
+			formatInVenueTimeZone("2026-10-28T06:00:00Z", "Narnia/Nowhere"),
+		).toThrow();
 	});
 });
 
