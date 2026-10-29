@@ -5,7 +5,7 @@ import { Button } from "./components";
 export function SkeletonList({ rows = 3 }: { rows?: number }) {
 	return (
 		<main className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
-			<div aria-busy="true" aria-label="Loading">
+			<div aria-busy="true" role="status" aria-label="Loading">
 				{Array.from({ length: rows }, (_, index) => (
 					<div
 						// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows
@@ -21,6 +21,10 @@ export function SkeletonList({ rows = 3 }: { rows?: number }) {
 export function RouteFocus({ children }: { children: ReactNode }) {
 	const location = useLocation();
 	const first = useRef(true);
+	// Pathname intentionally re-runs the focus move on every route change; the
+	// effect body only needs to run, not to read the value (covered by the
+	// route-change focus test).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: see above.
 	useEffect(() => {
 		if (first.current) {
 			first.current = false;

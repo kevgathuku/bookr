@@ -120,6 +120,9 @@ export function MemberLookup() {
 			>
 				<input
 					data-testid="member-search"
+					// Desk operators search on every visit; initial focus in the
+					// search box is the workflow.
+					// biome-ignore lint/a11y/noAutofocus: see above.
 					autoFocus
 					placeholder="Username"
 					value={query}

@@ -159,7 +159,8 @@ export async function searchMembers(query: string): Promise<MemberHit[]> {
 export function useMemberPasses(memberId: number | null) {
 	return useQuery({
 		queryKey: ["desk", "passes", memberId],
-		queryFn: () => apiJson<MemberPassItem[]>(`/api/v1/passes/?member=${memberId}`),
+		queryFn: () =>
+			apiJson<MemberPassItem[]>(`/api/v1/passes/?member=${memberId}`),
 		enabled: memberId !== null,
 	});
 }
@@ -283,7 +284,10 @@ export async function createProduct(body: {
 	credits_total: number;
 	validity_days: number;
 }): Promise<void> {
-	await apiJson("/api/v1/pass-products/", { method: "POST", body: JSON.stringify(body) });
+	await apiJson("/api/v1/pass-products/", {
+		method: "POST",
+		body: JSON.stringify(body),
+	});
 }
 
 export async function patchProduct(id: number, body: object): Promise<void> {
@@ -343,10 +347,15 @@ export async function createStaffAggregator(body: {
 	});
 }
 
-export async function rotateStaffAggregator(slug: string): Promise<{ api_token: string }> {
-	return apiJson<{ api_token: string }>(`/api/v1/staff/aggregators/${slug}/rotate/`, {
-		method: "POST",
-	});
+export async function rotateStaffAggregator(
+	slug: string,
+): Promise<{ api_token: string }> {
+	return apiJson<{ api_token: string }>(
+		`/api/v1/staff/aggregators/${slug}/rotate/`,
+		{
+			method: "POST",
+		},
+	);
 }
 
 export interface AggEventItem {
@@ -373,7 +382,10 @@ export async function createClass(body: {
 	starts_at: string;
 	ends_at: string;
 }): Promise<void> {
-	await apiJson("/api/v1/classes/", { method: "POST", body: JSON.stringify(body) });
+	await apiJson("/api/v1/classes/", {
+		method: "POST",
+		body: JSON.stringify(body),
+	});
 }
 
 export async function deleteClass(id: number): Promise<void> {

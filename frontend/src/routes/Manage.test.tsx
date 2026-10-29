@@ -49,14 +49,12 @@ function manageFetch() {
 			);
 		if (path.includes("/pass-products/"))
 			return Promise.resolve(jsonResponse([]));
-		if (path.includes("/policies"))
-			return Promise.resolve(jsonResponse([]));
+		if (path.includes("/policies")) return Promise.resolve(jsonResponse([]));
 		if (path.includes("/substitutions/"))
 			return Promise.resolve(jsonResponse([]));
 		if (path.includes("/rooms/") || path.includes("/class-types/"))
 			return Promise.resolve(jsonResponse([]));
-		if (path.includes("/classes/"))
-			return Promise.resolve(jsonResponse([]));
+		if (path.includes("/classes/")) return Promise.resolve(jsonResponse([]));
 		if (path.includes("/members/search/"))
 			return Promise.resolve(jsonResponse([]));
 		if (path.includes("/access/events/"))

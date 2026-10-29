@@ -46,9 +46,7 @@ function deskFetch(
 		if (path.includes("/passes/?member="))
 			return Promise.resolve(jsonResponse(passes));
 		if (path.includes("/members/search/"))
-			return Promise.resolve(
-				jsonResponse([{ id: 9, username: "sam-member" }]),
-			);
+			return Promise.resolve(jsonResponse([{ id: 9, username: "sam-member" }]));
 		if (path.includes("/access/events/"))
 			return Promise.resolve(jsonResponse(doors));
 		if (path.includes("/checkin/"))
@@ -88,8 +86,8 @@ describe("Desk", () => {
 
 		await waitFor(() => {
 			expect(
-				fetchMock.mock.calls.some(
-					([url]) => String(url).includes("/bookings/1/checkin/"),
+				fetchMock.mock.calls.some(([url]) =>
+					String(url).includes("/bookings/1/checkin/"),
 				),
 			).toBe(true);
 		});
@@ -117,10 +115,7 @@ describe("Desk", () => {
 
 		await user.click(await screen.findByTestId("member-search-button"));
 		await user.click(await screen.findByTestId("member-hit-9"));
-		await user.selectOptions(
-			await screen.findByTestId("adjust-pass"),
-			"4",
-		);
+		await user.selectOptions(await screen.findByTestId("adjust-pass"), "4");
 		await user.type(screen.getByTestId("adjust-reason"), "goodwill");
 		await user.click(screen.getByTestId("adjust-button"));
 

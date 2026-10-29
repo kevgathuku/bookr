@@ -88,7 +88,9 @@ describe("empty states", () => {
 
 		await screen.findByTestId("ledger-row");
 		expect(screen.getByText("adjustment")).toBeInTheDocument();
-		expect(screen.getByText("— goodwill", { exact: false })).toBeInTheDocument();
+		expect(
+			screen.getByText("— goodwill", { exact: false }),
+		).toBeInTheDocument();
 		expect(screen.getByText("-1")).toBeInTheDocument();
 	});
 });

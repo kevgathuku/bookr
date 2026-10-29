@@ -1,14 +1,9 @@
 import { render, screen } from "@testing-library/react";
-import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-	ErrorBoundary,
-	NotFound,
-	RouteFocus,
-	SkeletonList,
-} from "./route-ux";
+import { ErrorBoundary, NotFound, RouteFocus, SkeletonList } from "./route-ux";
 
 function Thrower(): ReactElement {
 	throw new Error("boom");
@@ -22,7 +17,10 @@ describe("route-ux", () => {
 	it("skeleton announces busy loading", () => {
 		render(<SkeletonList rows={2} />);
 
-		expect(screen.getByLabelText("Loading")).toHaveAttribute("aria-busy", "true");
+		expect(screen.getByLabelText("Loading")).toHaveAttribute(
+			"aria-busy",
+			"true",
+		);
 	});
 
 	it("unknown route renders the 404 page with a way home", async () => {

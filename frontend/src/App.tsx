@@ -1,16 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router";
 import { AuthProvider, isDeskStaff, useAuth } from "./auth";
+import { NotFound } from "./route-ux";
 import Bookings from "./routes/Bookings";
 import Calendar from "./routes/Calendar";
 import Desk from "./routes/Desk";
 import Ledger from "./routes/Ledger";
-import Manage from "./routes/Manage";
-import { NotFound } from "./route-ux";
-import Teach from "./routes/Teach";
 import Login from "./routes/Login";
+import Manage from "./routes/Manage";
 import Passes from "./routes/Passes";
 import Schedule from "./routes/Schedule";
+import Teach from "./routes/Teach";
 import Shell from "./Shell";
 import { useVenue, VenueProvider } from "./venue";
 

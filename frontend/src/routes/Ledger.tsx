@@ -40,9 +40,7 @@ export default function Ledger() {
 						<div className="min-w-0 flex-1">
 							<p className="font-semibold">{entry.reason}</p>
 							{entry.note ? (
-								<p className="mt-0.5 text-sm text-slate-500">
-									— {entry.note}
-								</p>
+								<p className="mt-0.5 text-sm text-slate-500">— {entry.note}</p>
 							) : null}
 						</div>
 						<span className="shrink-0 text-sm text-slate-500">
