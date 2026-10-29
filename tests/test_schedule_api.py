@@ -8,6 +8,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from booking.models import Booking
 from organizations.models import Membership, Organization, Venue
 from scheduling.models import ClassType, Room, ScheduledClass
 
@@ -108,6 +109,22 @@ class TestScheduleList:
         response = Client().get("/api/v1/classes/", HTTP_X_VENUE_SLUG="main")
 
         assert response.status_code in (401, 403, 404)
+
+    def test_list_includes_spots_left(self, world):
+        klass = ScheduledClass.objects.get(venue=world["a1"])
+        Booking.objects.create(
+            venue=world["a1"],
+            member=world["spanning"],
+            scheduled_class=klass,
+            idempotency_key="spot-1",
+        )
+        client = _client(world["spanning"], "main")
+
+        response = client.get("/api/v1/classes/")
+
+        assert response.status_code == 200
+        assert response.data[0]["capacity"] == 20
+        assert response.data[0]["spots_left"] == 19
 
 
 class TestIsolation:

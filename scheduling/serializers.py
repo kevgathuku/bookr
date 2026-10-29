@@ -28,6 +28,12 @@ class ScheduledClassSerializer(serializers.ModelSerializer):
     class_type_name = serializers.CharField(source="class_type.name", read_only=True)
     room_name = serializers.CharField(source="room.name", read_only=True)
     teacher_name = serializers.CharField(source="teacher.username", read_only=True)
+    spots_left = serializers.SerializerMethodField()
+
+    def get_spots_left(self, obj) -> int | None:
+        if obj.capacity is None:
+            return None
+        return max(obj.capacity - (getattr(obj, "booked", 0) or 0), 0)
 
     class Meta:
         model = ScheduledClass
@@ -46,6 +52,7 @@ class ScheduledClassSerializer(serializers.ModelSerializer):
             "status",
             "checkin_opens_minutes",
             "capacity",
+            "spots_left",
         ]
 
 

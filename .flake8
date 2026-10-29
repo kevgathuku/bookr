@@ -9,10 +9,16 @@
 # Per-file: scheduling/availability.py ignores WPS210/WPS221/WPS231 — the
 # slot pipeline stages (rules, candidates, filter, dedupe) are the natural
 # units; further extraction breaches the 7-member cap or contorts the loop.
+# Per-file: scheduling/serializers.py ignores WPS615 — DRF calls the
+# SerializerMethodField hook get_<field_name> by framework convention.
 # Per-file: config/__init__.py ignores WPS300/WPS410/WPS412 — content is the
 # Celery-prescribed bootstrap, which cannot live anywhere else.
 # Per-file: seed_e2e.py ignores WPS201 — the E2E dataset touches every model
 # once by design; splitting it would scatter one dataset across modules.
+# Per-file: seed_demo.py ignores WPS201/WPS202/WPS210/WPS211/WPS221 — the
+# demo world needs one builder per concern (cast, schedule, passes,
+# bookings) plus the domain imports each consumes; fewer members would
+# merge unrelated builders, more helpers would exist only to shorten.
 # Per-file: test_browser.py ignores WPS202/WPS210/WPS213 — linear E2E scripts;
 # splitting further would be helpers that exist only to shorten.
 # Per-file: booking/views.py, aggregators/views.py, scheduling/views.py
@@ -68,6 +74,12 @@ per-file-ignores =
         WPS407,
     organizations/management/commands/seed_e2e.py:
         WPS201,
+    organizations/management/commands/seed_demo.py:
+        WPS201,
+        WPS202,
+        WPS210,
+        WPS211,
+        WPS221,
     config/__init__.py:
         WPS300,
         WPS410,
@@ -76,6 +88,8 @@ per-file-ignores =
         WPS210,
         WPS221,
         WPS231,
+    scheduling/serializers.py:
+        WPS615,
     tests/*:
         E501,
         WPS111,

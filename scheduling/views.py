@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import ClassVar
 
 from django.db import IntegrityError
+from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import serializers, viewsets
@@ -110,6 +111,12 @@ class ScheduledClassViewSet(viewsets.ModelViewSet):
         venue_classes = (
             ScheduledClass.objects.for_venue(venue)
             .select_related("class_type", "room", "teacher")
+            .annotate(
+                booked=Count(
+                    "bookings",
+                    filter=Q(bookings__status=Booking.Status.CONFIRMED),
+                ),
+            )
             .order_by("starts_at")
         )
         start, end = self._window()
