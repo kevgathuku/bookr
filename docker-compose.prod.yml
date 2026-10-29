@@ -1,0 +1,94 @@
+# Production dress rehearsal: gunicorn web + worker + beat, real broker.
+# Dev keeps docker-compose.yml (db only, runserver in terminal).
+# Secrets never live here: SECRET_KEY, ALLOWED_HOSTNAMES, EMAIL_*,
+# POSTGRES_PASSWORD come from the environment (or a .env.prod file).
+# Migrations are a one-off, never part of boot:
+#   docker compose -f docker-compose.prod.yml run --rm web python manage.py migrate
+# Distinct project name: without it, `up` would replace the dev db container
+# (both files define a `db` service and default to the directory name).
+name: bookr-prod
+
+services:
+  db:
+    build: ./docker/postgres
+    image: bookr-db
+    environment:
+      POSTGRES_USER: bookr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bookr}
+      POSTGRES_DB: bookr
+    volumes:
+      - bookr-prod-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookr -d bookr"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - bookr-prod-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: .
+    image: bookr:latest
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      ALLOWED_HOSTNAMES: ${ALLOWED_HOSTNAMES:-localhost}
+      DATABASE_URL: postgres://bookr:${POSTGRES_PASSWORD:-bookr}@db:5432/bookr
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_EAGER: "0"
+      EMAIL_HOST: ${EMAIL_HOST:-localhost}
+      EMAIL_PORT: ${EMAIL_PORT:-25}
+      EMAIL_USERNAME: ${EMAIL_USERNAME:-}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-False}
+    ports:
+      - "8000:8000"
+
+  worker:
+    image: bookr:latest
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      ALLOWED_HOSTNAMES: ${ALLOWED_HOSTNAMES:-localhost}
+      DATABASE_URL: postgres://bookr:${POSTGRES_PASSWORD:-bookr}@db:5432/bookr
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_EAGER: "0"
+    command: ["celery", "-A", "config", "worker", "--loglevel=info"]
+
+  beat:
+    image: bookr:latest
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      ALLOWED_HOSTNAMES: ${ALLOWED_HOSTNAMES:-localhost}
+      DATABASE_URL: postgres://bookr:${POSTGRES_PASSWORD:-bookr}@db:5432/bookr
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_EAGER: "0"
+    command: ["celery", "-A", "config", "beat", "--loglevel=info"]
+
+volumes:
+  bookr-prod-pgdata:
+  bookr-prod-redis:

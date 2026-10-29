@@ -14,6 +14,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 INSTALLED_APPS = [
     "organizations.apps.OrganizationsConfig",
+    "scheduling.apps.SchedulingConfig",
+    "booking.apps.BookingConfig",
+    "passes.apps.PassesConfig",
+    "access.apps.AccessConfig",
+    "aggregators.apps.AggregatorsConfig",
+    "django.contrib.postgres",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -21,19 +27,66 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_extensions",
+    "rest_framework",
+    "drf_spectacular",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "config.middleware.VenueMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
+
+CACHES = {
+    # Locmem here and in tests; prod points this at Redis (docker ticket
+    # 4cs owns the service + django-redis wiring). TTLs stay the same.
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    }
+}
+
+# Celery: eager inline in dev/test (no broker needed); prod sets
+# CELERY_EAGER=0 and runs worker/beat (services owned by docker ticket 4cs).
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_EAGER", "1") == "1"
+CELERY_BEAT_SCHEDULE = {
+    "sweep-hold-expiry": {
+        "task": "booking.sweep_expired_holds",
+        "schedule": 300.0,
+    },
+    "expire-passes": {
+        "task": "passes.expire_passes",
+        "schedule": 86400.0,
+    },
+}
+
+# Mail: MAILERS rule here (console in dev, SMTP in prod via EMAIL_HOST*
+# env). Templates live in booking/notify.py (cancelled/promoted/late-cancel).
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "bookr@example.com")
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Bookr API",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+}
 
 TEMPLATES = [
     {
@@ -105,3 +158,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+# WhiteNoise serves the Vite build (assets) at root; the catch-all view in
+# config/urls.py serves index.html for app routes. No dist in dev: 404s.
+WHITENOISE_ROOT = BASE_DIR / "frontend" / "dist"

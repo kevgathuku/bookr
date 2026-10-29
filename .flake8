@@ -1,0 +1,109 @@
+# wemake-python-styleguide gate for new Python code (see implement skill).
+# Six rules are off repo-wide, all Django-declarative collisions:
+#   WPS110  managers are named `objects` by framework convention
+#   WPS226  model/field kwargs repeat names declaratively
+#   WPS431  nested TextChoices (Status/Role/Scope) are Django+repo convention
+#   WPS432  max_length= / choices= literals in field declarations
+#   WPS347  Q/F expression imports are the required pattern
+#   WPS458  `django.db.models` + `django.db` imports collide by necessity
+# Per-file: scheduling/availability.py ignores WPS210/WPS221/WPS231 — the
+# slot pipeline stages (rules, candidates, filter, dedupe) are the natural
+# units; further extraction breaches the 7-member cap or contorts the loop.
+# Per-file: scheduling/serializers.py ignores WPS615 — DRF calls the
+# SerializerMethodField hook get_<field_name> by framework convention.
+# Per-file: config/__init__.py ignores WPS300/WPS410/WPS412 — content is the
+# Celery-prescribed bootstrap, which cannot live anywhere else.
+# Per-file: seed_e2e.py ignores WPS201 — the E2E dataset touches every model
+# once by design; splitting it would scatter one dataset across modules.
+# Per-file: seed_demo.py ignores WPS201/WPS202/WPS210/WPS211/WPS221 — the
+# demo world needs one builder per concern (cast, schedule, passes,
+# bookings) plus the domain imports each consumes; fewer members would
+# merge unrelated builders, more helpers would exist only to shorten.
+# Per-file: test_browser.py ignores WPS202/WPS210/WPS213 — linear E2E scripts;
+# splitting further would be helpers that exist only to shorten.
+# Per-file: booking/views.py, aggregators/views.py, scheduling/views.py
+# ignore WPS201; organizations/views.py ignores WPS202 — endpoint files grow
+# one view per staff ticket by design; splitting by ticket would scatter the
+# API surface across modules.
+# Per-file: booking/services.py ignores WPS211 — book_seat/_create channel
+# kwargs (spend_credits, source) stay explicit; bundling them into an
+# options object would obscure the seat-lock hot path.
+# Per-file: organizations/models.py ignores legacy E501/WPS237/WPS601 (long help
+# strings + attribute shadowing predate the gates; this ticket's diff is the
+# time_zone validator only).
+# Per-file: settings/base.py ignores WPS407 (module constants by Django
+# convention) and E501 (dotted validator paths stay whole for grep).
+[flake8]
+max-line-length = 88
+extend-ignore =
+    WPS110,
+    WPS226,
+    WPS431,
+    WPS432,
+    WPS347,
+    WPS458
+exclude =
+    .venv,
+    .git,
+    __pycache__,
+    graft,
+    assets,
+    */migrations/*
+
+per-file-ignores =
+    tests/e2e/test_browser.py:
+        WPS202,
+        WPS210,
+        WPS213,
+    booking/views.py:
+        WPS201,
+    organizations/views.py:
+        WPS202,
+    aggregators/views.py:
+        WPS201,
+    scheduling/views.py:
+        WPS201,
+    booking/services.py:
+        WPS211,
+    organizations/models.py:
+        E501,
+        WPS237,
+        WPS601,
+    config/settings/base.py:
+        E501,
+        WPS407,
+    organizations/management/commands/seed_e2e.py:
+        WPS201,
+    organizations/management/commands/seed_demo.py:
+        WPS201,
+        WPS202,
+        WPS210,
+        WPS211,
+        WPS221,
+    config/__init__.py:
+        WPS300,
+        WPS410,
+        WPS412,
+    scheduling/availability.py:
+        WPS210,
+        WPS221,
+        WPS231,
+    scheduling/serializers.py:
+        WPS615,
+    tests/*:
+        E501,
+        WPS111,
+        WPS114,
+        WPS117,
+        WPS118,
+        WPS122,
+        WPS201,
+        WPS202,
+        WPS204,
+        WPS210,
+        WPS211,
+        WPS214,
+        WPS221,
+        WPS229,
+        WPS338,
+        WPS430

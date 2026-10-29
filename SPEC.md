@@ -11,7 +11,7 @@ Non-goals (v1): payments/PSP integration, native mobile apps, dynamic pricing, m
 
 - Tenancy: single DB, shared schema. `Organization` is the tenant root (the business); `Venue` is one location under it. Every tenant-scoped row carries its `venue FK`; venues carry their `organization FK`. Enforce via middleware (resolve `X-Venue-Slug`, derive the org; staff's venue from membership) + queryset mixin `VenueScopedManager`. No cross-organization FKs. Unique constraints scoped to `(venue, ...)` (slugs to `(organization, ...)`).
 - Membership scope is per organization: `spanning` (one membership covers all its venues, `venue` NULL) or `per_venue` (membership pins one venue, `venue` required — enforced at creation). A teacher working two venues in a per-venue org simply holds two memberships.
-- Roles (per membership): `owner, manager, teacher, frontdesk, member`. Use Django groups + per-object check (`is_teacher_of(class)`). Staff ≠ superuser. Aggregator access via scoped API tokens, never user passwords. Cross-organization or cross-venue access returns **404**, not 403 (no id leaks).
+- Roles (per membership): `owner, manager, teacher, frontdesk, member`. Roles live on `Membership` — Django's global Groups cannot express per-tenant roles, so Groups are not used; domain checks and the admin both read the membership row (admin via custom `has_*_permission` methods, ADR-0005). Staff ≠ superuser. Aggregator access via scoped API tokens, never user passwords. Cross-organization or cross-venue access returns **404**, not 403 (no id leaks).
 
 **Data model** (all fields in §3.7):
 
@@ -390,8 +390,8 @@ Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` =
 | Organization | slug | string | unique |
 | | name | string(200) | |
 | | membership_scope | enum(*spanning, per_venue) | per org, set at onboarding |
-| Venue | organization | fk→Organization cascade | slug unique per org ||
-| Venue | slug | string | unique |
+| Venue | organization | fk→Organization cascade | slug unique per org |
+| | slug | string | unique per organization, not globally |
 | | name | string(200) | |
 | | time_zone | string(64) | default `UTC`, display only |
 | VenuePolicy | venue | fk→Venue cascade | versions, not edits: `related_name="policies"` |
@@ -535,12 +535,12 @@ Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` =
 ## 4. API & Project Layout
 
 - Django 6.1 + DRF for `/api/*` (Python 3.14+, per `pyproject.toml`), `djangorestframework-simplejwt` (app) + token auth (aggregators/controllers). Versioned: `/api/v1/`. OpenAPI via `drf-spectacular`, breaking change = new version.
-- Proposed layout (`django-admin startproject config .`; virtual uv project, no `src/` build — Django apps live at the repo root):
+- Proposed layout (`django-admin startproject config .`; virtual uv project, no `src/` build — Django apps live at the repo root, SPA in `frontend/`):
   ```
-  manage.py  config/ (settings/, urls.py)  organizations/ scheduling/ bookings/ passes/ aggregators/ access/
+  manage.py  config/ (settings/, urls.py)  organizations/ scheduling/ bookings/ passes/ aggregators/ access/  frontend/
   ```
   One app per §3 section. Cross-app imports only via services (`bookings/services.py::book_seat()`), never model-to-model shortcuts.
-- Settings: `django-environ`, split `base/dev/prod`; Postgres via `psycopg` v3 + `pgcrypto/btree_gist`; Redis (cache + Celery broker); generated defaults kept (`USE_TZ = True`, `TIME_ZONE = 'UTC'`), `time_zone` per venue display-only, store all datetimes UTC.
+- Settings: `django-environ`, split `base/dev/prod`; Postgres via `psycopg` v3 + `btree_gist` (the only extension); Redis (cache + Celery broker); generated defaults kept (`USE_TZ = True`, `TIME_ZONE = 'UTC'`), `time_zone` per venue display-only, store all datetimes UTC.
 - Background: Celery + Beat — waitlist promotion, expiry sweeps, aggregator webhooks, reminders/notifications (email/SMS via pluggable backend, templates per venue).
 - Money-adjacent discipline: ledger append-only, `select_for_update` on booking paths, `idempotency_key` unique on `Booking`, admin actions logged (`LogEntry` + `reason`).
 
@@ -557,9 +557,38 @@ Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` =
 - Unit (pytest-django + factory-boy, fast, no I/O): service functions — FIFO pass deduction, late-cancel forfeit vs refund boundary (±1 min), waitlist ordering, availability math (DST edge), allotment enforcement. Target ≥80% on `services.py`/ledger.
 - Concurrency test (required, not optional): `ThreadPoolExecutor` N threads booking last seat → exactly 1 confirmed, N-1 waitlisted/409. Same for double-credit-spend.
 - API tests (DRF APITestCase): happy path + 409 full + idempotent retry + cross-venue isolation + aggregator token scope.
-- E2E (Playwright, few but real): member books → waitlisted → staff cancels seat → member promoted + email received (mailpit); late cancel forfeits credit visible in ledger; door check grants/denies. Run in CI against the running app (web/worker processes plus docker-run db, redis, mailpit); tag `@e2e`, nightly + pre-release, not per-commit if slow.
-- CI: `ruff + black --check, mypy (services/models), pytest -x, playwright @smoke`. Seed demo venue via management command for local dev.
+- E2E (Playwright, few but real — full harness in §9): member books → waitlisted → staff cancels seat → member promoted + email received (mailpit); late cancel forfeits credit visible in ledger; door check grants/denies. Run in CI against the running app (web/worker processes plus docker-run db, redis, mailpit); tag `@e2e`, nightly + pre-release, not per-commit if slow.
+- CI: `ruff check`, `ruff format --check`, `pytest -x`, playwright `@smoke`. Seed demo venue via management command for local dev. E2E detail lives in §9.
 
 ## 6. Build Order
 
-1. orgs+auth (tenancy: organizations, venues, policies, memberships), 2. classes+booking tx + tests, 3. waitlist/late-cancel + Celery, 4. passes/ledger, 5. appointments/availability+calendar, 6. access control. Ship 1–4 as MVP; validate the single-venue product (1–6) before phase 2: 7. aggregators (advanced — earns its place only on a proven core).
+1. orgs+auth (tenancy: organizations, venues, policies, memberships), 2. classes+booking tx + tests, 3. waitlist/late-cancel + Celery, 4. passes/ledger, 5. appointments/availability+calendar, 6. access control. Ship 1–4 as MVP; validate the single-venue product (1–6) before phase 2: 7. aggregators (advanced — earns its place only on a proven core). Frontend (§7) builds alongside from step 2 (schedule list first); admin scoping (§8) lands with step 1's models.
+
+## 7. Frontend (React + TypeScript)
+
+Full build-to contract in `SPEC-frontend.md` — summary here:
+
+- One SPA: React 18, TypeScript strict, Vite. Server state via TanStack Query; routing via React Router. Never hand-write API DTOs: generate the client with openapi-typescript from the drf-spectacular schema in CI — schema drift breaks the build, not production.
+- Same-origin serving in v1: `vite build` output served as static files by Django (WhiteNoise) — no CORS, no cookie juggling. API at `/api/*`, app at `/*`.
+- Auth: simplejwt pair; short-lived access token in memory, rotating refresh in localStorage; every request carries `Authorization: Bearer` + `X-Venue-Slug`; 401 → refresh-once → login redirect. Role comes from `GET /api/v1/me` (membership role); client-side gating only — the server enforces everything. Spanning staff get a venue switcher that re-fetches on switch.
+- Route map (role in brackets): `/` schedule + book [all authenticated], `/calendar` FullCalendar React on `GET /api/v1/calendar` [member, staff], `/me/passes` + `/me/ledger` [member], `/teach` my schedule [teacher], `/desk` check-in, no-show, adjustments, door log [frontdesk+], `/manage/*` classes, subs, products, policy versions, aggregators [manager, owner].
+- E2E (§9) drives this SPA, not the API directly.
+
+## 8. Django admin: sufficient, with three conditions
+
+Verdict per user class:
+
+| Role | Default admin? | Notes |
+|---|---|---|
+| owner, manager | YES, if scoped | Covers all back-office CRUD — provided (1) every ModelAdmin filters querysets to the staffer's venue(s) (`get_queryset`; default admin does NOT do this — without it venue A's staff sees venue B), (2) audit models read-only (`CreditLedger`, `AggregatorEventLog`, `AccessEvent`: no add/change/delete), (3) secrets never editable (`api_token_hash` via rotation tooling only). Staff ≠ superuser; per-model rights via custom permission methods reading the membership row, not Groups. |
+| frontdesk | PARTIAL | Admin works as fallback, but a check-in queue needs the React `/desk` UI — admin takes ~6 clicks per check-in, unusable with a line. |
+| teacher, member | NO | Never grant staff flags; React only. |
+| aggregators, door controllers | NO | Token-scoped APIs only, never user accounts. |
+
+So: build the React surfaces AND scope the admin; neither alone covers all classes.
+
+## 9. End-to-end tests (the proving layer)
+
+- Harness: pytest-playwright (Python — one runner, shared `@smoke`/`@e2e` markers and fixtures with the backend suite) against `web` (Django runserver until the lesson-10 image exists) + `frontend` (Vite preview of the production build) + `worker/beat` + db + redis + mailpit; browsers via `playwright install chromium`. Full boot sequence (compose `--wait`, migrate, `--e2e` seed, services, preview, teardown `down -v`) lives in `SPEC-frontend.md` §5 — backend must be up before the first spec runs. Deterministic data: `seed_demo` once per run plus a per-run org whose `VenuePolicy` uses second-scale `waitlist_hold_minutes` — promotion tests must never sleep an hour. Late-cancel ±1min boundaries stay at unit level (freezegun); E2E uses real windows against the short test policy.
+- Cases (each maps to user stories): smoke [login, book, cancel → refund visible]; promotion [full → waitlist → freed seat → promoted + mailpit receipt]; late-cancel [cancel inside window → forfeit row in ledger UI]; door [grant with booking, deny without, both rows in AccessEvent]; aggregator [same `external_id` twice → one booking; over-allotment → 409]; admin scoping [venue-A staffer cannot see venue-B rows in admin].
+- Discipline: `@smoke` per-commit, full `@e2e` nightly + pre-release; trace + video on failure; mailpit assertions via its API, never sleeps past the shortened windows; assert what users see (page text, ledger rows, emails), never implementation details. Per-step E2E gates live in `SPEC-frontend.md` §6 — no frontend step is complete until its gate (new scope + all previous scopes) is green.

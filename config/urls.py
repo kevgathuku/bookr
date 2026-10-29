@@ -15,12 +15,28 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-from django.contrib import admin
-from django.urls import path
+from django.urls import include, path, re_path
+from drf_spectacular.views import SpectacularAPIView
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
 
-from .views import healthz
+from config.views import healthz, metrics, spa
+from organizations.admin_mixins import bookr_site
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path("admin/", bookr_site.urls),
     path("healthz", healthz),
+    path("metrics/", metrics),
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/v1/auth/token/", TokenObtainPairView.as_view(), name="token_obtain"),
+    path("api/v1/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/v1/", include("scheduling.urls")),
+    path("api/v1/", include("passes.urls")),
+    path("api/v1/", include("organizations.urls")),
+    path("api/v1/", include("booking.urls")),
+    path("api/v1/", include("aggregators.urls")),
+    path("", include("access.urls")),
+    re_path(r"^(?!api/|admin/|healthz|metrics).*$", spa),
 ]

@@ -1,5 +1,5 @@
 from django.db import OperationalError, connection
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 
 
 def healthz(request):
@@ -11,3 +11,22 @@ def healthz(request):
     except OperationalError:
         return JsonResponse({"status": "error"}, status=503)
     return JsonResponse({"status": "ok"})
+
+
+def metrics(request):
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+    return HttpResponse(generate_latest(), content_type=CONTENT_TYPE_LATEST)
+
+
+def spa(request):
+    """Same-origin SPA fallback: every non-API route serves the Vite build."""
+    from pathlib import Path
+
+    from django.conf import settings
+    from django.http import Http404
+
+    index = Path(settings.WHITENOISE_ROOT) / "index.html"
+    if not index.is_file():
+        raise Http404("Frontend not built (npm run build in frontend/).")
+    return HttpResponse(index.read_text(), content_type="text/html")
