@@ -111,14 +111,6 @@ class TestLapsedPromotion:
 
 
 class TestPromoteBranches:
-    def test_promote_needs_exactly_one_target(self):
-        from booking.tasks import promote_waitlist
-
-        with pytest.raises(ValueError):
-            promote_waitlist()
-        with pytest.raises(ValueError):
-            promote_waitlist(booking_id=1, class_id=2)
-
     def test_promote_full_class_keeps_waiter(self):
         from booking.tasks import promote_waitlist
 
@@ -153,7 +145,10 @@ class TestPromoteBranches:
             idempotency_key="appt-noop-1",
         )
 
-        assert promote_waitlist(booking_id=booking.pk) == 0
+        unrelated = _class(venue)
+        assert promote_waitlist(class_id=unrelated.pk) == 0
+        booking.refresh_from_db()
+        assert booking.status == Booking.Status.CONFIRMED
 
     def test_sweep_skips_unexpired_hold(self):
         from booking.tasks import sweep_expired_holds

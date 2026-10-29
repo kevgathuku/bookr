@@ -5,9 +5,9 @@ CreditInsufficient → 402)."""
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 
+from booking.endings import spend_for_confirmation
 from booking.errors import DuplicateBooking, SeatFull, TeacherUnavailable
 from booking.models import ACTIVE_STATUSES, Booking
-from passes.services import spend_credit
 from scheduling.models import ScheduledClass
 
 
@@ -72,8 +72,7 @@ def _create(
     # spend nothing and leave credit_tx empty. Waitlisted bookings spend on
     # promotion, not before — no seat, no charge.
     if status == Booking.Status.CONFIRMED and spend_credits:
-        booking.credit_tx = spend_credit(member, booking)
-        booking.save(update_fields=["credit_tx"])
+        spend_for_confirmation(booking)
     return booking
 
 

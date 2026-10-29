@@ -55,6 +55,8 @@ def book_partner_seat(partner, klass, external_id):
 
 def cancel_partner_booking(partner, booking):
     """Cancel with the contract cutoff; never touches member passes."""
+    from booking.endings import close_booking
+
     target = booking.scheduled_class
     if target is None:
         raise ValidationError("Partner bookings target classes.")
@@ -64,15 +66,5 @@ def cancel_partner_booking(partner, booking):
     ):
         raise ValidationError("Booking is already closed.")
     cutoff = target.starts_at - timedelta(minutes=partner.cancel_cutoff_minutes)
-    freed = booking.status == Booking.Status.CONFIRMED
-    booking.status = (
-        Booking.Status.CANCELLED
-        if timezone.now() <= cutoff
-        else Booking.Status.CANCELLED_LATE
-    )
-    booking.save(update_fields=["status"])
-    if freed and booking.scheduled_class_id is not None:
-        from booking.tasks import promote_waitlist
-
-        promote_waitlist.delay(booking_id=booking.pk)
-    return booking
+    outcome = "partner_cancel" if timezone.now() <= cutoff else "partner_late_cancel"
+    return close_booking(booking, outcome)
