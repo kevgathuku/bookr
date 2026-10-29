@@ -151,7 +151,13 @@ def _partner_client(base_url, slug="e2e-partner", allotment=1):
         seat_allotment=allotment,
         service_user=service_user,
     )
-    tiny = ScheduledClass.objects.filter(room__capacity=1).order_by("id").first()
+    tiny = (
+        ScheduledClass.objects.filter(
+            room__capacity=1, venue__organization__slug=ORG_SLUG
+        )
+        .order_by("id")
+        .first()
+    )
     client = requests.Session()
     client.headers.update({"Content-Type": "application/json", "X-Partner-Token": raw})
     return partner, tiny, client, f"{api}/aggregators/{slug}/bookings/"

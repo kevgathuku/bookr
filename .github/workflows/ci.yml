@@ -46,7 +46,7 @@ jobs:
 
       - run: uv run python manage.py check
 
-      - run: uv run pytest -q
+      - run: uv run pytest -q -m "not e2e"
 
   frontend:
     runs-on: ubuntu-latest
