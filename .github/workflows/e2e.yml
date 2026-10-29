@@ -1,0 +1,67 @@
+name: E2E (nightly + pre-release)
+
+on:
+  schedule:
+    # Nightly full-browser suite (UTC). Per-commit CI runs unit + smoke only.
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+  release:
+    types: [published]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: postgres:18
+        env:
+          POSTGRES_USER: bookr
+          POSTGRES_PASSWORD: bookr
+          POSTGRES_DB: bookr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bookr -d bookr"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://bookr:bookr@localhost:5432/bookr
+      SECRET_KEY: ci-only-insecure-key
+      DEBUG: "True"
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - run: uv sync --frozen
+
+      # Browser binaries (the exact failure seen when this step is missing)
+      # plus the OS libraries headless Chromium needs.
+      - run: uv run playwright install chromium --with-deps
+
+      # The suite runs against live Django serving this build same-origin.
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm run build
+        working-directory: frontend
+
+      - run: uv run pytest tests/e2e -q -m "e2e"

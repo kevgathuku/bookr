@@ -64,7 +64,7 @@ def test_member_journey(frontend_url):
         page.get_by_test_id(f"waitlist-button-{tiny_id}").click()
         page.get_by_text("My bookings").click()
         page.get_by_test_id("booking-row").first.wait_for()
-        assert "waitlisted" in page.content()
+        assert "waitlisted" in page.content().lower()
 
         # Venue switch re-fetches (annex has one class, no badges).
         page.get_by_text("Schedule").click()
