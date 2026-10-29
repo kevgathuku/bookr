@@ -28,6 +28,7 @@ jobs:
       DATABASE_URL: postgres://bookr:bookr@localhost:5432/bookr
       SECRET_KEY: ci-only-insecure-key
       DEBUG: "True"
+      DJANGO_SETTINGS_MODULE: config.settings.dev
 
     steps:
       - uses: actions/checkout@v7
