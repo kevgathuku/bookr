@@ -57,6 +57,10 @@ no API key, $0).
 - Conventions: explicit names with units (`class_late_cancel_hours`, not
   `_h`); `condition=` (Django 6.1, never `check=`); `ClassVar` on Meta
   constraint lists (RUF012); no code before its lesson.
+- Tests build rows via `tests/factories.py` (bare factory for boilerplate,
+  explicit kwargs where the field is the assertion subject); direct
+  `objects.create` only with a why-comment (uniqueness tests, `get_or_create`
+  traps).
 
 ## Project memory (mempal, wing `bookr`) — mandatory
 
