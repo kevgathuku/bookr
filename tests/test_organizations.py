@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection
 
 from organizations.models import Membership, Organization, Venue, VenuePolicy
+from tests.factories import OrganizationFactory, VenueFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -27,30 +28,32 @@ pytestmark = pytest.mark.django_db
 
 class TestOrganizations:
     def test_create_organization(self):
-        org = Organization.objects.create(slug="downtown-dance", name="Downtown Dance")
+        org = OrganizationFactory(slug="downtown-dance", name="Downtown Dance")
 
         assert org.pk is not None
         assert org.membership_scope == Organization.Scope.SPANNING
         assert str(org) == org.name
 
     def test_slug_is_globally_unique(self):
-        Organization.objects.create(slug="downtown-dance", name="Downtown Dance")
+        OrganizationFactory(slug="downtown-dance", name="Downtown Dance")
 
+        # Second half stays objects.create: the factory's get_or_create on
+        # slug would return the row instead of raising IntegrityError.
         with pytest.raises(IntegrityError):
             Organization.objects.create(slug="downtown-dance", name="Downtown Dance 2")
 
 
 class TestVenue:
     def test_slug_unique_per_org(self):
-        org = Organization.objects.create(slug="o1", name="O1")
+        org = OrganizationFactory(slug="o1", name="O1")
         Venue.objects.create(organization=org, slug="downtown", name="Downtown")
 
         with pytest.raises(IntegrityError):
             Venue.objects.create(organization=org, slug="downtown", name="Downtown 2")
 
     def test_same_slug_different_org(self):
-        o1 = Organization.objects.create(slug="o1", name="O1")
-        o2 = Organization.objects.create(slug="o2", name="O2")
+        o1 = OrganizationFactory(slug="o1", name="O1")
+        o2 = OrganizationFactory(slug="o2", name="O2")
         Venue.objects.create(organization=o1, slug="downtown", name="Downtown")
 
         venue = Venue.objects.create(organization=o2, slug="downtown", name="Downtown")
@@ -58,28 +61,19 @@ class TestVenue:
         assert venue.pk is not None
 
     def test_str_includes_org(self):
-        org = Organization.objects.create(slug="o1", name="O1")
-        venue = Venue.objects.create(organization=org, slug="downtown", name="Downtown")
+        venue = VenueFactory()
 
-        assert org.name in str(venue)
+        assert venue.organization.name in str(venue)
 
     def test_current_policy_returns_open_row(self):
-        venue = Venue.objects.create(
-            organization=Organization.objects.create(slug="o1", name="O1"),
-            slug="downtown",
-            name="Downtown",
-        )
+        venue = VenueFactory()
         # Open row: valid_until=None is what one_active_policy_per_venue counts.
         policy = VenuePolicy.objects.create(venue=venue, valid_until=None)
 
         assert venue.current_policy == policy
 
     def test_current_policy_missing_raises(self):
-        venue = Venue.objects.create(
-            organization=Organization.objects.create(slug="o1", name="O1"),
-            slug="downtown",
-            name="Downtown",
-        )
+        venue = VenueFactory()
 
         with pytest.raises(VenuePolicy.DoesNotExist):
             _ = venue.current_policy
@@ -87,11 +81,7 @@ class TestVenue:
 
 class TestVenuePolicy:
     def _venue(self):
-        return Venue.objects.create(
-            organization=Organization.objects.create(slug="o1", name="O1"),
-            slug="downtown",
-            name="Downtown",
-        )
+        return VenueFactory()
 
     def test_two_open_rows_allowed_latest_wins(self):
         venue = self._venue()
@@ -162,9 +152,9 @@ class TestVenuePolicy:
 
 class TestMembership:
     def _setup(self, scope):
-        org = Organization.objects.create(slug="o1", name="O1", membership_scope=scope)
-        venue_a = Venue.objects.create(organization=org, slug="a", name="A")
-        venue_b = Venue.objects.create(organization=org, slug="b", name="B")
+        org = OrganizationFactory(membership_scope=scope)
+        venue_a = VenueFactory(organization=org)
+        venue_b = VenueFactory(organization=org)
         user = get_user_model().objects.create_user(username="sam")
         return org, venue_a, venue_b, user
 
@@ -202,9 +192,7 @@ class TestMembership:
             membership.full_clean()
 
     def test_per_venue_requires_venue(self):
-        org = Organization.objects.create(
-            slug="o1", name="O1", membership_scope=Organization.Scope.PER_VENUE
-        )
+        org = OrganizationFactory(per_venue=True)
         user = get_user_model().objects.create_user(username="sam")
         membership = Membership(
             organization=org, venue=None, user=user, role=Membership.Role.MEMBER
