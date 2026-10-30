@@ -1,39 +1,18 @@
 from datetime import timedelta
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from booking.cancellations import cancel_booking
 from booking.models import Booking
-from organizations.models import Membership, Organization, Venue, VenuePolicy
+from organizations.models import VenuePolicy
 from scheduling.models import ClassType, Room, ScheduledClass
+from tests.factories import MembershipFactory, UserFactory, VenueFactory
 
 pytestmark = pytest.mark.django_db
 
 #  Policy versions: overlapping windows allowed, members pinned to an
 #  explicit version keep it (grandfathered); everyone else follows current.
-
-
-def _user(username):
-    return get_user_model().objects.create_user(username=username)
-
-
-def _venue(slug="versions"):
-    org = Organization.objects.create(slug=f"org-{slug}", name=f"Org {slug}")
-    return Venue.objects.create(organization=org, slug=slug, name=slug.title())
-
-
-def _member(venue, username, policy=None):
-    user = _user(username)
-    Membership.objects.create(
-        organization=venue.organization,
-        venue=venue,
-        user=user,
-        role=Membership.Role.MEMBER,
-        policy=policy,
-    )
-    return user
 
 
 def _class(venue, days=2):
@@ -48,7 +27,7 @@ def _class(venue, days=2):
         venue=venue,
         class_type=class_type,
         room=room,
-        teacher=_user(f"teacher-{venue.slug}"),
+        teacher=UserFactory(),
         starts_at=start,
         ends_at=start + timedelta(hours=1),
     )
@@ -66,7 +45,7 @@ def _book(member, venue, klass, key):
 
 class TestVersions:
     def test_activate_assigns_versions_and_allows_overlap(self):
-        venue = _venue()
+        venue = VenueFactory()
         first = VenuePolicy.objects.activate(venue, class_late_cancel_hours=8)
         second = VenuePolicy.objects.activate(venue, class_late_cancel_hours=4)
 
@@ -78,7 +57,7 @@ class TestVersions:
         assert venue.current_policy.pk == overlapping.pk
 
     def test_current_policy_is_latest_open(self):
-        venue = _venue()
+        venue = VenueFactory()
         VenuePolicy.objects.activate(venue, class_late_cancel_hours=8)
         latest = VenuePolicy.objects.activate(venue, class_late_cancel_hours=4)
 
@@ -87,12 +66,14 @@ class TestVersions:
 
 class TestGrandfathering:
     def test_pinned_member_keeps_old_window(self):
+        venue = VenueFactory()
         # Same +2d class discriminates: pinned 8h window -> on time,
         # current 72h window -> late. A shared code path cannot pass both.
-        venue = _venue()
         old = VenuePolicy.objects.activate(venue, class_late_cancel_hours=8)
         VenuePolicy.objects.activate(venue, class_late_cancel_hours=72)
-        member = _member(venue, "grandfathered", policy=old)
+        member = MembershipFactory(
+            organization=venue.organization, venue=venue, policy=old
+        ).user
         booking = _book(member, venue, _class(venue), "gf-1")
 
         cancel_booking(member, booking)
@@ -101,10 +82,10 @@ class TestGrandfathering:
         assert booking.status == Booking.Status.CANCELLED
 
     def test_unpinned_member_follows_current(self):
-        venue = _venue()
+        venue = VenueFactory()
         VenuePolicy.objects.activate(venue, class_late_cancel_hours=72)
         VenuePolicy.objects.activate(venue, class_late_cancel_hours=8)
-        member = _member(venue, "current")
+        member = MembershipFactory(organization=venue.organization, venue=venue).user
         booking = _book(member, venue, _class(venue, days=0.1), "cur-1")
 
         cancel_booking(member, booking)
