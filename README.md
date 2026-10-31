@@ -135,4 +135,12 @@ uv run pytest          # direnv supplies DATABASE_URL from .env; without it
 uv run pytest tests/test_organizations.py -q   # single file
 ```
 
+Test DB: Django creates a `test_*` database per run and destroys it after —
+dev data is never touched. `pyproject.toml` sets `--reuse-db`, so `test_bookr`
+(or `test_bookr_test` under the default settings) persists between runs for
+speed and inspection (`docker compose exec db psql -U bookr -d test_bookr`).
+After a migration change, rebuild it once with `uv run pytest --create-db`.
+An exported `DATABASE_URL` wins over the test-settings default (`setdefault`
+never clobbers), so check your shell env if the wrong DB gets templated.
+
 Fresh start (destroys dev data): `docker compose down -v`, then repeat step 2. Data otherwise survives container recreations.
