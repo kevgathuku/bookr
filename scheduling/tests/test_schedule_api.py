@@ -75,6 +75,28 @@ class TestIsolation:
         assert _client(user, "second").get("/api/v1/sessions/").status_code == 200
 
 
+class TestGeneratePermissions:
+    def test_member_cannot_generate(self):
+        from organizations.models import OrgRole
+
+        venue = VenueFactory()
+        teacher = _user("gen-teacher")
+        offering = ClassOfferingFactory(venue=venue, teacher=teacher, title="Spin")
+        member = _user("gen-member")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+
+        response = _client(member, venue.slug).post(
+            f"/api/v1/offerings/{offering.pk}/sessions/generate/", {}
+        )
+
+        assert response.status_code == 403
+
+
 class TestAuth:
     def test_jwt_obtain(self):
         user = UserFactory(username="jwt-user")

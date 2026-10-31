@@ -33,21 +33,9 @@ class IsVenueMember(permissions.BasePermission):
         for row in rows:
             if covers(row, venue):
                 return True
-        raise NotFound(self.message)
-
-
-class IsStaffOrReadOnly(permissions.BasePermission):
-    """Publishing (unsafe methods) is staff-only; reads need membership only."""
-
-    message = "Publishing is staff-only."
-
-    def has_permission(self, request, view):
-        if request.method in permissions.SAFE_METHODS:
-            return True
-        venue = ensure_venue(request)
-        if venue is None or not request.user.is_authenticated:
-            raise NotFound("No such venue.")
-        return staff_covering(request, venue)
+        # Unreachable: resolve_venue only returns venues a row covers —
+        # kept fail-closed (never 403) if tenancy semantics change.
+        raise NotFound(self.message)  # pragma: no cover
 
 
 class IsStaff(permissions.BasePermission):
@@ -57,7 +45,9 @@ class IsStaff(permissions.BasePermission):
 
     def has_permission(self, request, view):
         venue = ensure_venue(request)
-        if venue is None or not request.user.is_authenticated:
+        # Unreachable: IsVenueMember always precedes IsStaff and raises
+        # first on missing venue/anonymous users — kept fail-closed.
+        if venue is None or not request.user.is_authenticated:  # pragma: no cover
             raise NotFound("No such venue.")
         if not staff_covering(request, venue):
             raise PermissionDenied(self.message)
@@ -79,7 +69,9 @@ class IsDesk(permissions.BasePermission):
 
     def has_permission(self, request, view):
         venue = ensure_venue(request)
-        if venue is None or not request.user.is_authenticated:
+        # Unreachable: IsVenueMember always precedes IsDesk and raises
+        # first on missing venue/anonymous users — kept fail-closed.
+        if venue is None or not request.user.is_authenticated:  # pragma: no cover
             raise NotFound("No such venue.")
         if not _capability_covering(request, venue, can_operate_desk):
             raise PermissionDenied(self.message)
