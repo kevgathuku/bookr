@@ -77,9 +77,7 @@ def _monthly(username, venue):
         user=user,
         role=OrgRole.Role.MEMBER,
     )
-    plan = PlanFactory(
-        organization=venue.organization, plan_type=PlanType.MONTHLY
-    )
+    plan = PlanFactory(organization=venue.organization, plan_type=PlanType.MONTHLY)
     PlanMembershipFactory(user=user, plan=plan, credits_remaining=0)
     return user
 

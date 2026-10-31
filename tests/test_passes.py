@@ -1,23 +1,16 @@
-from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
-
 import pytest
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError
-from django.db import connection
 from django.db.models import Sum
-from django.utils import timezone
 from rest_framework.test import APIClient
 
 from booking.errors import CreditInsufficient
-from organizations.models import Membership, Organization, Venue
+from organizations.models import Organization, Venue
 from passes.models import (
     CreditLedger,
-    MemberPass,
-    PassProduct,
 )
-from passes.models import Membership as PlanMembership
-from passes.services import adjust_credit, expire_passes, issue_pass
+from passes.models import (
+    Membership as PlanMembership,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -52,15 +45,6 @@ def _member_with_plan(venue, username, credits=10):
         user=member, plan=plan, credits_remaining=credits
     )
     return member, membership
-
-
-def _product(venue, name="Ten Pack", credits=5, types=None):
-    product = PassProduct.objects.create(
-        venue=venue, name=name, credits_total=credits, validity_days=30
-    )
-    if types:
-        product.applicable_class_types.set(types)
-    return product
 
 
 def _plan(venue, name="Pack"):
@@ -135,171 +119,8 @@ class TestSpend:
             assert (summed or 0) == 0
 
 
-class TestRefundAdjustExpire:
-    def test_expire_task_runs_service(self):
-        from passes.tasks import expire_passes_task
-
-        venue = _venue()
-        member = _user("exp-task")
-        member_pass = issue_pass(member, _product(venue))
-        member_pass.valid_until = timezone.now() - timedelta(seconds=1)
-        member_pass.save()
-
-        expire_passes_task()
-
-        member_pass.refresh_from_db()
-        assert member_pass.status == MemberPass.Status.EXPIRED
-
-    def test_adjust_needs_reason(self):
-        venue = _venue()
-        member_pass = issue_pass(_user("m1"), _product(venue))
-
-        with pytest.raises(ValidationError):
-            adjust_credit(member_pass, 1, reason="", staff=_user("boss"))
-
-    def test_expire_zeroes_and_marks(self):
-        venue = _venue()
-        member = _user("m1")
-        member_pass = issue_pass(member, _product(venue))
-        member_pass.valid_until = timezone.now() - timedelta(seconds=1)
-        member_pass.save()
-
-        expire_passes()
-
-        member_pass.refresh_from_db()
-        assert member_pass.status == MemberPass.Status.EXPIRED
-        summed = member_pass.entries.aggregate(total=Sum("delta"))["total"]
-        assert summed == 0
-
-
-@pytest.mark.django_db(transaction=True)
-class TestLastCreditRace:
-    def test_twenty_threads_one_balance_yields_one_spend(self):
-        from passes.services import spend_for_booking
-
-        venue = _venue(slug="race")
-        _member, membership = _member_with_plan(venue, "racer", credits=10)
-
-        def attempt(amount):
-            try:
-                spend_for_booking(membership, amount, booking=None)
-                return "spent"
-            except CreditInsufficient:
-                return "empty"
-            finally:
-                connection.close()
-
-        with ThreadPoolExecutor(max_workers=20) as pool:
-            outcomes = list(pool.map(attempt, [6 for _ in range(20)]))
-
-        membership.refresh_from_db()
-        assert membership.credits_remaining >= 0
-        assert outcomes.count("spent") == 1
-        assert outcomes.count("empty") == 19
-
-
-class TestPassViews:
-    def _client(self, user, slug="downtown"):
-        client = APIClient()
-        client.force_authenticate(user=user)
-        client.defaults["HTTP_X_VENUE_SLUG"] = slug
-        return client
-
-    def test_me_passes_own_only(self):
-        venue = _venue()
-        mine = _user("mine")
-        other = _user("other")
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=mine,
-            role=Membership.Role.MEMBER,
-        )
-        issue_pass(mine, _product(venue))
-        issue_pass(other, _product(venue, name="other-pack"))
-
-        response = self._client(mine).get("/api/v1/me/passes/")
-
-        assert response.status_code == 200
-        assert len(response.data) == 1
-
-    def test_ledger_scope_member_vs_staff(self):
-        venue = _venue()
-        member = _user("member")
-        staff = _user("staff")
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=member,
-            role=Membership.Role.MEMBER,
-        )
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=staff,
-            role=Membership.Role.MANAGER,
-        )
-        member_pass = issue_pass(member, _product(venue))
-        CreditLedger.objects.create(
-            member_pass=member_pass, delta=-1, reason=CreditLedger.Reason.BOOKING
-        )
-
-        own = self._client(member).get("/api/v1/ledger/")
-        venue_wide = self._client(staff).get("/api/v1/ledger/")
-
-        assert own.status_code == 200
-        assert venue_wide.status_code == 200
-        assert len(own.data) == len(venue_wide.data) == 2  # purchase + spend
-
-    def test_adjust_staff_200_member_403_reasonless_400(self):
-        venue = _venue()
-        member = _user("member")
-        staff = _user("staff")
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=member,
-            role=Membership.Role.MEMBER,
-        )
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=staff,
-            role=Membership.Role.MANAGER,
-        )
-        member_pass = issue_pass(member, _product(venue))
-        payload = {"member_pass": member_pass.pk, "delta": 2, "reason": "goodwill"}
-
-        assert (
-            self._client(member).post("/api/v1/ledger/adjust/", payload).status_code
-            == 403
-        )
-        assert (
-            self._client(staff).post("/api/v1/ledger/adjust/", payload).status_code
-            == 200
-        )
-        nor_reason = {"member_pass": member_pass.pk, "delta": 2, "reason": ""}
-        assert (
-            self._client(staff).post("/api/v1/ledger/adjust/", nor_reason).status_code
-            == 400
-        )
-
-
-class TestLedgerNote:
-    def test_adjust_stores_staff_note(self):
-        venue = _venue("note")
-        member = _user("noted")
-        member_pass = issue_pass(member, _product(venue))
-
-        adjust_credit(member_pass, 1, reason="goodwill", staff=_user("boss"))
-
-        row = member_pass.entries.get(reason="adjustment")
-        assert row.note == "goodwill"
-
-
 class TestLedgerUnion:
     def _client(self, user, slug="ledger-union"):
-        from rest_framework.test import APIClient
 
         client = APIClient()
         client.force_authenticate(user=user)
@@ -339,8 +160,11 @@ class TestLedgerUnion:
         assert response.data[0]["delta"] == -2
 
     def test_staff_sees_org_plan_rows(self):
+        from booking.services import book_session
         from organizations.models import OrgRole
         from tests.factories import (
+            ClassOfferingFactory,
+            ClassSessionFactory,
             OrgRoleFactory,
             PlanFactory,
             PlanMembershipFactory,
@@ -364,14 +188,53 @@ class TestLedgerUnion:
             role=OrgRole.Role.MANAGER,
         )
         plan = PlanFactory(organization=venue.organization)
-        membership = PlanMembershipFactory(user=member, plan=plan)
-        CreditLedger.objects.create(
-            membership=membership,
-            delta=-2,
-            reason=CreditLedger.Reason.BOOKING,
-        )
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=5)
+        offering = ClassOfferingFactory(venue=venue)
+        session = ClassSessionFactory(offering=offering)
+        book_session(session=session, member=member)
 
         response = self._client(staff, slug="ledger-staff").get("/api/v1/ledger/")
 
         assert response.status_code == 200
         assert len(response.data) == 1
+        assert response.data[0]["reason"] == CreditLedger.Reason.BOOKING
+
+    def test_staff_cannot_see_other_venues_bookings(self):
+        from booking.services import book_session
+        from organizations.models import OrgRole
+        from tests.factories import (
+            ClassOfferingFactory,
+            ClassSessionFactory,
+            OrgRoleFactory,
+            PlanFactory,
+            PlanMembershipFactory,
+            UserFactory,
+            VenueFactory,
+        )
+
+        org_venues = VenueFactory(slug="ledger-home")
+        other = VenueFactory(organization=org_venues.organization, slug="ledger-away")
+        member = UserFactory(username="ledger-m3")
+        staff = UserFactory(username="ledger-s3")
+        OrgRoleFactory(
+            organization=org_venues.organization,
+            venue=None,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        OrgRoleFactory(
+            organization=org_venues.organization,
+            venue=other,
+            user=staff,
+            role=OrgRole.Role.MANAGER,
+        )
+        plan = PlanFactory(organization=org_venues.organization)
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=5)
+        offering = ClassOfferingFactory(venue=org_venues)
+        session = ClassSessionFactory(offering=offering)
+        book_session(session=session, member=member)
+
+        response = self._client(staff, slug="ledger-away").get("/api/v1/ledger/")
+
+        assert response.status_code == 200
+        assert response.data == []

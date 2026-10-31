@@ -46,6 +46,9 @@
 # cross-product idea; spelling it as nested loops hides its shape.
 # Per-file: booking/admin.py ignores WPS202 — admin grows one view and
 # helper per staff ticket (same endpoint-file reasoning as the views).
+# Per-file: gate modules ignore WPS202 — permissions.py grows one class
+# per capability and tenancy.py one helper per resolution step; splitting
+# either would scatter one access-control story across modules.
 # Per-file: organizations/permissions.py ignores WPS202 — the gate module
 # grows one class per capability the tickets introduce (member, staff,
 # desk, door); splitting gates from the dual-source helpers they share
@@ -110,6 +113,8 @@ per-file-ignores =
         WPS202,
         WPS221,
     organizations/permissions.py:
+        WPS202,
+    organizations/tenancy.py:
         WPS202,
     booking/services.py:
         WPS202,

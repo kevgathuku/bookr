@@ -10,18 +10,15 @@ from access.models import AccessEvent, AccessPoint
 from access.services import decide
 from booking.models import Booking
 from booking.services import book_session
-from organizations.models import OrgRole, VenuePolicy
-from passes.models import PassProduct, PlanType
-from passes.services import issue_pass
+from organizations.models import OrgRole
+from passes.models import PlanType
 from tests.factories import (  # noqa: WPS235 — access tests build every domain object via factories
     ClassOfferingFactory,
     ClassSessionFactory,
-    ClassTypeFactory,
     OrganizationFactory,
     OrgRoleFactory,
     PlanFactory,
     PlanMembershipFactory,
-    RoomFactory,
     UserFactory,
     VenueFactory,
     user_with_role,
@@ -54,8 +51,6 @@ def _user(username):
 def _venue(slug="downtown"):
     org = OrganizationFactory(slug=f"org-{slug}", name=f"Org {slug}")
     venue = VenueFactory(organization=org, slug=slug, name=slug.title())
-    # No factory for the legacy policy: single open row, creation semantics.
-    VenuePolicy.objects.create(venue=venue)
     return venue
 
 
@@ -66,15 +61,6 @@ def _point(venue):
     token = point.set_token()
     point.save()
     return point, token
-
-
-def _member_with_pass(venue, username="member"):
-    member = user_with_role(venue, OrgRole.Role.MEMBER, username=username)
-    product = PassProduct.objects.create(
-        venue=venue, name="Pack", credits_total=5, validity_days=30
-    )
-    issue_pass(member, product)
-    return member
 
 
 def _session(venue, teacher=None, minutes_from_now=10):
@@ -91,9 +77,13 @@ def _session(venue, teacher=None, minutes_from_now=10):
 
 def _member_with_plan(venue, username, credits=5):
     member = _user(username)
-    plan = PlanFactory(
-        organization=venue.organization, name=f"{username}-pack"
+    OrgRoleFactory(
+        organization=venue.organization,
+        venue=None,
+        user=member,
+        role=OrgRole.Role.MEMBER,
     )
+    plan = PlanFactory(organization=venue.organization, name=f"{username}-pack")
     PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
     return member
 
@@ -112,7 +102,7 @@ class TestGrantDeny:
     def test_active_pass_grants_and_logs(self):
         venue = _venue()
         point, token = _point(venue)
-        member = _member_with_pass(venue)
+        member = _member_with_plan(venue, "member")
 
         response = _check(token, member.pk, point.pk)
 
@@ -160,7 +150,7 @@ class TestGrantDeny:
     def test_bad_token_401(self):
         venue = _venue()
         point, _ = _point(venue)
-        member = _member_with_pass(venue)
+        member = _member_with_plan(venue, "member")
 
         response = _check("wrong-token", member.pk, point.pk)
 
@@ -171,7 +161,7 @@ class TestGrantDeny:
 
         venue = _venue()
         point, token = _point(venue)
-        member = _member_with_pass(venue)
+        member = _member_with_plan(venue, "member")
         before = Client().get("/metrics/").content.decode().count("door_grants_total")
 
         _check(token, member.pk, point.pk)
@@ -184,7 +174,7 @@ class TestPassback:
     def test_replay_within_60s_returns_prior_without_new_event(self):
         venue = _venue()
         point, token = _point(venue)
-        member = _member_with_pass(venue)
+        member = _member_with_plan(venue, "member")
 
         first = _check(token, member.pk, point.pk)
         second = _check(token, member.pk, point.pk)
@@ -198,7 +188,7 @@ class TestFailClosed:
     def test_db_outage_denies(self):
         venue = _venue()
         point, token = _point(venue)
-        member = _member_with_pass(venue)
+        member = _member_with_plan(venue, "member")
 
         with mock.patch("access.views.decide", side_effect=OperationalError("db gone")):
             response = _check(token, member.pk, point.pk)
@@ -211,7 +201,7 @@ class TestRecentEvents:
     def test_frontdesk_reads_member_cannot(self):
         venue = _venue()
         point, token = _point(venue)
-        member = _member_with_pass(venue)
+        member = _member_with_plan(venue, "member")
         staff = user_with_role(venue, OrgRole.Role.FRONTDESK, username="frontdesk")
         _check(token, member.pk, point.pk)
 
@@ -231,7 +221,7 @@ class TestRecentEvents:
 
         venue = _venue()
         point, token = _point(venue)
-        member = _member_with_pass(venue)
+        member = _member_with_plan(venue, "member")
         _check(token, member.pk, point.pk)  # warm cache
         elapsed = []
         for _ in range(20):
@@ -266,7 +256,7 @@ class TestStaleGrant:
 
 
 class TestRoleBasedAccess:
-    """Dual-source permissions: OrgRole rows grant exactly like old rows."""
+    """OrgRole rows grant access: pinned to one venue, org-wide to all."""
 
     def _client(self, user, venue):
         client = APIClient()
@@ -284,7 +274,7 @@ class TestRoleBasedAccess:
             role=OrgRole.Role.MEMBER,
         )
 
-        response = self._client(user, venue).get("/api/v1/classes/")
+        response = self._client(user, venue).get("/api/v1/sessions/")
 
         assert response.status_code == 200
 
@@ -297,7 +287,7 @@ class TestRoleBasedAccess:
             organization=org, venue=first, user=user, role=OrgRole.Role.MEMBER
         )
 
-        response = self._client(user, second).get("/api/v1/classes/")
+        response = self._client(user, second).get("/api/v1/sessions/")
 
         assert response.status_code == 404
 
@@ -310,36 +300,8 @@ class TestRoleBasedAccess:
             organization=org, venue=None, user=user, role=OrgRole.Role.MEMBER
         )
 
-        assert self._client(user, first).get("/api/v1/classes/").status_code == 200
-        assert self._client(user, second).get("/api/v1/classes/").status_code == 200
-
-    def test_org_role_frontdesk_can_publish(self):
-        venue = VenueFactory()
-        teacher = _user("teacher")
-        class_type = ClassTypeFactory(venue=venue, name="Spin", duration_min=45)
-        room = RoomFactory(venue=venue, name="Studio", capacity=20)
-        staff = _user("desker")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=staff,
-            role=OrgRole.Role.FRONTDESK,
-        )
-        start = timezone.now() + timedelta(days=2)
-
-        response = self._client(staff, venue).post(
-            "/api/v1/classes/",
-            {
-                "venue": venue.pk,
-                "class_type": class_type.pk,
-                "room": room.pk,
-                "teacher": teacher.pk,
-                "starts_at": start.isoformat(),
-                "ends_at": (start + timedelta(hours=1)).isoformat(),
-            },
-        )
-
-        assert response.status_code == 201
+        assert self._client(user, first).get("/api/v1/sessions/").status_code == 200
+        assert self._client(user, second).get("/api/v1/sessions/").status_code == 200
 
 
 class TestDoorPlanMemberships:
@@ -353,9 +315,7 @@ class TestDoorPlanMemberships:
     def test_monthly_plan_grants_without_balance(self):
         venue = _venue()
         member = _user("monthly")
-        plan = PlanFactory(
-            organization=venue.organization, plan_type=PlanType.MONTHLY
-        )
+        plan = PlanFactory(organization=venue.organization, plan_type=PlanType.MONTHLY)
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=0)
 
         granted, reason, _booking = self._check_decide(venue, member)

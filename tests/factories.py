@@ -9,7 +9,7 @@ from faker import Faker
 from aggregators.models import Aggregator
 from aggregators.tokens import new_token
 from booking.models import CancellationPolicy
-from organizations.models import Membership, Organization, OrgRole, Venue
+from organizations.models import Organization, OrgRole, Venue
 from passes.models import (
     CreditLedger,
     Plan,
@@ -19,7 +19,6 @@ from passes.models import (
     Membership as PlanMembership,
 )
 from scheduling.catalogue import ClassCategory, ClassOffering, ClassSession
-from scheduling.models import ClassType, Room, ScheduledClass
 
 fake = Faker()
 
@@ -39,12 +38,6 @@ class OrganizationFactory(factory.django.DjangoModelFactory):
 
     name = factory.Sequence(lambda n: f"{fake.company()} {n}")
     slug = factory.LazyAttribute(lambda org: slugify(org.name))
-    membership_scope = Organization.Scope.SPANNING
-
-    class Params:
-        per_venue = factory.Trait(
-            membership_scope=Organization.Scope.PER_VENUE,
-        )
 
 
 class VenueFactory(factory.django.DjangoModelFactory):
@@ -54,19 +47,6 @@ class VenueFactory(factory.django.DjangoModelFactory):
     organization = factory.SubFactory(OrganizationFactory)
     slug = factory.Sequence(lambda n: f"venue-{n}")
     name = factory.Sequence(lambda n: f"Venue {n}")
-
-
-class MembershipFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        # No django_get_or_create — duplicate-row tests need real creates.
-        model = Membership
-
-    organization = factory.SubFactory(OrganizationFactory)
-    # spanning default; per-venue callers pass venue explicitly
-    venue = None
-    user = factory.SubFactory(UserFactory)
-    role = Membership.Role.MEMBER
-    policy = None
 
 
 class OrgRoleFactory(factory.django.DjangoModelFactory):
@@ -160,40 +140,6 @@ class CreditLedgerFactory(factory.django.DjangoModelFactory):
     membership = factory.SubFactory(PlanMembershipFactory)
     delta = 1
     reason = CreditLedger.Reason.PURCHASE
-
-
-class ClassTypeFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = ClassType
-
-    venue = factory.SubFactory(VenueFactory)
-    name = factory.Sequence(lambda n: f"Class {n}")
-    duration_min = 45
-
-
-class RoomFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = Room
-
-    venue = factory.SubFactory(VenueFactory)
-    name = factory.Sequence(lambda n: f"Room {n}")
-    capacity = 20
-
-
-class ScheduledClassFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = ScheduledClass
-
-    venue = factory.SubFactory(VenueFactory)
-    class_type = factory.SubFactory(ClassTypeFactory)
-    room = factory.SubFactory(RoomFactory)
-    teacher = factory.SubFactory(UserFactory)
-    starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=1))
-    ends_at = factory.LazyAttribute(
-        lambda session: (
-            session.starts_at + timedelta(minutes=session.class_type.duration_min)
-        )
-    )
 
 
 class AggregatorFactory(factory.django.DjangoModelFactory):

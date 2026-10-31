@@ -1,11 +1,11 @@
 from datetime import timedelta
 
 import pytest
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
-from test_staff_api import _member, _staff, _venue
 
-from organizations.models import Membership
+from organizations.models import Organization, OrgRole, Venue
 
 pytestmark = pytest.mark.django_db
 
@@ -29,6 +29,37 @@ def _session(venue):
     return ClassSessionFactory(
         offering=offering, starts_at=timezone.now() + timedelta(days=1)
     )
+
+
+_ids = iter(range(1000000))
+
+
+def _unique(username):
+    return f"{username}-{next(_ids)}"
+
+
+def _venue(slug="downtown"):
+    org = Organization.objects.create(slug=f"org-{slug}", name=f"Org {slug}")
+    return Venue.objects.create(organization=org, slug=slug, name=slug.title())
+
+
+def _staff(venue, username="manager", role=OrgRole.Role.MANAGER):
+    user = get_user_model().objects.create_user(username=_unique(username))
+    OrgRole.objects.create(
+        organization=venue.organization, venue=venue, user=user, role=role
+    )
+    return user
+
+
+def _member(venue, username="member"):
+    user = get_user_model().objects.create_user(username=_unique(username))
+    OrgRole.objects.create(
+        organization=venue.organization,
+        venue=venue,
+        user=user,
+        role=OrgRole.Role.MEMBER,
+    )
+    return user
 
 
 def _member_with_plan(venue, username):
@@ -88,18 +119,10 @@ class TestMemberSearch:
         )
         assert "id" in response.json()[0]
 
-    def test_staff_can_list_member_passes(self):
-        venue = _venue()
-        member = _member(venue, "pass-holder")
-
-        response = _client(_staff(venue)).get(f"/api/v1/passes/?member={member.pk}")
-
-        assert response.status_code == 200
-
     def test_search_finds_spanning_member(self):
         venue = _venue()
         spanning = _member(venue, "spanning-sue")
-        Membership.objects.filter(user=spanning).update(venue=None)
+        OrgRole.objects.filter(user=spanning).update(venue=None)
 
         response = _client(_staff(venue)).get("/api/v1/members/search/?q=sue")
 

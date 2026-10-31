@@ -1,9 +1,10 @@
 import pytest
+from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
-from test_staff_api import _member, _staff, _venue
 
 from aggregators.models import Aggregator, AggregatorEventLog
 from aggregators.tokens import verify
+from organizations.models import Organization, OrgRole, Venue
 
 pytestmark = pytest.mark.django_db
 
@@ -17,6 +18,37 @@ def _client(user, slug="downtown"):
     client.force_authenticate(user=user)
     client.defaults["HTTP_X_VENUE_SLUG"] = slug
     return client
+
+
+_ids = iter(range(1000000))
+
+
+def _unique(username):
+    return f"{username}-{next(_ids)}"
+
+
+def _venue(slug="downtown"):
+    org = Organization.objects.create(slug=f"org-{slug}", name=f"Org {slug}")
+    return Venue.objects.create(organization=org, slug=slug, name=slug.title())
+
+
+def _staff(venue, username="manager", role=OrgRole.Role.MANAGER):
+    user = get_user_model().objects.create_user(username=_unique(username))
+    OrgRole.objects.create(
+        organization=venue.organization, venue=venue, user=user, role=role
+    )
+    return user
+
+
+def _member(venue, username="member"):
+    user = get_user_model().objects.create_user(username=_unique(username))
+    OrgRole.objects.create(
+        organization=venue.organization,
+        venue=venue,
+        user=user,
+        role=OrgRole.Role.MEMBER,
+    )
+    return user
 
 
 class TestAggregatorCrud:
@@ -100,16 +132,3 @@ class TestAggregatorCrud:
 
         assert response.status_code == 200
         assert response.json()[0]["status_code"] == 201
-
-
-class TestCatalogLists:
-    def test_staff_lists_rooms_and_class_types(self):
-        venue = _venue("manage-catalog")
-        staff = _staff(venue, username="owner5", role="owner")
-        client = _client(staff, slug="manage-catalog")
-
-        rooms = client.get("/api/v1/rooms/")
-        types = client.get("/api/v1/class-types/")
-
-        assert rooms.status_code == 200
-        assert types.status_code == 200

@@ -56,7 +56,7 @@ class CancellationPolicyAdmin(VenueScopedAdmin):
         )
         return TemplateResponse(request, "admin/booking/coverage.html", context)
 
-    def _scope_q(self, request):
+    def scope_q(self, request):
         # Org-wide rules have no venue; visible when their org is visible.
         venues = scoped_venues(request)
         return Q(venue__in=venues) | Q(
