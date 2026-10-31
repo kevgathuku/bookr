@@ -9,7 +9,6 @@ from booking.errors import (
     CreditInsufficient,
     DuplicateBooking,
     SeatFull,
-    TeacherUnavailable,
 )
 
 
@@ -30,7 +29,7 @@ def mapped_errors():
     """Raise service errors as their HTTP equivalents."""
     try:
         yield
-    except (SeatFull, DuplicateBooking, TeacherUnavailable) as error:
+    except (SeatFull, DuplicateBooking) as error:
         raise Conflict(str(error))
     except AllotmentExhausted as error:
         raise Conflict(str(error))

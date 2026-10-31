@@ -8,8 +8,6 @@ from django.utils.dateparse import parse_datetime
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 
-from booking.http import Conflict
-from booking.models import ACTIVE_STATUSES, Booking
 from organizations.permissions import IsStaffOrReadOnly, IsVenueMember
 from scheduling.catalogue import ClassOffering, ClassSession
 from scheduling.models import ClassType, Room, ScheduledClass, TeacherSubstitution
@@ -114,12 +112,6 @@ class ScheduledClassViewSet(viewsets.ModelViewSet):
         venue_classes = (
             ScheduledClass.objects.for_venue(venue)
             .select_related("class_type", "room", "teacher")
-            .annotate(
-                booked=Count(
-                    "bookings",
-                    filter=Q(bookings__status=Booking.Status.CONFIRMED),
-                ),
-            )
             .order_by("starts_at")
         )
         start, end = self._window()
@@ -135,30 +127,12 @@ class ScheduledClassViewSet(viewsets.ModelViewSet):
             )
         return created
 
-    def destroy(self, request, *args, **kwargs):
-        klass = self.get_object()
-        if Booking.objects.filter(
-            scheduled_class=klass, status__in=ACTIVE_STATUSES
-        ).exists():
-            raise Conflict("Class has active bookings.")
-        return super().destroy(request, *args, **kwargs)
-
     def perform_create(self, serializer):
         # A crafted venue id in the payload must not escape the request venue.
         payload_venue = serializer.validated_data["venue"]
         if payload_venue != self.request.venue:
             raise NotFound("No such venue.")
         serializer.save()
-
-    def perform_update(self, serializer):
-        # Growing seats (override or room swap) may free waitlist places.
-        watched = {"capacity_override", "room"}
-        changed = watched.intersection(serializer.validated_data)
-        super().perform_update(serializer)
-        if changed:
-            from booking.tasks import promote_waitlist
-
-            promote_waitlist.delay(class_id=serializer.instance.pk)
 
     def _window(self):
         params = self.request.query_params
@@ -219,5 +193,8 @@ class SessionViewSet(viewsets.ReadOnlyModelViewSet):
         return (
             sessions.in_window(start, end)
             .select_related("offering", "offering__teacher")
+            .annotate(
+                booked=Count("bookings", filter=Q(bookings__status="booked")),
+            )
             .order_by("starts_at")
         )

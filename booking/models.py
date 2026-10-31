@@ -7,80 +7,61 @@ from django.db import models
 from passes.models import PlanType
 from scheduling.catalogue import ClassCategory
 
-ACTIVE_STATUSES = ("confirmed", "waitlisted")
+ACTIVE_STATUSES = ("booked",)
 
 
 class Booking(models.Model):
     class Status(models.TextChoices):
-        CONFIRMED = "confirmed", "Confirmed"
-        WAITLISTED = "waitlisted", "Waitlisted"
+        BOOKED = "booked", "Booked"
         CANCELLED = "cancelled", "Cancelled"
-        CANCELLED_LATE = "cancelled_late", "Cancelled late"
+        LATE_CANCELLED = "late_cancelled", "Late cancelled"
         NO_SHOW = "no_show", "No-show"
-        COMPLETED = "completed", "Completed"
+        ATTENDED = "attended", "Attended"
 
-    venue = models.ForeignKey(
-        "organizations.Venue", on_delete=models.CASCADE, related_name="bookings"
+    session = models.ForeignKey(
+        "scheduling.ClassSession", on_delete=models.CASCADE, related_name="bookings"
     )
     member = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="bookings"
     )
-    scheduled_class = models.ForeignKey(
-        "scheduling.ScheduledClass",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="bookings",
+    # The membership that paid for THIS booking. Always set: drop-ins and
+    # comps are memberships too. PROTECT so deleting a membership can never
+    # silently change a booking's policy.
+    membership = models.ForeignKey(
+        "passes.Membership", on_delete=models.PROTECT, related_name="bookings"
     )
-    appointment = models.ForeignKey(
-        "scheduling.Appointment",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="bookings",
-    )
-    # Appointment target lands with its ticket (7q9); until then every
-    # booking targets a class.
+    # Credits actually debited at booking time; refunds return exactly this.
+    credits_spent = models.PositiveIntegerField(default=0)
     status = models.CharField(
-        max_length=16, choices=Status.choices, default=Status.CONFIRMED
+        max_length=16, choices=Status.choices, default=Status.BOOKED
     )
-    source = models.CharField(max_length=64, default="app")
-    idempotency_key = models.CharField(max_length=64, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    hold_until = models.DateTimeField(null=True, blank=True)
-    credit_tx = models.ForeignKey(
-        "passes.CreditLedger",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="settled_bookings",
-    )
-    checked_in_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
-                fields=["venue", "member", "scheduled_class"],
+                fields=["session", "member"],
                 condition=models.Q(status__in=ACTIVE_STATUSES),
-                name="one_active_class_booking",
-            ),
-            models.UniqueConstraint(
-                fields=["venue", "member", "appointment"],
-                condition=models.Q(status__in=ACTIVE_STATUSES),
-                name="one_active_appointment_booking",
+                name="one_active_session_booking",
             ),
         ]
 
     def clean(self):
         super().clean()
-        targets = [self.scheduled_class_id, self.appointment_id]
-        if sum(target is not None for target in targets) != 1:
-            raise ValidationError(
-                "A booking targets exactly one of class, appointment."
-            )
+        if (
+            self.membership_id is not None
+            and self.member_id is not None
+            and self.membership.user_id != self.member_id
+        ):
+            raise ValidationError("Booking membership belongs to another user.")
+        if self.membership_id is not None and self.session_id is not None:
+            plan_org = self.membership.plan.organization_id
+            venue_org = self.session.offering.venue.organization_id
+            if plan_org != venue_org:
+                raise ValidationError("Booking plan belongs to another organization.")
 
     def __str__(self):
-        return f"{self.member} → {self.scheduled_class} ({self.status})"
+        return f"{self.member} → {self.session} ({self.status})"
 
 
 class CancellationPolicy(models.Model):

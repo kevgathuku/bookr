@@ -58,10 +58,6 @@ CACHES = {
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_EAGER", "1") == "1"
 CELERY_BEAT_SCHEDULE = {
-    "sweep-hold-expiry": {
-        "task": "booking.sweep_expired_holds",
-        "schedule": 300.0,
-    },
     "expire-passes": {
         "task": "passes.expire_passes",
         "schedule": 86400.0,

@@ -6,7 +6,8 @@ from organizations.admin_mixins import VenueScopedAdmin, bookr_site
 
 @admin.register(Booking, site=bookr_site)
 class BookingAdmin(VenueScopedAdmin):
-    list_display = ("member", "venue", "status", "created_at")
-    list_filter = ("venue", "status")
+    venue_path = "session__offering__venue"
+    list_display = ("member", "status", "created_at")
+    list_filter = ("status",)
     date_hierarchy = "created_at"
     readonly_fields = ("created_at",)

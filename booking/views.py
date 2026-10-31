@@ -1,3 +1,6 @@
+"""Member booking flows on the new graph. Cancel/no-show/check-in live in
+their own tickets (.4/.6/.10); this module only books and lists."""
+
 import datetime
 from typing import ClassVar
 
@@ -9,25 +12,15 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from booking.cancellations import cancel_booking, check_in, mark_no_show
 from booking.http import mapped_errors
 from booking.models import Booking
 from booking.serializers import BookingSerializer, BookSerializer
-from booking.services import book_seat
+from booking.services import book_session
 from organizations.permissions import IsStaff, IsVenueMember, staff_covering
 
 
-class RosterRowSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    member = serializers.CharField()
-    class_title = serializers.CharField()
-    starts_at = serializers.DateTimeField()
-    status = serializers.CharField()
-    checked_in_at = serializers.DateTimeField(allow_null=True)
-
-
 class BookingsView(APIView):
-    """POST books (409/402 mapped); GET lists your own with ?mine=true."""
+    """POST books a session; GET lists mine (?mine=true)."""
 
     # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
@@ -44,124 +37,35 @@ class BookingsView(APIView):
         bookings = Booking.objects.filter(member=request.user).order_by("-created_at")
         return Response(BookingSerializer(bookings, many=True).data)
 
-    @extend_schema(
-        request=BookSerializer,
-        responses=BookingSerializer,
-        parameters=[OpenApiParameter("waitlist", str, required=False)],
-    )
+    @extend_schema(request=BookSerializer, responses=BookingSerializer)
     def post(self, request):
+        if request.query_params.get("waitlist") == "true":
+            # Waitlists return with the waitlist follow-up; fail loudly
+            # instead of silently booking past a full class.
+            raise ValidationError("Waitlists are not currently offered.")
         form = BookSerializer(data=request.data)
         form.is_valid(raise_exception=True)
-        klass = form.validated_data["scheduled_class"]
-        if klass.venue != request.venue:
+        session = form.validated_data["session"]
+        if session.offering.venue != request.venue:
             raise NotFound("No such venue.")
-        waitlist = form.validated_data["waitlist"]
-        if request.query_params.get("waitlist") == "true":
-            waitlist = True
-        with mapped_errors():
-            booking = book_seat(
-                request.user,
-                klass,
-                idempotency_key=form.validated_data["idempotency_key"],
-                waitlist=waitlist,
-            )
+        try:
+            with mapped_errors():
+                booking = book_session(member=request.user, session=session)
+        except DjangoValidationError as error:
+            raise ValidationError(str(error))
         return Response(BookingSerializer(booking).data, status=201)
 
 
-class CancelView(APIView):
-    """Owner cancels; staff may override the window with a reason."""
-
-    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
-    permission_classes: ClassVar[list] = [  # type: ignore[misc]
-        IsVenueMember,
-    ]
-
-    @extend_schema(request=None, responses=BookingSerializer)
-    def post(self, request, pk):
-        booking = self._owned(request, pk)
-        override = request.data.get("staff_override") is True
-        if override and not staff_covering(request, request.venue):
-            raise NotFound("No such venue.")
-        if override and not request.data.get("reason"):
-            raise ValidationError("Override needs a reason.")
-        try:
-            booking = cancel_booking(
-                request.user,
-                booking,
-                staff_override=override,
-                reason=request.data.get("reason", ""),
-            )
-        except DjangoValidationError as error:
-            raise ValidationError(str(error))
-        return Response(BookingSerializer(booking).data)
-
-    def _owned(self, request, pk):
-        booking = (
-            Booking.objects.filter(pk=pk, venue=request.venue)
-            .select_related("scheduled_class", "appointment")
-            .first()
-        )
-        if booking is None:
-            raise NotFound("No such venue.")
-        if booking.member != request.user and not staff_covering(
-            request, request.venue
-        ):
-            raise NotFound("No such venue.")
-        return booking
-
-
-class NoShowView(APIView):
-    """Frontdesk marks a confirmed booking within 2h after the end."""
-
-    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
-    permission_classes: ClassVar[list] = [  # type: ignore[misc]
-        IsVenueMember,
-        IsStaff,
-    ]
-
-    @extend_schema(request=None, responses=BookingSerializer)
-    def post(self, request, pk):
-        booking = (
-            Booking.objects.filter(pk=pk, venue=request.venue)
-            .select_related("scheduled_class", "appointment")
-            .first()
-        )
-        if booking is None:
-            raise NotFound("No such venue.")
-        try:
-            booking = mark_no_show(request.user, booking)
-        except DjangoValidationError as error:
-            raise ValidationError(str(error))
-        return Response(BookingSerializer(booking).data)
-
-
-class CheckinView(APIView):
-    """Frontdesk stamps a confirmed booking as checked in."""
-
-    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
-    permission_classes: ClassVar[list] = [  # type: ignore[misc]
-        IsVenueMember,
-        IsStaff,
-    ]
-
-    @extend_schema(request=None, responses=BookingSerializer)
-    def post(self, request, pk):
-        booking = (
-            Booking.objects.filter(pk=pk, venue=request.venue)
-            .select_related("scheduled_class", "appointment")
-            .first()
-        )
-        if booking is None:
-            raise NotFound("No such venue.")
-        try:
-            booking = check_in(request.user, booking)
-        except DjangoValidationError as error:
-            raise ValidationError(str(error))
-        return Response(BookingSerializer(booking).data)
+class RosterRowSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    member = serializers.CharField()
+    session_title = serializers.CharField()
+    starts_at = serializers.DateTimeField()
+    status = serializers.CharField()
 
 
 class RosterView(APIView):
-    """Frontdesk day roster: venue bookings with member + class info."""
+    """Frontdesk day roster: venue bookings with member + session info."""
 
     # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
@@ -183,10 +87,11 @@ class RosterView(APIView):
             raise ValidationError("date must be YYYY-MM-DD.")
         rows = (
             Booking.objects.filter(
-                venue=request.venue, scheduled_class__starts_at__date=day
+                session__offering__venue=request.venue,
+                session__starts_at__date=day,
             )
-            .select_related("member", "scheduled_class__class_type")
-            .order_by("scheduled_class__starts_at")
+            .select_related("member", "session__offering")
+            .order_by("session__starts_at")
         )
         return Response(
             RosterRowSerializer(
@@ -194,10 +99,9 @@ class RosterView(APIView):
                     {
                         "id": booking.pk,
                         "member": booking.member.username,
-                        "class_title": booking.scheduled_class.class_type.name,
-                        "starts_at": booking.scheduled_class.starts_at,
+                        "session_title": booking.session.offering.title,
+                        "starts_at": booking.session.starts_at,
                         "status": booking.status,
-                        "checked_in_at": booking.checked_in_at,
                     }
                     for booking in rows
                 ],
@@ -218,3 +122,16 @@ class MineView(APIView):
     def get(self, request):
         bookings = Booking.objects.filter(member=request.user).order_by("-created_at")
         return Response(BookingSerializer(bookings, many=True).data)
+
+
+def _owned(request, pk):
+    booking = (
+        Booking.objects.filter(pk=pk, session__offering__venue=request.venue)
+        .select_related("session", "session__offering")
+        .first()
+    )
+    if booking is None:
+        raise NotFound("No such venue.")
+    if booking.member != request.user and not staff_covering(request, request.venue):
+        raise NotFound("No such venue.")
+    return booking
