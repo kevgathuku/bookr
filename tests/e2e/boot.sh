@@ -1,5 +1,5 @@
 #!/bin/bash
-# E2E boot: migrate, seed (incl. --e2e org), serve, wait readiness, smoke.
+# E2E boot: migrate, seed the e2e-run org, serve, wait readiness, smoke.
 # Full SPEC-frontend §5 (compose db+redis+mailpit, worker/beat, frontend
 # preview) activates service by service as those tickets land; absent pieces
 # are noted, never faked. Teardown: this script kills only what it started.
@@ -10,7 +10,7 @@ cd "$(dirname "$0")/../.."
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-config.settings.dev}"
 
 uv run python manage.py migrate
-uv run python manage.py seed_demo --e2e
+uv run python manage.py seed_e2e
 
 if curl -sf --max-time 2 localhost:8000/healthz >/dev/null 2>&1; then
   echo "port 8000 already serves bookr — kill the stray runserver first"
