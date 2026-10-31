@@ -17,6 +17,8 @@
 # share one module rather than one-import-per-view files.
 # Per-file: tests ignore WPS501 — thread race tests release the DB
 # connection in a bare try/finally; there is no exception to catch.
+# (tests/* covers top-level + e2e; */tests/* mirrors it for per-app
+# tests/ packages — same leniency, no new suppressions.)
 # Per-file: seed_e2e.py ignores WPS201/WPS202 — the E2E dataset touches every model
 # once by design, one builder per concern; splitting it would scatter one
 # dataset across modules.
@@ -167,6 +169,24 @@ per-file-ignores =
         WPS202,
         WPS615,
     tests/*:
+        E501,
+        WPS111,
+        WPS114,
+        WPS117,
+        WPS118,
+        WPS122,
+        WPS201,
+        WPS202,
+        WPS204,
+        WPS210,
+        WPS211,
+        WPS214,
+        WPS221,
+        WPS229,
+        WPS338,
+        WPS430,
+        WPS501,
+    */tests/*:
         E501,
         WPS111,
         WPS114,

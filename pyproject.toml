@@ -60,7 +60,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["booking", "passes", "scheduling", "organizations", "access", "aggregators"]
-omit = ["*/migrations/*", "*/admin.py", "*/apps.py", "*/tests.py"]
+omit = ["*/migrations/*", "*/admin.py", "*/apps.py", "*/tests.py", "*/tests/*"]
 
 [tool.coverage.report]
 show_missing = true

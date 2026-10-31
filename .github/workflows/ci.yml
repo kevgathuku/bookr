@@ -50,7 +50,7 @@ jobs:
       # live-server smoke specs stay serial (excluded from -n auto).
       # Coverage collects in the parallel step, reports + floors on the
       # combined total after the serial smoke step appends.
-      - run: uv run pytest tests/ -q -n auto -m "not e2e and not smoke" --cov --cov-report=
+      - run: uv run pytest -q -n auto -m "not e2e and not smoke" --cov --cov-report=
       - run: uv run pytest tests/e2e -q -m "smoke" --cov --cov-append --cov-report=term-missing --cov-fail-under=90
 
   frontend:
