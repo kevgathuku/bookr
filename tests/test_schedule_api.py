@@ -465,7 +465,7 @@ class TestPolicyListEndpoint:
         )
 
         response = self._client(staff, venue).get(
-            "/api/v1/policies/?class_category=private"
+            "/api/v1/cancellation-policies/?class_category=private"
         )
 
         assert response.status_code == 200
@@ -475,15 +475,13 @@ class TestPolicyListEndpoint:
     def test_member_cannot_list_policies(self):
         venue, _staff, member = self._setup(slug="policies-member")
 
-        response = self._client(member, venue).get("/api/v1/policies/")
+        response = self._client(member, venue).get("/api/v1/cancellation-policies/")
 
         assert response.status_code == 403
 
     def test_session_list_filters_by_category(self):
         venue = VenueFactory(slug="series-filter")
-        group = ClassOfferingFactory(
-            venue=venue, category="group", duration_minutes=60
-        )
+        group = ClassOfferingFactory(venue=venue, category="group", duration_minutes=60)
         private = ClassOfferingFactory(
             venue=venue, category="private", duration_minutes=60
         )
@@ -501,7 +499,7 @@ class TestPolicyListEndpoint:
         )
 
         response = self._client(member, venue).get(
-            "/api/v1/sessions/?category=private"
+            "/api/v1/sessions/?offering__category=private"
         )
 
         assert response.status_code == 200

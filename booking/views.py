@@ -5,8 +5,9 @@ from typing import ClassVar
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import serializers
+from rest_framework import generics, serializers
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -149,32 +150,26 @@ def _owned(request, pk):
     return booking
 
 
-class PolicyListView(APIView):
+class PolicyListView(generics.ListAPIView):
     """Back-office rule lookup; filterable for the desk UI and coverage."""
 
+    serializer_class = PolicySerializer
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
         IsVenueMember,
         IsStaff,
     ]
+    filter_backends: ClassVar[list] = [DjangoFilterBackend]  # type: ignore[misc]
+    filterset_fields: ClassVar[list[str]] = [
+        "venue",
+        "class_category",
+        "plan_type",
+        "enforcement",
+    ]
 
-    @extend_schema(responses=PolicySerializer(many=True))
-    def get(self, request):
-        policies = CancellationPolicy.objects.filter(
-            organization=request.venue.organization
+    def get_queryset(self):
+        return CancellationPolicy.objects.filter(
+            organization=self.request.venue.organization
         ).order_by("venue", "class_category", "plan_type")
-        venue = request.query_params.get("venue")
-        if venue is not None:
-            policies = policies.filter(venue__slug=venue)
-        category = request.query_params.get("class_category")
-        if category is not None:
-            policies = policies.filter(class_category=category)
-        plan = request.query_params.get("plan_type")
-        if plan is not None:
-            policies = policies.filter(plan_type=plan)
-        enforcement = request.query_params.get("enforcement")
-        if enforcement is not None:
-            policies = policies.filter(enforcement=enforcement)
-        return Response(PolicySerializer(policies, many=True).data)
 
 
 def _record_response(request, pk, call):

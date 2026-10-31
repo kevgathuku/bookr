@@ -93,5 +93,7 @@ dev = [
     "pytest-playwright>=0.10.0",
     "requests>=2.34.2",
     "ruff>=0.17.2",
+    "types-django-filter>=26.2.0.20261005",
+    "types-python-dateutil>=2.9.0.20261029",
     "wemake-python-styleguide>=1.8.1",
 ]

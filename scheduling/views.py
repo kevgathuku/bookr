@@ -5,6 +5,7 @@ from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -204,6 +205,8 @@ class SessionViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
         IsVenueMember,
     ]
+    filter_backends: ClassVar[list] = [DjangoFilterBackend]  # type: ignore[misc]
+    filterset_fields: ClassVar[list[str]] = ["offering__category"]
 
     def get_queryset(self):
         venue = self.request.venue

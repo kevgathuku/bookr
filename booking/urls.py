@@ -30,7 +30,13 @@ urlpatterns = [
         CheckInView.as_view(),
         name="booking-check-in",
     ),
-    path("policies/", PolicyListView.as_view(), name="policies"),
+    # cancellation-policies, not policies/: the old versioned-policy
+    # list still serves that path until the .7 contract.
+    path(
+        "cancellation-policies/",
+        PolicyListView.as_view(),
+        name="cancellation-policies",
+    ),
     path(
         "records/<int:pk>/waive/",
         RecordWaiveView.as_view(),
