@@ -13,8 +13,10 @@ from prometheus_client import Counter
 
 from access.models import AccessEvent
 from booking.models import ACTIVE_STATUSES, Booking
+from organizations.capabilities import can_staff_door, roles_for
 from organizations.models import Membership
-from passes.models import MemberPass
+from passes.models import MemberPass, PlanType
+from passes.models import Membership as PlanMembership
 
 grants_total = Counter("door_grants_total", "Granted door checks", ["venue_id"])
 
@@ -74,6 +76,8 @@ def _passback(access_point, member):
 def _evaluate(access_point, member):
     venue = access_point.venue
     now = timezone.now()
+    if _has_valid_plan_membership(member, venue, now):
+        return True, "active_pass", None
     if (
         MemberPass.objects.filter(
             member=member,
@@ -88,13 +92,34 @@ def _evaluate(access_point, member):
     booking = _live_booking(member, venue, now)
     if booking is not None:
         return True, "live_booking", booking
+    if _is_staff(member, venue):
+        return True, "staff", None
+    return False, "no_access", None
+
+
+def _has_valid_plan_membership(member, venue, now):
+    """Monthly valid within dates, or credit balance remaining within dates."""
+    today = now.date()
+    return (
+        PlanMembership.objects.filter(
+            user=member,
+            plan__organization=venue.organization,
+            starts_on__lte=today,
+        )
+        .filter(Q(ends_on__gte=today) | Q(ends_on__isnull=True))
+        .filter(Q(plan__plan_type=PlanType.MONTHLY) | Q(credits_remaining__gt=0))
+        .exists()
+    )
+
+
+def _is_staff(member, venue):
     if Membership.objects.filter(
         Q(venue__isnull=True, organization=venue.organization) | Q(venue=venue),
         user=member,
         role__in=STAFF_ROLES,
     ).exists():
-        return True, "staff", None
-    return False, "no_access", None
+        return True
+    return can_staff_door(roles_for(member, venue))
 
 
 def _live_booking(member, venue, now):
