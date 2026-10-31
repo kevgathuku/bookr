@@ -114,3 +114,171 @@ class TestMemberSearch:
         response = _client(_member(venue)).get("/api/v1/members/search/?q=a")
 
         assert response.status_code in (403, 404)
+
+
+class TestDeskCancelFlows:
+    def _client(self, user, venue):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
+        return client
+
+    def _world(self, slug="desk-flow"):
+        from organizations.models import OrgRole
+        from tests.factories import OrgRoleFactory, UserFactory, VenueFactory
+
+        venue = VenueFactory(slug=slug)
+        desk = UserFactory(username=f"desk-{slug}")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=desk,
+            role=OrgRole.Role.FRONTDESK,
+        )
+        return venue, desk
+
+    def _book(self, venue, username, credits=10):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from booking.services import book_session
+        from organizations.models import OrgRole
+        from tests.factories import (
+            ClassOfferingFactory,
+            ClassSessionFactory,
+            MembershipPlanFactory,
+            OrgRoleFactory,
+            PlanMembershipFactory,
+            UserFactory,
+        )
+
+        member = UserFactory(username=username)
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        plan = MembershipPlanFactory(organization=venue.organization)
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
+        offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
+        session = ClassSessionFactory(
+            offering=offering,
+            starts_at=timezone.now() + timedelta(hours=2),
+        )
+        booking = book_session(session=session, member=member)
+        return member, booking, session
+
+    def test_desk_cancels_on_behalf_late_forfeits(self):
+        from booking.models import CancellationPolicy
+
+        venue, desk = self._world()
+        member, booking, _session = self._book(venue, "m-flow")
+        CancellationPolicy.objects.create(
+            organization=venue.organization,
+            late_cancel_hours=12,
+            enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
+        )
+
+        response = self._client(desk, venue).post(
+            f"/api/v1/bookings/{booking.pk}/cancel/",
+            {"on_behalf_of": True, "reason": "called in sick"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.data["enforcement_applied"] == "lose_credit"
+        assert response.data["credits_refunded"] == 0
+        assert response.data["snapshot"]["on_behalf_of"] is True
+
+    def test_desk_contradiction_rejected(self):
+        venue, desk = self._world(slug="desk-contra")
+        _member, booking, _session = self._book(venue, "m-contra")
+
+        # Staff's own decision carries no penalty: nothing to waive.
+        response = self._client(desk, venue).post(
+            f"/api/v1/bookings/{booking.pk}/cancel/",
+            {"waive_penalty": True, "reason": "oops"},
+            format="json",
+        )
+
+        assert response.status_code == 409
+
+    def test_member_cancels_own_booking(self):
+        venue, _desk = self._world(slug="desk-own")
+        member, booking, _session = self._book(venue, "m-own")
+
+        response = self._client(member, venue).post(
+            f"/api/v1/bookings/{booking.pk}/cancel/",
+            {"reason": "change of plans"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.data["enforcement_applied"] == "none"
+
+    def test_desk_waives_forfeit(self):
+        from booking.models import CancellationPolicy
+
+        venue, desk = self._world(slug="desk-waive")
+        member, booking, _session = self._book(venue, "m-waive")
+        CancellationPolicy.objects.create(
+            organization=venue.organization,
+            late_cancel_hours=12,
+            enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
+        )
+        record_id = (
+            self._client(member, venue)
+            .post(
+                f"/api/v1/bookings/{booking.pk}/cancel/",
+                {"reason": "overslept"},
+                format="json",
+            )
+            .data["id"]
+        )
+
+        response = self._client(desk, venue).post(
+            f"/api/v1/records/{record_id}/waive/",
+            {"reason": "goodwill"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.data["penalty_waived"] is False
+        assert response.data["enforcement_applied"] == "lose_credit"
+
+    def test_session_cancel_refunds_via_api(self):
+        venue, desk = self._world(slug="desk-session")
+        _member, booking, session = self._book(venue, "m-session")
+
+        response = self._client(desk, venue).post(
+            f"/api/v1/sessions/{session.pk}/cancel/",
+            {"reason": "teacher sick"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert len(response.data) == 1
+        assert response.data[0]["credits_refunded"] == 1
+
+    def test_door_marks_no_show_and_check_in(self):
+        venue, desk = self._world(slug="desk-door")
+        member, booking, session = self._book(venue, "m-door")
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        session.starts_at = timezone.now() - timedelta(hours=1)
+        session.save(update_fields=["starts_at"])
+
+        no_show = self._client(desk, venue).post(
+            f"/api/v1/bookings/{booking.pk}/no-show/"
+        )
+        assert no_show.status_code == 200
+        assert no_show.data["cause"] == "no_show"
+
+        booking.refresh_from_db()
+        assert booking.status == "no_show"

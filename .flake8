@@ -38,6 +38,10 @@
 # coexist during the expand transition; contract deletes the old half) —
 # endpoint files grow one view per staff ticket by design; splitting by
 # ticket would scatter the API surface across modules.
+# Per-file: endpoint files grow one view/serializer per staff ticket by
+# design — booking/views.py, scheduling/views.py and
+# scheduling/serializers.py ignore WPS202 (splitting by ticket would
+# scatter the API surface across modules).
 # Per-file: organizations/permissions.py ignores WPS202 — the gate module
 # grows one class per capability the tickets introduce (member, staff,
 # desk, door); splitting gates from the dual-source helpers they share
@@ -83,6 +87,7 @@ per-file-ignores =
         WPS213,
     booking/views.py:
         WPS201,
+        WPS202,
     organizations/views.py:
         WPS202,
     aggregators/views.py:
@@ -135,6 +140,7 @@ per-file-ignores =
         WPS221,
         WPS231,
     scheduling/serializers.py:
+        WPS202,
         WPS615,
     tests/*:
         E501,

@@ -97,6 +97,10 @@ class GenerateSessionsSerializer(serializers.Serializer):
     capacity = serializers.IntegerField(min_value=1, required=False)
 
 
+class SessionCancelSerializer(serializers.Serializer):
+    reason = serializers.CharField(allow_blank=False)
+
+
 class OfferingSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source="teacher.username", read_only=True)
 

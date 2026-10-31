@@ -1,5 +1,4 @@
-"""Member booking flows on the new graph. Cancel/no-show/check-in live in
-their own tickets (.4/.6/.10); this module only books and lists."""
+"""Member booking flows and desk cancel flows on the new graph."""
 
 import datetime
 from typing import ClassVar
@@ -12,9 +11,22 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from booking.cancellations import (
+    cancel_booking,
+    check_in,
+    mark_no_show,
+    waive_record,
+)
 from booking.http import mapped_errors
-from booking.models import Booking
-from booking.serializers import BookingSerializer, BookSerializer
+from booking.models import Booking, CancellationPolicy, CancellationRecord
+from booking.serializers import (
+    BookingSerializer,
+    BookSerializer,
+    CancelBookingSerializer,
+    PolicySerializer,
+    RecordSerializer,
+    WaiveSerializer,
+)
 from booking.services import book_session
 from organizations.permissions import IsStaff, IsVenueMember, staff_covering
 
@@ -135,3 +147,122 @@ def _owned(request, pk):
     if booking.member != request.user and not staff_covering(request, request.venue):
         raise NotFound("No such venue.")
     return booking
+
+
+class PolicyListView(APIView):
+    """Back-office rule lookup; filterable for the desk UI and coverage."""
+
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaff,
+    ]
+
+    @extend_schema(responses=PolicySerializer(many=True))
+    def get(self, request):
+        policies = CancellationPolicy.objects.filter(
+            organization=request.venue.organization
+        ).order_by("venue", "class_category", "plan_type")
+        venue = request.query_params.get("venue")
+        if venue is not None:
+            policies = policies.filter(venue__slug=venue)
+        category = request.query_params.get("class_category")
+        if category is not None:
+            policies = policies.filter(class_category=category)
+        plan = request.query_params.get("plan_type")
+        if plan is not None:
+            policies = policies.filter(plan_type=plan)
+        enforcement = request.query_params.get("enforcement")
+        if enforcement is not None:
+            policies = policies.filter(enforcement=enforcement)
+        return Response(PolicySerializer(policies, many=True).data)
+
+
+def _record_response(request, pk, call):
+    booking = _owned(request, pk)
+    with mapped_errors():
+        record = call(booking)
+    return Response(RecordSerializer(record).data)
+
+
+class BookingCancelView(APIView):
+    """Cancel one booking: member's own choice, or desk on their behalf
+    with an explicit reason. Waivers ride along; contradictions raise."""
+
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
+
+    @extend_schema(request=CancelBookingSerializer, responses=RecordSerializer)
+    def post(self, request, pk):
+        data = CancelBookingSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        params = data.validated_data
+        params["reason"] = params.get("reason") or ""
+        return _record_response(
+            request,
+            pk,
+            lambda booking: cancel_booking(
+                booking_id=booking.pk, actor=request.user, **params
+            ),
+        )
+
+
+class NoShowView(APIView):
+    """Door-observed absence. Door staff only; the service enforces it."""
+
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
+
+    @extend_schema(request=None, responses=RecordSerializer)
+    def post(self, request, pk):
+        return _record_response(
+            request,
+            pk,
+            lambda booking: mark_no_show(booking_id=booking.pk, actor=request.user),
+        )
+
+
+class CheckInView(APIView):
+    """Status-only attendance mark. Door staff only."""
+
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
+
+    @extend_schema(request=None, responses=BookingSerializer)
+    def post(self, request, pk):
+        booking = _owned(request, pk)
+        with mapped_errors():
+            booking = check_in(booking_id=booking.pk, actor=request.user)
+        return Response(BookingSerializer(booking).data)
+
+
+class RecordWaiveView(APIView):
+    """Retroactive waiver with a required reason. Waive-capable roles only."""
+
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
+
+    @extend_schema(request=WaiveSerializer, responses=RecordSerializer)
+    def post(self, request, pk):
+        data = WaiveSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        record = (
+            CancellationRecord.objects.filter(
+                pk=pk, organization=request.venue.organization
+            )
+            .select_related("booking")
+            .first()
+        )
+        if record is None:
+            raise NotFound("No such venue.")
+        with mapped_errors():
+            waive_record(
+                record_id=record.pk,
+                actor=request.user,
+                reason=data.validated_data["reason"],
+            )
+        record.refresh_from_db()
+        return Response(RecordSerializer(record).data)

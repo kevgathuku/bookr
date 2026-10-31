@@ -418,3 +418,92 @@ class TestGenerateSessionsEndpoint:
         )
 
         assert response.status_code == 400
+
+
+class TestPolicyListEndpoint:
+    def _client(self, user, venue):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
+        return client
+
+    def _setup(self, slug="policies"):
+        from organizations.models import OrgRole
+
+        venue = VenueFactory(slug=slug)
+        staff = UserFactory(username=f"staff-{slug}")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=staff,
+            role=OrgRole.Role.MANAGER,
+        )
+        member = UserFactory(username=f"member-{slug}")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        return venue, staff, member
+
+    def test_staff_filters_by_category(self):
+        from booking.models import CancellationPolicy
+
+        venue, staff, _member = self._setup()
+        org = venue.organization
+        CancellationPolicy.objects.create(
+            organization=org,
+            late_cancel_hours=12,
+            enforcement=CancellationPolicy.Enforcement.STRIKE,
+        )
+        CancellationPolicy.objects.create(
+            organization=org,
+            class_category="private",
+            late_cancel_hours=12,
+            enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
+        )
+
+        response = self._client(staff, venue).get(
+            "/api/v1/policies/?class_category=private"
+        )
+
+        assert response.status_code == 200
+        assert len(response.data) == 1
+        assert response.data[0]["class_category"] == "private"
+
+    def test_member_cannot_list_policies(self):
+        venue, _staff, member = self._setup(slug="policies-member")
+
+        response = self._client(member, venue).get("/api/v1/policies/")
+
+        assert response.status_code == 403
+
+    def test_session_list_filters_by_category(self):
+        venue = VenueFactory(slug="series-filter")
+        group = ClassOfferingFactory(
+            venue=venue, category="group", duration_minutes=60
+        )
+        private = ClassOfferingFactory(
+            venue=venue, category="private", duration_minutes=60
+        )
+        start = timezone.now() + timedelta(days=1)
+        ClassSessionFactory(offering=group, starts_at=start)
+        ClassSessionFactory(offering=private, starts_at=start)
+        member = UserFactory(username="filter-member")
+        from organizations.models import OrgRole
+
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+
+        response = self._client(member, venue).get(
+            "/api/v1/sessions/?category=private"
+        )
+
+        assert response.status_code == 200
+        assert len(response.data) == 1
+        assert response.data[0]["category"] == "private"

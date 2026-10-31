@@ -19,6 +19,7 @@ from scheduling.serializers import (
     OfferingSerializer,
     RoomSerializer,
     ScheduledClassSerializer,
+    SessionCancelSerializer,
     SessionSerializer,
     TeacherSubstitutionSerializer,
 )
@@ -219,3 +220,40 @@ class SessionViewSet(viewsets.ReadOnlyModelViewSet):
             )
             .order_by("starts_at")
         )
+
+    def get_object(self):
+        # Cancel acts on one session regardless of the list window.
+        venue = self.request.venue
+        session = (
+            ClassSession.objects.for_venue(venue)
+            .select_related("offering")
+            .filter(pk=self.kwargs["pk"])
+            .first()
+        )
+        if session is None:
+            raise NotFound("No such venue.")
+        return session
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="cancel",
+        permission_classes=[IsVenueMember],
+    )
+    def cancel(self, request, pk=None):
+        """Provider-side cancel. The service decides who may: desk any
+        session, teachers their own; everyone refunds, none penalized."""
+        from booking.cancellations import cancel_session
+        from booking.http import mapped_errors
+        from booking.serializers import RecordSerializer
+
+        data = SessionCancelSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        session = self.get_object()
+        with mapped_errors():
+            records = cancel_session(
+                session_id=session.pk,
+                actor=request.user,
+                reason=data.validated_data["reason"],
+            )
+        return Response(RecordSerializer(records, many=True).data)
