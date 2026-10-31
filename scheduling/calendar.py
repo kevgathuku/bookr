@@ -4,7 +4,7 @@ from rest_framework import generics, serializers
 
 from organizations.permissions import IsVenueMember
 from scheduling.appointments import Appointment
-from scheduling.models import ScheduledClass
+from scheduling.catalogue import ClassSession
 from scheduling.views import MAX_WINDOW, parse_window_bound
 
 
@@ -29,7 +29,7 @@ class CalendarView(generics.ListAPIView):
 
     def get_queryset(self):
         # DRF needs a queryset; the merged list is built in list().
-        return ScheduledClass.objects.none()
+        return ClassSession.objects.none()
 
     def list(self, request, *args, **kwargs):
         from django.utils import timezone
@@ -53,30 +53,16 @@ class CalendarView(generics.ListAPIView):
         return Response(serializer.data)
 
     def _classes(self, start, end):
-        classes = (
-            ScheduledClass.objects.for_venue(self.request.venue)
-            .select_related("class_type", "room", "teacher")
-            .filter(starts_at__lt=end, ends_at__gt=start)
+        sessions = ClassSession.objects.for_venue(self.request.venue).live()
+        sessions = (
+            sessions.in_window(start, end)
+            .select_related("offering", "offering__teacher")
             .order_by("starts_at")
         )
         teacher_id = self._int_param("teacher")
         if teacher_id is not None:
-            classes = classes.filter(teacher_id=teacher_id)
-        room_id = self._int_param("room")
-        if room_id is not None:
-            classes = classes.filter(room_id=room_id)
-        return [
-            {
-                "kind": "class",
-                "id": klass.pk,
-                "title": klass.class_type.name,
-                "starts_at": klass.starts_at,
-                "ends_at": klass.ends_at,
-                "room": klass.room.name,
-                "teacher": klass.teacher_id,
-            }
-            for klass in classes
-        ]
+            sessions = sessions.filter(offering__teacher_id=teacher_id)
+        return [_serialize_session(session) for session in sessions]
 
     def _appointments(self, start, end):
         appointments = (
@@ -112,3 +98,15 @@ class CalendarView(generics.ListAPIView):
             return int(value)
         except TypeError, ValueError:
             raise serializers.ValidationError(f"{name} must be an integer.")
+
+
+def _serialize_session(session):
+    return {
+        "kind": "session",
+        "id": session.pk,
+        "title": session.offering.title,
+        "starts_at": session.starts_at,
+        "ends_at": session.ends_at,
+        "room": None,
+        "teacher": session.offering.teacher_id,
+    }

@@ -145,3 +145,21 @@ def try_book(member, klass, key):
 
     with contextlib.suppress(DuplicateBooking, SeatFull):
         book_seat(member, klass, idempotency_key=key)
+
+
+def seed_new_graph(venue, people):
+    """New-catalogue rows the calendar serves: one offering + one session."""
+    from scheduling.catalogue import ClassCategory, ClassOffering, ClassSession
+
+    offering, _ = ClassOffering.objects.get_or_create(
+        venue=venue,
+        teacher=people["teacher"],
+        title="Spin",
+        category=ClassCategory.GROUP,
+        defaults={"duration_minutes": 60, "credit_cost": 1},
+    )
+    start = timezone.now() + timedelta(days=class_days_out())
+    if not ClassSession.objects.filter(
+        offering=offering, starts_at__gt=timezone.now()
+    ).exists():
+        ClassSession.objects.create(offering=offering, starts_at=start)

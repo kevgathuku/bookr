@@ -17,6 +17,7 @@ from organizations.management.seed_helpers import (
     class_days_out,
     ensure_membership,
     schedule_class,
+    seed_new_graph,
 )
 from organizations.models import Membership, Organization, Venue, VenuePolicy
 from passes.models import PassProduct
@@ -83,6 +84,7 @@ def _e2e_org():
     if not member.passes.exists():
         issue_pass(member, product)
     _seed_extra_places(org, people, venue)
+    seed_new_graph(venue, people)
     _seed_extras(
         venue,
         org,
