@@ -172,7 +172,14 @@ class TestPartnerCancel:
         assert cancelled.json()["status"] == "cancelled"
 
     def test_late_cancel_marks_late_without_charges(self):
+        from booking.models import CancellationPolicy
+
         session, _partner, client = self._client_for("agg-late", "lateco")
+        CancellationPolicy.objects.create(
+            organization=session.offering.venue.organization,
+            late_cancel_hours=12,
+            enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
+        )
         session.starts_at = timezone.now() + timedelta(minutes=10)
         session.save(update_fields=["starts_at"])
         url = "/api/v1/aggregators/lateco/bookings/"
