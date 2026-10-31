@@ -1,11 +1,11 @@
 """Back-office building blocks: role-based model permissions plus
-per-venue row scoping. Membership roles are the single source of truth
-(ADR-0005) — Django Groups are never consulted."""
+per-venue row scoping. OrgRole rows are the single source of truth —
+Django Groups are never consulted."""
 
 from django.contrib import admin
 from django.db.models import Q
 
-from organizations.models import Membership, OrgRole, Venue
+from organizations.models import OrgRole, Venue
 
 BACK_OFFICE_ROLES = ("owner", "manager", "frontdesk")
 MANAGE_ROLES = ("owner", "manager")
@@ -21,35 +21,17 @@ class BookrAdminSite(admin.AdminSite):
             return True
         if not request.user.is_active:
             return False
-        return (
-            Membership.objects.filter(
-                user=request.user, role__in=BACK_OFFICE_ROLES
-            ).exists()
-            or OrgRole.objects.filter(
-                user=request.user, role__in=BACK_OFFICE_ROLES
-            ).exists()
-        )
+        return OrgRole.objects.filter(
+            user=request.user, role__in=BACK_OFFICE_ROLES
+        ).exists()
 
 
 bookr_site = BookrAdminSite(name="bookr")
 
 
-def _memberships(request):
-    """Membership rows, once per request (middleware already fetched them
-    for session users; the fallback queries a single time)."""
-    cached = getattr(request, "memberships", None)
-    if cached is None:
-        cached = list(
-            Membership.objects.filter(user=request.user).select_related(
-                "venue", "organization"
-            )
-        )
-        request.memberships = cached
-    return cached
-
-
 def _org_roles(request):
-    """New-domain roles, once per request (mirrors _memberships)."""
+    """OrgRole rows, once per request (middleware already fetched them
+    for session users; the fallback queries a single time)."""
     cached = getattr(request, "org_role_rows", None)
     if cached is None:
         cached = list(
@@ -64,19 +46,14 @@ def _org_roles(request):
 def staff_roles(request):
     if request.user.is_superuser:
         return set(MANAGE_ROLES)
-    return {mem.role for mem in _memberships(request)} | {
-        row.role for row in _org_roles(request)
-    }
+    return {row.role for row in _org_roles(request)}
 
 
 def scoped_venues(request):
     """Venues the user covers: pinned plus spanning-org venues."""
-    memberships = _memberships(request)
-    pinned = [mem.venue_id for mem in memberships if mem.venue_id is not None]
-    orgs = {mem.organization_id for mem in memberships if mem.venue_id is None}
     roles = _org_roles(request)
-    pinned.extend(row.venue_id for row in roles if row.venue_id is not None)
-    orgs.update(row.organization_id for row in roles if row.venue_id is None)
+    pinned = [row.venue_id for row in roles if row.venue_id is not None]
+    orgs = {row.organization_id for row in roles if row.venue_id is None}
     return Venue.objects.filter(Q(pk__in=pinned) | Q(organization__in=orgs))
 
 
@@ -89,7 +66,7 @@ class VenueScopedAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(self._scope_q(request))
+        return qs.filter(self.scope_q(request))
 
     def has_view_permission(self, request, obj=None):
         return bool(set(staff_roles(request)) & set(BACK_OFFICE_ROLES))
@@ -107,7 +84,7 @@ class VenueScopedAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return bool(set(staff_roles(request)) & set(MANAGE_ROLES))
 
-    def _scope_q(self, request):
+    def scope_q(self, request):
         return Q(**{f"{self.venue_path}__in": scoped_venues(request)})
 
 

@@ -1,16 +1,16 @@
 # Demo cast: fixed usernames (password "password" for all), so the README
 # can name every login and each one works straight after seeding.
-# Re-runnable via get_or_create throughout; exact-start classes never dup.
+# Re-runnable via get_or_create throughout.
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
 from organizations.management.seed_helpers import (
     create_user,
-    ensure_membership,
-    schedule_class,
-    schedule_weekly,
+    ensure_org_role,
+    seed_sessions,
 )
-from organizations.models import Membership, Organization, Venue
+from organizations.models import Organization, OrgRole, Venue
+from scheduling.catalogue import ClassCategory
 
 
 def _spanning_org():
@@ -27,22 +27,22 @@ def _spanning_org():
         slug="annex",
         defaults={"name": "Annex", "time_zone": "America/New_York"},
     )
-    # Annex stays bookable-free in the demo; it exists for the venue switcher.
+    # Annex stays session-free in the demo; it exists for the venue switcher.
     cast = {
-        "owner": Membership.Role.OWNER,
-        "manager": Membership.Role.MANAGER,
-        "teacher": Membership.Role.TEACHER,
-        "frontdesk": Membership.Role.FRONTDESK,
-        "member": Membership.Role.MEMBER,
-        "member2": Membership.Role.MEMBER,
+        "owner": OrgRole.Role.OWNER,
+        "manager": OrgRole.Role.MANAGER,
+        "teacher": OrgRole.Role.TEACHER,
+        "frontdesk": OrgRole.Role.FRONTDESK,
+        "member": OrgRole.Role.MEMBER,
+        "member2": OrgRole.Role.MEMBER,
     }
     users = {}
     for key, role in cast.items():
         user = create_user(f"demo-{key}")
-        ensure_membership(org, user, role)
+        ensure_org_role(org, user, role)
         users[key] = user
-    schedule_weekly(main, users["teacher"], "Spin", "Main Room", [0, 2, 4], 7)
-    schedule_weekly(main, users["teacher"], "Yoga", "Studio", [1, 3], 18)
+    seed_sessions(main, users["teacher"], "Spin", ClassCategory.GROUP, [0, 2, 4], 7)
+    seed_sessions(main, users["teacher"], "Yoga", ClassCategory.GROUP, [1, 3], 18)
 
 
 def _per_venue_org():
@@ -50,7 +50,6 @@ def _per_venue_org():
         slug="uptown-box",
         defaults={
             "name": "Uptown Box",
-            "membership_scope": Organization.Scope.PER_VENUE,
         },
     )
     box, _ = Venue.objects.get_or_create(
@@ -64,11 +63,11 @@ def _per_venue_org():
         defaults={"name": "Annex Box", "time_zone": "America/Chicago"},
     )
     pinned = create_user("demo-pinned")
-    ensure_membership(org, pinned, Membership.Role.MEMBER, box)
+    ensure_org_role(org, pinned, OrgRole.Role.MEMBER, box)
     coach = create_user("demo-coach")
-    ensure_membership(org, coach, Membership.Role.TEACHER, annex)
-    schedule_class(box, coach, "Box", "The Floor")
-    schedule_class(annex, coach, "Box", "The Floor")
+    ensure_org_role(org, coach, OrgRole.Role.TEACHER, annex)
+    seed_sessions(box, coach, "Box", ClassCategory.GROUP, [0, 2, 4], 7, capacity=20)
+    seed_sessions(annex, coach, "Box", ClassCategory.GROUP, [1, 3], 18)
 
 
 def _remodel_graph():

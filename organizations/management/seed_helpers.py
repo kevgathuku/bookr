@@ -2,16 +2,15 @@
 
 Demo cast uses fixed usernames (password "password" for all), so the README
 can name every login and each one works straight after seeding.
-Re-runnable via get_or_create throughout; exact-start classes never dup.
+Re-runnable via get_or_create throughout.
 """
 
 import contextlib
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.utils import timezone
-
-from organizations.models import Membership, VenuePolicy
 
 
 def create_user(username):
@@ -26,26 +25,14 @@ def create_user(username):
     return user
 
 
-def ensure_membership(org, user, role, venue=None):
-    Membership.objects.get_or_create(
-        organization=org, venue=venue, user=user, defaults={"role": role}
-    )
+def ensure_org_role(org, user, role, venue=None):
+    from organizations.models import OrgRole
 
-
-def ensure_room(venue, name, capacity):
-    from scheduling.models import Room
-
-    room, _ = Room.objects.get_or_create(
-        venue=venue, name=name, defaults={"capacity": capacity}
-    )
-    if room.capacity != capacity:
-        room.capacity = capacity
-        room.save(update_fields=["capacity"])
-    return room
+    OrgRole.objects.get_or_create(organization=org, venue=venue, user=user, role=role)
 
 
 def class_days_out():
-    """Days out so the class lands inside the displayed Sunday-start week.
+    """Days out so the class lands inside the displayed week.
 
     The calendar shows the current week; plain "+1 day" falls into next
     week on Saturdays, leaving an empty grid. Seed later today instead.
@@ -53,35 +40,6 @@ def class_days_out():
     if timezone.now().weekday() == 5:  # Saturday
         return 0.2  # ~5h out: still future and bookable, still this week
     return 1
-
-
-def schedule_class(venue, teacher, class_name, room_name, capacity=20, days=1):
-    from scheduling.models import ClassType, ScheduledClass
-
-    VenuePolicy.objects.get_or_create(venue=venue, valid_until=None)
-    class_type = ClassType.objects.get_or_create(
-        venue=venue,
-        name=class_name,
-        defaults={"duration_min": 45},
-    )[0]
-    room = ensure_room(venue, room_name, capacity)
-    start = timezone.now() + timedelta(days=days)
-    # Re-runnable: drop this room's stale classes, keep one fresh slot.
-    ScheduledClass.objects.filter(
-        venue=venue, room=room, starts_at__lte=timezone.now()
-    ).delete()
-    fresh = ScheduledClass.objects.filter(
-        venue=venue, room=room, starts_at__gt=timezone.now()
-    ).first()
-    if fresh is not None:
-        return fresh
-    return ScheduledClass.objects.get_or_create(
-        venue=venue,
-        room=room,
-        teacher=teacher,
-        starts_at=start,
-        defaults={"class_type": class_type, "ends_at": start + timedelta(hours=1)},
-    )[0]
 
 
 def next_weekday(now, weekday, hour, minute=0):
@@ -93,50 +51,30 @@ def next_weekday(now, weekday, hour, minute=0):
     return start
 
 
-def schedule_weekly(venue, teacher, class_name, room_name, weekdays, hour, capacity=20):
-    """One class on each listed weekday (0=Monday), next occurrence onward."""
-    from scheduling.models import ClassType, ScheduledClass
+def seed_sessions(venue, teacher, title, category, weekdays, hour, capacity=20):
+    """One offering plus next occurrence per weekday, via the real service."""
+    from scheduling.catalogue import ClassOffering
+    from scheduling.sessions import schedule_session
 
-    VenuePolicy.objects.get_or_create(venue=venue, valid_until=None)
-    class_type = ClassType.objects.get_or_create(
+    offering, _ = ClassOffering.objects.get_or_create(
         venue=venue,
-        name=class_name,
-        defaults={"duration_min": 60},
-    )[0]
-    room = ensure_room(venue, room_name, capacity)
-    ScheduledClass.objects.filter(
-        venue=venue, room=room, starts_at__lte=timezone.now()
-    ).delete()
+        teacher=teacher,
+        title=title,
+        category=category,
+        defaults={"duration_minutes": 60, "credit_cost": 1},
+    )
     made = []
     for weekday in weekdays:
         start = next_weekday(timezone.now(), weekday, hour)
-        klass, _ = ScheduledClass.objects.get_or_create(
-            venue=venue,
-            room=room,
-            teacher=teacher,
-            starts_at=start,
-            defaults={
-                "class_type": class_type,
-                "ends_at": start + timedelta(hours=1),
-            },
-        )
-        made.append(klass)
-    return made
-
-
-def grant_passes(product_venue, name, credits, members):
-    from passes.models import PassProduct
-    from passes.services import issue_pass
-
-    product, _ = PassProduct.objects.get_or_create(
-        venue=product_venue,
-        name=name,
-        defaults={"credits_total": credits, "validity_days": 30},
-    )
-    for member in members:
-        if not member.passes.exists():
-            issue_pass(member, product)
-    return product
+        existing = offering.sessions.filter(starts_at=start).first()
+        if existing is not None:
+            made.append(existing)
+            continue
+        with contextlib.suppress(ValidationError):
+            made.append(
+                schedule_session(offering=offering, starts_at=start, capacity=capacity)
+            )
+    return offering, made
 
 
 def try_book(member, session):

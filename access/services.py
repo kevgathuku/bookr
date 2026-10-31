@@ -7,22 +7,19 @@ passback replays excepted. Any DB failure denies (fail-closed).
 from datetime import timedelta
 
 from django.core.cache import cache
-from django.db.models import F, Q
+from django.db.models import Q
 from django.utils import timezone
 from prometheus_client import Counter
 
 from access.models import AccessEvent
 from booking.models import ACTIVE_STATUSES, Booking
 from organizations.capabilities import can_staff_door, roles_for
-from organizations.models import Membership
-from passes.models import MemberPass, PlanType
-from passes.models import Membership as PlanMembership
+from passes.models import Membership, PlanType
 
 grants_total = Counter("door_grants_total", "Granted door checks", ["venue_id"])
 
 CACHE_TTL_SECONDS = 60
 ENTRY_WINDOW_MINUTES = 15
-STAFF_ROLES = ("owner", "manager", "teacher", "frontdesk")
 
 
 def decide(access_point, member):
@@ -78,17 +75,6 @@ def _evaluate(access_point, member):
     now = timezone.now()
     if _has_valid_plan_membership(member, venue, now):
         return True, "active_pass", None
-    if (
-        MemberPass.objects.filter(
-            member=member,
-            status=MemberPass.Status.ACTIVE,
-            valid_from__lte=now,
-            valid_until__gte=now,
-        )
-        .exclude(credits_total__isnull=False, credits_used__gte=F("credits_total"))
-        .exists()
-    ):
-        return True, "active_pass", None
     booking = _live_booking(member, venue, now)
     if booking is not None:
         return True, "live_booking", booking
@@ -101,7 +87,7 @@ def _has_valid_plan_membership(member, venue, now):
     """Monthly valid within dates, or credit balance remaining within dates."""
     today = now.date()
     return (
-        PlanMembership.objects.filter(
+        Membership.objects.filter(
             user=member,
             plan__organization=venue.organization,
             starts_on__lte=today,
@@ -113,12 +99,6 @@ def _has_valid_plan_membership(member, venue, now):
 
 
 def _is_staff(member, venue):
-    if Membership.objects.filter(
-        Q(venue__isnull=True, organization=venue.organization) | Q(venue=venue),
-        user=member,
-        role__in=STAFF_ROLES,
-    ).exists():
-        return True
     return can_staff_door(roles_for(member, venue))
 
 

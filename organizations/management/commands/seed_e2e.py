@@ -1,30 +1,21 @@
-"""E2E dataset: fixed e2e-run org with known credentials, short windows,
-and one of every model the smoke suite touches. Re-runnable by construction
-(get_or_create + stale-class sweep); invoked via seed_demo --e2e."""
+"""E2E dataset: fixed e2e-run org with known credentials and sessions the
+smoke suite touches. Re-runnable by construction; invoked via
+seed_demo --e2e."""
 
 import contextlib
-from datetime import time as dtime
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
-from django.db import IntegrityError
 from django.utils import timezone
 
 from access.models import AccessEvent, AccessPoint
-from booking.errors import DuplicateBooking, SeatFull
-from booking.services import book_session
 from organizations.management.seed_helpers import (
     booker_membership,
-    class_days_out,
-    ensure_membership,
-    schedule_class,
+    ensure_org_role,
     seed_new_graph,
+    try_book,
 )
-from organizations.models import Membership, Organization, Venue, VenuePolicy
-from passes.models import PassProduct
-from passes.services import adjust_credit, issue_pass
-from scheduling.appointments import Appointment, AvailabilityRule, Resource
-from scheduling.models import TeacherSubstitution
+from organizations.models import Organization, OrgRole, Venue
 
 
 class Command(BaseCommand):
@@ -38,12 +29,12 @@ class Command(BaseCommand):
 
 
 _PEOPLE_SPECS = (
-    ("teacher", "e2e-run-teacher", Membership.Role.TEACHER),
-    ("member", "e2e-run-member", Membership.Role.MEMBER),
-    ("stranger", "e2e-run-stranger", Membership.Role.MEMBER),
-    ("sub", "e2e-run-sub", Membership.Role.TEACHER),
-    ("booker", "e2e-run-booker", Membership.Role.MEMBER),
-    ("frontdesk", "e2e-run-frontdesk", Membership.Role.FRONTDESK),
+    ("teacher", "e2e-run-teacher", OrgRole.Role.TEACHER),
+    ("member", "e2e-run-member", OrgRole.Role.MEMBER),
+    ("stranger", "e2e-run-stranger", OrgRole.Role.MEMBER),
+    ("sub", "e2e-run-sub", OrgRole.Role.TEACHER),
+    ("booker", "e2e-run-booker", OrgRole.Role.MEMBER),
+    ("frontdesk", "e2e-run-frontdesk", OrgRole.Role.FRONTDESK),
 )
 
 
@@ -53,7 +44,7 @@ def _e2e_people(org):
         user = get_user_model().objects.get_or_create(username=username)[0]
         user.set_password("password")
         user.save()
-        ensure_membership(org, user, role)
+        ensure_org_role(org, user, role)
         users[key] = user
     return users
 
@@ -70,77 +61,25 @@ def _e2e_org():
     if venue.time_zone == "UTC":
         venue.time_zone = "Africa/Nairobi"
         venue.save(update_fields=["time_zone"])
-    VenuePolicy.objects.update_or_create(
-        venue=venue,
-        valid_until=None,
-        defaults={"waitlist_hold_minutes": 1},
-    )
-    people = _e2e_people(org)
-    product = PassProduct.objects.get_or_create(
-        venue=venue,
-        name="E2E Pack",
-        defaults={"credits_total": 10, "validity_days": 30},
+    annex = Venue.objects.get_or_create(
+        organization=org,
+        slug="annex",
+        defaults={"name": "Annex", "time_zone": "Africa/Nairobi"},
     )[0]
-    member = people["member"]
-    if not member.passes.exists():
-        issue_pass(member, product)
-    _seed_extra_places(org, people, venue)
+    people = _e2e_people(org)
+    _seed_memberships(venue, people)
     seed_new_graph(venue, people)
-    _seed_extras(
-        venue,
-        org,
-        people,
-        product,
-        schedule_class(
-            venue, people["teacher"], "Spin", "Main Room", days=class_days_out()
-        ),
-    )
+    try_book(people["booker"], seed_new_graph(venue, people))
+    _seed_door(venue, people)
+    _seed_annex_session(annex, people)
 
 
-def _seed_appointment(venue, people, member, resource):
-    Appointment.objects.filter(
-        venue=venue, teacher=people["teacher"], starts_at__lte=timezone.now()
-    ).delete()
-    appt_start = timezone.now() + timezone.timedelta(days=2)
-    if Appointment.objects.filter(
-        venue=venue, teacher=people["teacher"], starts_at__gt=timezone.now()
-    ).exists():
-        return
-    Appointment.objects.create(
-        venue=venue,
-        member=member,
-        teacher=people["teacher"],
-        resource=resource,
-        starts_at=appt_start,
-        ends_at=appt_start + timezone.timedelta(hours=1),
-    )
+def _seed_memberships(venue, people):
+    booker_membership(venue, people["booker"])
+    booker_membership(venue, people["member"])
 
 
-def _seed_bookings(venue, people, klass, resource, product):
-    member = people["member"]
-    booker = people["booker"]
-    if not booker.passes.exists():
-        issue_pass(booker, product)
-    membership = booker_membership(venue, booker)
-    booker_membership(venue, member)
-    booker_membership(venue, member)
-    _seed_appointment(venue, people, member, resource)
-    session = seed_new_graph(venue, people)
-    with contextlib.suppress(DuplicateBooking, SeatFull):
-        book_session(member=booker, session=session, membership=membership)
-    member_pass = member.passes.first()
-    if member_pass is not None:
-        adjust_credit(member_pass, 1, "e2e goodwill", people["teacher"])
-
-
-def _seed_paperwork(venue, org, people, klass):
-    teacher = people["teacher"]
-    sub = people["sub"]
-    TeacherSubstitution.objects.get_or_create(
-        scheduled_class=klass,
-        new_teacher=sub,
-        defaults={"old_teacher": teacher, "reason": "e2e cover"},
-    )
+def _seed_door(venue, people):
     point = AccessPoint.objects.get_or_create(
         venue=venue, controller_id="e2e-door", defaults={"name": "E2E Door"}
     )[0]
@@ -156,57 +95,21 @@ def _seed_paperwork(venue, org, people, klass):
         )
 
 
-def _seed_extra_places(org, people, venue):
-    """Annex venue (switcher target) + capacity-1 class (waitlist journey)."""
-    from scheduling.models import ClassType, Room, ScheduledClass
+def _seed_annex_session(annex, people):
+    from scheduling.catalogue import ClassCategory, ClassOffering
 
-    annex = Venue.objects.get_or_create(
-        organization=org,
-        slug="annex",
-        defaults={"name": "Annex", "time_zone": "Africa/Nairobi"},
-    )[0]
-    if annex.time_zone == "UTC":
-        annex.time_zone = "Africa/Nairobi"
-        annex.save(update_fields=["time_zone"])
-    VenuePolicy.objects.get_or_create(venue=annex, valid_until=None)
-    schedule_class(
-        annex, people["teacher"], "Yoga", "Annex Room", days=class_days_out()
+    offering, _ = ClassOffering.objects.get_or_create(
+        venue=annex,
+        teacher=people["teacher"],
+        title="Yoga",
+        category=ClassCategory.GROUP,
+        defaults={"duration_minutes": 60, "credit_cost": 1},
     )
-    room = Room.objects.get_or_create(
-        venue=venue, name="Closet", defaults={"capacity": 1}
-    )[0]
+    from django.core.exceptions import ValidationError
+
+    from scheduling.sessions import schedule_session
+
     start = timezone.now() + timezone.timedelta(days=1)
-    ScheduledClass.objects.filter(
-        venue=venue, room=room, starts_at__lte=timezone.now()
-    ).delete()
-    class_type = ClassType.objects.get_or_create(
-        venue=venue, name="Tiny", defaults={"duration_min": 30}
-    )[0]
-    teacher = people["sub"]
-    try:
-        ScheduledClass.objects.get_or_create(
-            venue=venue,
-            room=room,
-            teacher=teacher,
-            starts_at=start,
-            defaults={
-                "class_type": class_type,
-                "ends_at": start + timezone.timedelta(minutes=30),
-            },
-        )
-    except IntegrityError:
-        return  # rerun landed inside the previous slot: reuse it
-
-
-def _seed_extras(venue, org, people, product, klass):
-    """Models the demo pair skips: appointments, bookings, subs, events."""
-    resource = Resource.objects.get_or_create(
-        venue=venue, name="Physio Table", defaults={"type": "equipment"}
-    )[0]
-    AvailabilityRule.objects.get_or_create(
-        resource=resource,
-        weekday=0,
-        defaults={"start_time": dtime(9, 0), "end_time": dtime(17, 0)},
-    )
-    _seed_bookings(venue, people, klass, resource, product)
-    _seed_paperwork(venue, org, people, klass)
+    if not offering.sessions.filter(starts_at__gt=timezone.now()).exists():
+        with contextlib.suppress(ValidationError):
+            schedule_session(offering=offering, starts_at=start)
