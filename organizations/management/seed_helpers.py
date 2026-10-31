@@ -170,9 +170,9 @@ def seed_new_graph(venue, people):
 def booker_membership(venue, user, name="Credits", credits=10, validity_days=30):
     """Get-or-create a credit-pack membership for API/seed booking flows."""
     from passes.models import Membership as PlanMembership
-    from passes.models import MembershipPlan, PlanType
+    from passes.models import Plan, PlanType
 
-    plan, _ = MembershipPlan.objects.get_or_create(
+    plan, _ = Plan.objects.get_or_create(
         organization=venue.organization,
         name=name,
         defaults={"plan_type": PlanType.CREDIT_PACK, "validity_days": validity_days},

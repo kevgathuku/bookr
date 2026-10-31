@@ -19,9 +19,9 @@ from tests.factories import (  # noqa: WPS235 — expand coverage needs one fact
     ClassOfferingFactory,
     ClassSessionFactory,
     CreditLedgerFactory,
-    MembershipPlanFactory,
     OrganizationFactory,
     OrgRoleFactory,
+    PlanFactory,
     PlanMembershipFactory,
     VenueFactory,
 )
@@ -123,7 +123,7 @@ class TestExpandCancellationPolicy:
 
 class TestExpandPlans:
     def test_plan_factory_builds_dated_pack(self):
-        plan = MembershipPlanFactory(plan_type=PlanType.CREDIT_PACK, validity_days=30)
+        plan = PlanFactory(plan_type=PlanType.CREDIT_PACK, validity_days=30)
 
         assert plan.pk is not None
         assert plan.plan_type == PlanType.CREDIT_PACK

@@ -163,7 +163,7 @@ class CreditLedger(models.Model):
         return f"{holder}: {sign}{self.delta} ({self.reason})"
 
 
-class MembershipPlan(models.Model):
+class Plan(models.Model):
     organization = models.ForeignKey(
         "organizations.Organization", on_delete=models.CASCADE, related_name="plans"
     )
@@ -183,9 +183,7 @@ class Membership(models.Model):
         on_delete=models.CASCADE,
         related_name="plan_memberships",
     )
-    plan = models.ForeignKey(
-        MembershipPlan, on_delete=models.PROTECT, related_name="memberships"
-    )
+    plan = models.ForeignKey(Plan, on_delete=models.PROTECT, related_name="memberships")
     credits_remaining = models.PositiveIntegerField(default=0)
     starts_on = models.DateField()
     # Every membership has a known end: packs expire per plan validity,

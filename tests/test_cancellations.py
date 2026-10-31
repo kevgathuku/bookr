@@ -30,8 +30,8 @@ from tests.factories import (
     CancellationPolicyFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
-    MembershipPlanFactory,
     OrgRoleFactory,
+    PlanFactory,
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
@@ -64,7 +64,7 @@ def _member(username, venue, credits=10, plan_type=PlanType.CREDIT_PACK):
         user=user,
         role=OrgRole.Role.MEMBER,
     )
-    plan = MembershipPlanFactory(organization=venue.organization, plan_type=plan_type)
+    plan = PlanFactory(organization=venue.organization, plan_type=plan_type)
     PlanMembershipFactory(user=user, plan=plan, credits_remaining=credits)
     return user
 
@@ -77,7 +77,7 @@ def _monthly(username, venue):
         user=user,
         role=OrgRole.Role.MEMBER,
     )
-    plan = MembershipPlanFactory(
+    plan = PlanFactory(
         organization=venue.organization, plan_type=PlanType.MONTHLY
     )
     PlanMembershipFactory(user=user, plan=plan, credits_remaining=0)

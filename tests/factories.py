@@ -12,7 +12,7 @@ from booking.models import CancellationPolicy
 from organizations.models import Membership, Organization, OrgRole, Venue
 from passes.models import (
     CreditLedger,
-    MembershipPlan,
+    Plan,
     PlanType,
 )
 from passes.models import (
@@ -127,9 +127,9 @@ class CancellationPolicyFactory(factory.django.DjangoModelFactory):
     enforcement = CancellationPolicy.Enforcement.NONE
 
 
-class MembershipPlanFactory(factory.django.DjangoModelFactory):
+class PlanFactory(factory.django.DjangoModelFactory):
     class Meta:
-        model = MembershipPlan
+        model = Plan
 
     organization = factory.SubFactory(OrganizationFactory)
     name = factory.Sequence(lambda n: f"Plan {n}")
@@ -142,7 +142,7 @@ class PlanMembershipFactory(factory.django.DjangoModelFactory):
         model = PlanMembership
 
     user = factory.SubFactory(UserFactory)
-    plan = factory.SubFactory(MembershipPlanFactory)
+    plan = factory.SubFactory(PlanFactory)
     credits_remaining = 0
     starts_on = factory.LazyFunction(lambda: timezone.now().date())
     ends_on = factory.LazyAttribute(

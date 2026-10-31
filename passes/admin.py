@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from organizations.admin_mixins import ReadOnlyAdmin, VenueScopedAdmin, bookr_site
-from passes.models import CreditLedger, MemberPass, MembershipPlan, PassProduct
+from passes.models import CreditLedger, MemberPass, PassProduct, Plan
 
 
 @admin.register(PassProduct, site=bookr_site)
@@ -10,8 +10,8 @@ class PassProductAdmin(VenueScopedAdmin):
     list_filter = ("venue",)
 
 
-@admin.register(MembershipPlan, site=bookr_site)
-class MembershipPlanAdmin(VenueScopedAdmin):
+@admin.register(Plan, site=bookr_site)
+class PlanAdmin(VenueScopedAdmin):
     list_display = ("name", "organization", "plan_type", "validity_days")
     list_filter = ("plan_type",)
 

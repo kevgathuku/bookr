@@ -14,8 +14,8 @@ from passes.models import PlanType
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
-    MembershipPlanFactory,
     OrgRoleFactory,
+    PlanFactory,
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
@@ -42,7 +42,7 @@ def _venue(slug):
 
 
 def _pack(venue, name, validity_days=30):
-    return MembershipPlanFactory(
+    return PlanFactory(
         organization=venue.organization,
         name=name,
         plan_type=PlanType.CREDIT_PACK,
@@ -71,7 +71,7 @@ def _monthly(username, venue):
     OrgRoleFactory(
         organization=venue.organization, venue=None, user=user, role=OrgRole.Role.MEMBER
     )
-    plan = MembershipPlanFactory(
+    plan = PlanFactory(
         organization=venue.organization,
         name=f"{username}-monthly",
         plan_type=PlanType.MONTHLY,
@@ -239,7 +239,7 @@ class TestBookSession:
 
 def _user_expired(venue):
     user = UserFactory(username="expired")
-    plan = MembershipPlanFactory(
+    plan = PlanFactory(
         organization=venue.organization,
         name="expired-pack",
         plan_type=PlanType.CREDIT_PACK,

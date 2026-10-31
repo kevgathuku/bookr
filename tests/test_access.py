@@ -17,9 +17,9 @@ from tests.factories import (  # noqa: WPS235 — access tests build every domai
     ClassOfferingFactory,
     ClassSessionFactory,
     ClassTypeFactory,
-    MembershipPlanFactory,
     OrganizationFactory,
     OrgRoleFactory,
+    PlanFactory,
     PlanMembershipFactory,
     RoomFactory,
     UserFactory,
@@ -91,7 +91,7 @@ def _session(venue, teacher=None, minutes_from_now=10):
 
 def _member_with_plan(venue, username, credits=5):
     member = _user(username)
-    plan = MembershipPlanFactory(
+    plan = PlanFactory(
         organization=venue.organization, name=f"{username}-pack"
     )
     PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
@@ -353,7 +353,7 @@ class TestDoorPlanMemberships:
     def test_monthly_plan_grants_without_balance(self):
         venue = _venue()
         member = _user("monthly")
-        plan = MembershipPlanFactory(
+        plan = PlanFactory(
             organization=venue.organization, plan_type=PlanType.MONTHLY
         )
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=0)
@@ -365,7 +365,7 @@ class TestDoorPlanMemberships:
     def test_pack_with_balance_grants(self):
         venue = _venue()
         member = _user("packholder")
-        plan = MembershipPlanFactory(
+        plan = PlanFactory(
             organization=venue.organization, plan_type=PlanType.CREDIT_PACK
         )
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=3)
@@ -377,7 +377,7 @@ class TestDoorPlanMemberships:
     def test_depleted_pack_denies(self):
         venue = _venue()
         member = _user("depleted")
-        plan = MembershipPlanFactory(
+        plan = PlanFactory(
             organization=venue.organization, plan_type=PlanType.CREDIT_PACK
         )
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=0)

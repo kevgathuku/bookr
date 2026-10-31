@@ -10,12 +10,12 @@ from aggregators.models import AggregatorBooking
 from booking.errors import AllotmentExhausted, DuplicateBooking
 from booking.models import ACTIVE_STATUSES, Booking
 from booking.services import book_session
-from passes.models import Membership, MembershipPlan, PlanType
+from passes.models import Membership, Plan, PlanType
 
 
 def _comp_membership(partner, organization):
     """The pass-free membership partner seats book through."""
-    plan, _ = MembershipPlan.objects.get_or_create(
+    plan, _ = Plan.objects.get_or_create(
         organization=organization,
         name="Aggregator complimentary",
         defaults={"plan_type": PlanType.COMPLIMENTARY, "validity_days": 365},

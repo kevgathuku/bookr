@@ -44,10 +44,10 @@ def _venue(slug="downtown"):
 
 
 def _member_with_plan(venue, username, credits=10):
-    from tests.factories import MembershipPlanFactory, PlanMembershipFactory
+    from tests.factories import PlanFactory, PlanMembershipFactory
 
     member = _user(username)
-    plan = MembershipPlanFactory(organization=venue.organization)
+    plan = PlanFactory(organization=venue.organization)
     membership = PlanMembershipFactory(
         user=member, plan=plan, credits_remaining=credits
     )
@@ -64,9 +64,9 @@ def _product(venue, name="Ten Pack", credits=5, types=None):
 
 
 def _plan(venue, name="Pack"):
-    from passes.models import MembershipPlan
+    from passes.models import Plan
 
-    return MembershipPlan.objects.get_or_create(
+    return Plan.objects.get_or_create(
         organization=venue.organization,
         name=name,
         defaults={"plan_type": "credit_pack", "validity_days": 30},
@@ -309,8 +309,8 @@ class TestLedgerUnion:
     def test_member_sees_plan_membership_rows(self):
         from organizations.models import OrgRole
         from tests.factories import (
-            MembershipPlanFactory,
             OrgRoleFactory,
+            PlanFactory,
             PlanMembershipFactory,
             UserFactory,
             VenueFactory,
@@ -324,7 +324,7 @@ class TestLedgerUnion:
             user=member,
             role=OrgRole.Role.MEMBER,
         )
-        plan = MembershipPlanFactory(organization=venue.organization)
+        plan = PlanFactory(organization=venue.organization)
         membership = PlanMembershipFactory(user=member, plan=plan)
         CreditLedger.objects.create(
             membership=membership,
@@ -341,8 +341,8 @@ class TestLedgerUnion:
     def test_staff_sees_org_plan_rows(self):
         from organizations.models import OrgRole
         from tests.factories import (
-            MembershipPlanFactory,
             OrgRoleFactory,
+            PlanFactory,
             PlanMembershipFactory,
             UserFactory,
             VenueFactory,
@@ -363,7 +363,7 @@ class TestLedgerUnion:
             user=staff,
             role=OrgRole.Role.MANAGER,
         )
-        plan = MembershipPlanFactory(organization=venue.organization)
+        plan = PlanFactory(organization=venue.organization)
         membership = PlanMembershipFactory(user=member, plan=plan)
         CreditLedger.objects.create(
             membership=membership,

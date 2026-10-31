@@ -33,13 +33,13 @@ def _session(venue):
 
 def _member_with_plan(venue, username):
     from tests.factories import (
-        MembershipPlanFactory,
+        PlanFactory,
         PlanMembershipFactory,
         UserFactory,
     )
 
     member = UserFactory(username=username)
-    plan = MembershipPlanFactory(organization=venue.organization)
+    plan = PlanFactory(organization=venue.organization)
     PlanMembershipFactory(user=member, plan=plan, credits_remaining=5)
     return member
 
@@ -149,8 +149,8 @@ class TestDeskCancelFlows:
         from tests.factories import (
             ClassOfferingFactory,
             ClassSessionFactory,
-            MembershipPlanFactory,
             OrgRoleFactory,
+            PlanFactory,
             PlanMembershipFactory,
             UserFactory,
         )
@@ -162,7 +162,7 @@ class TestDeskCancelFlows:
             user=member,
             role=OrgRole.Role.MEMBER,
         )
-        plan = MembershipPlanFactory(organization=venue.organization)
+        plan = PlanFactory(organization=venue.organization)
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
         offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
         session = ClassSessionFactory(

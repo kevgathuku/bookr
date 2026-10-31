@@ -20,8 +20,8 @@ from scheduling.catalogue import ClassCategory
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
-    MembershipPlanFactory,
     OrgRoleFactory,
+    PlanFactory,
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
@@ -54,7 +54,7 @@ def _member(username, venue, credits=10):
         user=user,
         role=OrgRole.Role.MEMBER,
     )
-    plan = MembershipPlanFactory(organization=venue.organization)
+    plan = PlanFactory(organization=venue.organization)
     PlanMembershipFactory(user=user, plan=plan, credits_remaining=credits)
     return user
 

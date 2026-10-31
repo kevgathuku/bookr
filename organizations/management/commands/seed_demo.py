@@ -102,7 +102,7 @@ def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, boo
     from booking.models import CancellationPolicy
     from booking.services import book_session
     from organizations.models import OrgRole
-    from passes.models import CreditLedger, MembershipPlan, PlanType
+    from passes.models import CreditLedger, Plan, PlanType
     from passes.models import Membership as PlanMembership
     from scheduling.catalogue import ClassCategory, ClassOffering, ClassSession
 
@@ -126,7 +126,7 @@ def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, boo
             "enforcement": CancellationPolicy.Enforcement.NONE,
         },
     )
-    plan, _ = MembershipPlan.objects.get_or_create(
+    plan, _ = Plan.objects.get_or_create(
         organization=org,
         name=plan_name,
         defaults={"plan_type": PlanType.CREDIT_PACK, "validity_days": 30},

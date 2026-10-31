@@ -14,8 +14,8 @@ from scheduling.models import ClassType, Room, ScheduledClass
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
-    MembershipPlanFactory,
     OrgRoleFactory,
+    PlanFactory,
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
@@ -298,7 +298,7 @@ class TestSessionList:
         venue, offering, member = self._world()
         session = ClassSessionFactory(offering=offering)
         booker = UserFactory(username="spot-booker")
-        plan = MembershipPlanFactory(organization=venue.organization)
+        plan = PlanFactory(organization=venue.organization)
         membership = PlanMembershipFactory(user=booker, plan=plan, credits_remaining=5)
         book_session(member=booker, session=session, membership=membership)
         start = session.starts_at.isoformat()
