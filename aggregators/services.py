@@ -74,18 +74,24 @@ def book_partner_seat(partner, session, external_id):
 
 
 def cancel_partner_booking(partner, booking):
-    """Cancel with the contract cutoff; never touches member passes."""
+    """Cancel with the contract cutoff; never touches member passes.
+
+    Delegates the transition to cancel_booking so every partner cancel
+    leaves the same unified record; the contract cutoff only annotates
+    the reason."""
+    from booking.cancellations import cancel_booking
+
     target = booking.session
     if booking.status != Booking.Status.BOOKED:
         raise ValidationError("Booking is already closed.")
     cutoff = target.starts_at - timedelta(minutes=partner.cancel_cutoff_minutes)
     late = timezone.now() > cutoff
-    with transaction.atomic():
-        locked = Booking.objects.select_for_update(of=("self",)).get(pk=booking.pk)
-        if locked.status != Booking.Status.BOOKED:
-            raise ValidationError("Booking is already closed.")
-        locked.status = (
-            Booking.Status.LATE_CANCELLED if late else Booking.Status.CANCELLED
-        )
-        locked.save(update_fields=["status"])
-    return locked
+    window = "inside" if late else "outside"
+    record = cancel_booking(
+        booking_id=booking.pk,
+        actor=booking.member,
+        now=timezone.now(),
+        reason=f"partner {partner.slug} cancel ({window} contract cutoff)",
+    )
+    record.booking.refresh_from_db()
+    return record.booking
