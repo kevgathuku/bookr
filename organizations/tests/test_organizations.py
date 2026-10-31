@@ -1,8 +1,8 @@
 import pytest
 from django.db import IntegrityError
 
-from organizations.models import Organization, Venue
-from tests.factories import OrganizationFactory, VenueFactory
+from organizations.models import Organization, OrgRole, Venue
+from tests.factories import OrganizationFactory, OrgRoleFactory, VenueFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -63,3 +63,16 @@ class TestVenue:
         venue.organization.delete()
 
         assert not Venue.objects.filter(pk=venue.pk).exists()
+
+
+class TestOrgRole:
+    def test_str_org_wide(self):
+        role = OrgRoleFactory(role=OrgRole.Role.MANAGER, venue=None)
+
+        assert str(role) == f"{role.user} · manager @ all venues"
+
+    def test_str_single_venue(self):
+        venue = VenueFactory(name="Downtown")
+        role = OrgRoleFactory(role=OrgRole.Role.MANAGER, venue=venue)
+
+        assert str(role) == f"{role.user} · manager @ Downtown"
