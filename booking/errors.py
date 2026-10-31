@@ -20,3 +20,11 @@ class DuplicateBooking(BookingError):
 
 class AllotmentExhausted(BookingError):
     """Partner holds no more seats in this session."""
+
+
+class AlreadyCancelled(BookingError):
+    """Booking is no longer active; repeats change nothing."""
+
+
+class SessionStarted(BookingError):
+    """Session has started or been provider-cancelled."""
