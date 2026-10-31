@@ -195,3 +195,66 @@ def test_partner_channel_capped_rotated(base_url):
     partner.save(update_fields=["api_token_hash"])
     stale = partner_client.post(url, json={"session": session.pk, "external_id": "e4"})
     assert stale.status_code == 401
+
+
+def _waitlist_world():
+    """Committed capacity-1 GROUP session + two credited members."""
+    from django.contrib.auth import get_user_model
+    from django.utils import timezone
+
+    from organizations.management.seed_helpers import booker_membership, ensure_org_role
+    from organizations.models import OrgRole, Venue
+    from tests.factories import ClassOfferingFactory, ClassSessionFactory
+
+    users = get_user_model().objects
+    venue = Venue.objects.get(organization__slug=ORG_SLUG, slug="main")
+    teacher = users.get(username="e2e-run-teacher")
+    offering = ClassOfferingFactory(venue=venue, teacher=teacher, title="Tiny Spin")
+    session = ClassSessionFactory(
+        offering=offering,
+        starts_at=timezone.now() + timedelta(days=1),
+        capacity=1,
+    )
+    for username in ("wl-booker", "wl-queued"):
+        user = users.create_user(username=username, password=PASSWORD)
+        ensure_org_role(venue.organization, user, OrgRole.Role.MEMBER)
+        booker_membership(venue, user)
+    return session
+
+
+def test_waitlist_queue_returns_waitlisted(base_url):
+    api = f"{base_url}/api/v1"
+    session = _waitlist_world()
+    booker = _login(base_url, "wl-booker")
+    queued = _login(base_url, "wl-queued")
+
+    booked = booker.post(f"{api}/bookings/", json={"session": session.pk})
+    assert booked.status_code == 201, booked.text
+    full = queued.post(f"{api}/bookings/", json={"session": session.pk})
+    assert full.status_code == 409, full.text
+
+    waitlist_url = f"{api}/bookings/?waitlist=true"
+    waiting = queued.post(waitlist_url, json={"session": session.pk})
+    assert waiting.status_code == 201, waiting.text
+    assert waiting.json()["status"] == "waitlisted"
+    assert waiting.json()["credits_spent"] == 0
+
+
+def test_cancel_promotes_waitlisted_member(base_url):
+    api = f"{base_url}/api/v1"
+    session = _waitlist_world()
+    booker = _login(base_url, "wl-booker")
+    queued = _login(base_url, "wl-queued")
+
+    booked = booker.post(f"{api}/bookings/", json={"session": session.pk})
+    waitlist_url = f"{api}/bookings/?waitlist=true"
+    waiting = queued.post(waitlist_url, json={"session": session.pk})
+    booking_id = booked.json()["id"]
+    cancel = booker.post(f"{api}/bookings/{booking_id}/cancel/", json={})
+    assert cancel.status_code == 200, cancel.text
+
+    mine = queued.get(f"{api}/bookings/me/", params={"mine": "true"})
+    assert mine.status_code == 200, mine.text
+    promoted = next(b for b in mine.json() if b["id"] == waiting.json()["id"])
+    assert promoted["status"] == "booked"
+    assert promoted["credits_spent"] > 0

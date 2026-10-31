@@ -22,6 +22,7 @@ from booking.models import (
 )
 from booking.notifications import notify_member_cancel, notify_session_cancelled
 from booking.policies import resolve_policy
+from booking.tasks import promote_waitlist
 from organizations.capabilities import (
     can_operate_desk,
     can_staff_door,
@@ -57,21 +58,15 @@ def cancel_booking(
     """Cancel one booking, applying the resolved rule. Returns the record."""
     moment = now or timezone.now()
     with transaction.atomic():
-        booking, session, venue, organization = _load_open_booking(booking_id, moment)
-        return _committed(
-            _apply_cancel(
-                booking,
-                session,
-                venue,
-                organization,
-                actor,
-                on_behalf_of,
-                waive_penalty,
-                moment,
-                reason,
-            ),
+        loaded = _load_open_booking(booking_id, moment)
+        record = _committed(
+            _apply_cancel(*loaded, actor, on_behalf_of, waive_penalty, moment, reason),
             notify_member_cancel,
         )
+        # A freed seat passes to the queue head (member, late, and
+        # staff-on-behalf cancels all free exactly one seat here).
+        promote_waitlist.delay(session_id=loaded[1].pk)
+        return record
 
 
 def _committed(record, notify):
@@ -186,25 +181,32 @@ def mark_no_show(*, booking_id, actor):
         _require_door(actor, organization)
         booking.status = Booking.Status.NO_SHOW
         booking.save(update_fields=["status"])
-        outcome = _Outcome(
-            applied=CancellationPolicy.Enforcement.NONE,
-            refund=0,
-            cause=CancellationRecord.Cause.NO_SHOW,
-            status=Booking.Status.NO_SHOW,
-            policy=None,
-            on_behalf_of=False,
-            reason="",
-        )
-        return CancellationRecord.objects.create(
-            booking=booking,
-            member=booking.member,
-            organization=organization,
-            cause=outcome.cause,
-            was_late=True,
-            enforcement_applied=outcome.applied,
-            credits_refunded=0,
-            snapshot=_snapshot(booking, session, outcome, actor, False),
-        )
+        record = _write_no_show_record(booking, session, organization, actor)
+        # The freed seat passes to the queue head.
+        promote_waitlist.delay(session_id=session.pk)
+        return record
+
+
+def _write_no_show_record(booking, session, organization, actor):
+    outcome = _Outcome(
+        applied=CancellationPolicy.Enforcement.NONE,
+        refund=0,
+        cause=CancellationRecord.Cause.NO_SHOW,
+        status=Booking.Status.NO_SHOW,
+        policy=None,
+        on_behalf_of=False,
+        reason="",
+    )
+    return CancellationRecord.objects.create(
+        booking=booking,
+        member=booking.member,
+        organization=organization,
+        cause=outcome.cause,
+        was_late=True,
+        enforcement_applied=outcome.applied,
+        credits_refunded=0,
+        snapshot=_snapshot(booking, session, outcome, actor, False),
+    )
 
 
 def check_in(*, booking_id, actor):

@@ -7,12 +7,13 @@ from django.db import models
 from passes.models import PlanType
 from scheduling.catalogue import ClassCategory
 
-ACTIVE_STATUSES = ("booked",)
+ACTIVE_STATUSES = ("booked", "waitlisted")
 
 
 class Booking(models.Model):
     class Status(models.TextChoices):
         BOOKED = "booked", "Booked"
+        WAITLISTED = "waitlisted", "Waitlisted"
         CANCELLED = "cancelled", "Cancelled"
         LATE_CANCELLED = "late_cancelled", "Late cancelled"
         NO_SHOW = "no_show", "No-show"
@@ -31,7 +32,11 @@ class Booking(models.Model):
         "passes.Membership", on_delete=models.PROTECT, related_name="bookings"
     )
     # Credits actually debited at booking time; refunds return exactly this.
+    # Waitlisted rows stamp zero: spend happens on promotion, never on join.
     credits_spent = models.PositiveIntegerField(default=0)
+    # Promotion reserves the seat until this moment; the sweep releases
+    # lapsed holds. NULL for every other status.
+    hold_expires_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.BOOKED
     )

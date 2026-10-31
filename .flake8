@@ -115,6 +115,8 @@ per-file-ignores =
         WPS211,
     booking/errors.py:
         WPS202,
+    booking/notifications.py:
+        WPS202,
     booking/admin.py:
         WPS202,
         WPS221,

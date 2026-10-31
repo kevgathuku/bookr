@@ -52,18 +52,19 @@ class BookingsView(APIView):
 
     @extend_schema(request=BookSerializer, responses=BookingSerializer)
     def post(self, request):
-        if request.query_params.get("waitlist") == "true":
-            # Waitlists return with the waitlist follow-up; fail loudly
-            # instead of silently booking past a full class.
-            raise ValidationError("Waitlists are not currently offered.")
         form = BookSerializer(data=request.data)
         form.is_valid(raise_exception=True)
         session = form.validated_data["session"]
         if session.offering.venue != request.venue:
             raise NotFound("No such venue.")
+        # Full GROUP sessions queue instead of 409ing when asked; private
+        # sessions never queue (book or 409, no row).
+        waitlist = request.query_params.get("waitlist") == "true"
         try:
             with mapped_errors():
-                booking = book_session(member=request.user, session=session)
+                booking = book_session(
+                    member=request.user, session=session, waitlist=waitlist
+                )
         except DjangoValidationError as error:
             raise ValidationError(str(error))
         return Response(BookingSerializer(booking).data, status=201)
