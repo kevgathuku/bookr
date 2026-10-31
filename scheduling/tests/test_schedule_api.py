@@ -8,11 +8,11 @@ from booking.services import book_session
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
-    OrgRoleFactory,
     PlanFactory,
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
+    user_with_role,
 )
 
 #  Schedule API seam: GET /api/v1/classes/ is bounded (31d max), cheap
@@ -55,14 +55,7 @@ def member(venue):
     """Venue-pinned member; the standard world most schedule tests share."""
     from organizations.models import OrgRole
 
-    user = UserFactory()
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=venue,
-        user=user,
-        role=OrgRole.Role.MEMBER,
-    )
-    return user
+    return user_with_role(venue, OrgRole.Role.MEMBER)
 
 
 @pytest.fixture()
@@ -78,26 +71,22 @@ def member_client(member, venue):
 class TestIsolation:
     def test_cross_venue_404(self, org, api_client):
         from organizations.models import OrgRole
-        from tests.factories import OrgRoleFactory, VenueFactory
+        from tests.factories import VenueFactory
 
         VenueFactory(organization=org, slug="first")
         second = VenueFactory(organization=org, slug="second")
-        user = UserFactory(username="outsider")
-        OrgRoleFactory(
-            organization=org, venue=second, user=user, role=OrgRole.Role.MEMBER
-        )
+        user = user_with_role(second, OrgRole.Role.MEMBER, username="outsider")
 
         assert api_client(user, "first").get("/api/v1/sessions/").status_code == 404
 
     def test_spanning_member_200_both_venues(self, org, api_client):
         from organizations.models import OrgRole
-        from tests.factories import OrgRoleFactory, VenueFactory
+        from tests.factories import VenueFactory
 
-        VenueFactory(organization=org, slug="first")
+        first = VenueFactory(organization=org, slug="first")
         VenueFactory(organization=org, slug="second")
-        user = UserFactory(username="spanning")
-        OrgRoleFactory(
-            organization=org, venue=None, user=user, role=OrgRole.Role.MEMBER
+        user = user_with_role(
+            first, OrgRole.Role.MEMBER, username="spanning", org_wide=True
         )
 
         assert api_client(user, "first").get("/api/v1/sessions/").status_code == 200
@@ -212,14 +201,9 @@ class TestGenerateSessionsEndpoint:
     def _desk(self, venue):
         from organizations.models import OrgRole
 
-        user = UserFactory(username="desk-gen")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=user,
-            role=OrgRole.Role.FRONTDESK,
+        return user_with_role(
+            venue, OrgRole.Role.FRONTDESK, username="desk-gen", org_wide=True
         )
-        return user
 
     def _payload(self, start):
         return {
@@ -248,12 +232,8 @@ class TestGenerateSessionsEndpoint:
 
         venue = VenueFactory(slug="series-member")
         offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
-        member = UserFactory(username="member-gen")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=member,
-            role=OrgRole.Role.MEMBER,
+        member = user_with_role(
+            venue, OrgRole.Role.MEMBER, username="member-gen", org_wide=True
         )
         start = timezone.now() + timedelta(days=1)
 
@@ -286,19 +266,11 @@ class TestPolicyListEndpoint:
         from organizations.models import OrgRole
 
         venue = VenueFactory(slug=slug)
-        staff = UserFactory(username=f"staff-{slug}")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=staff,
-            role=OrgRole.Role.MANAGER,
+        staff = user_with_role(
+            venue, OrgRole.Role.MANAGER, username=f"staff-{slug}", org_wide=True
         )
-        member = UserFactory(username=f"member-{slug}")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=member,
-            role=OrgRole.Role.MEMBER,
+        member = user_with_role(
+            venue, OrgRole.Role.MEMBER, username=f"member-{slug}", org_wide=True
         )
         return venue, staff, member
 
@@ -343,14 +315,10 @@ class TestPolicyListEndpoint:
         start = timezone.now() + timedelta(days=1)
         ClassSessionFactory(offering=group, starts_at=start)
         ClassSessionFactory(offering=private, starts_at=start)
-        member = UserFactory(username="filter-member")
         from organizations.models import OrgRole
 
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=member,
-            role=OrgRole.Role.MEMBER,
+        member = user_with_role(
+            venue, OrgRole.Role.MEMBER, username="filter-member", org_wide=True
         )
 
         response = api_client(member, venue.slug).get(
