@@ -5,12 +5,10 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
 from organizations.management.seed_helpers import (
-    demo_user,
+    create_user,
     ensure_membership,
-    grant_passes,
     schedule_class,
     schedule_weekly,
-    try_book,
 )
 from organizations.models import Membership, Organization, Venue
 
@@ -24,11 +22,12 @@ def _spanning_org():
         slug="main",
         defaults={"name": "Main Studio", "time_zone": "America/New_York"},
     )
-    annex, _ = Venue.objects.get_or_create(
+    Venue.objects.get_or_create(
         organization=org,
         slug="annex",
         defaults={"name": "Annex", "time_zone": "America/New_York"},
     )
+    # Annex stays bookable-free in the demo; it exists for the venue switcher.
     cast = {
         "owner": Membership.Role.OWNER,
         "manager": Membership.Role.MANAGER,
@@ -39,15 +38,11 @@ def _spanning_org():
     }
     users = {}
     for key, role in cast.items():
-        user = demo_user(f"demo-{key}")
+        user = create_user(f"demo-{key}")
         ensure_membership(org, user, role)
         users[key] = user
-    spin = schedule_weekly(main, users["teacher"], "Spin", "Main Room", [0, 2, 4], 7)
+    schedule_weekly(main, users["teacher"], "Spin", "Main Room", [0, 2, 4], 7)
     schedule_weekly(main, users["teacher"], "Yoga", "Studio", [1, 3], 18)
-    tiny = schedule_class(annex, users["teacher"], "Tiny", "Closet", capacity=1)
-    grant_passes(main, "Dance 10-Class Pack", 10, [users["member"], users["member2"]])
-    try_book(users["member2"], tiny, "demo-seed-tiny")
-    try_book(users["member"], spin[0], "demo-seed-spin")
 
 
 def _per_venue_org():
@@ -68,40 +63,55 @@ def _per_venue_org():
         slug="annex",
         defaults={"name": "Annex Box", "time_zone": "America/Chicago"},
     )
-    pinned = demo_user("demo-pinned")
+    pinned = create_user("demo-pinned")
     ensure_membership(org, pinned, Membership.Role.MEMBER, box)
-    coach = demo_user("demo-coach")
+    coach = create_user("demo-coach")
     ensure_membership(org, coach, Membership.Role.TEACHER, annex)
-    klass = schedule_class(box, coach, "Box", "The Floor")
+    schedule_class(box, coach, "Box", "The Floor")
     schedule_class(annex, coach, "Box", "The Floor")
-    grant_passes(box, "Box 5-Class Pack", 5, [pinned])
-    try_book(pinned, klass, "demo-seed-box")
 
 
 def _remodel_graph():
     """New-domain rows for the demo orgs. Re-runnable via get_or_create."""
+    _remodel_spot(
+        org_slug="downtown-dance",
+        venue_slug="main",
+        teacher_username="demo-teacher",
+        plan_name="Dance 10-Class Pack",
+        roster={"demo-member": 10, "demo-member2": 10},
+        book_all=True,
+    )
+    _remodel_spot(
+        org_slug="uptown-box",
+        venue_slug="box",
+        teacher_username="demo-coach",
+        plan_name="Box 5-Class Pack",
+        roster={"demo-pinned": 5},
+        book_all=True,
+    )
+
+
+def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, book_all):
+    """New-domain rows for one demo venue: plan, memberships, offering, session."""
+    from contextlib import suppress
     from datetime import timedelta
 
     from django.utils import timezone
 
+    from booking.errors import DuplicateBooking, SeatFull
     from booking.models import CancellationPolicy
+    from booking.services import book_session
     from organizations.models import OrgRole
-    from passes.models import (
-        CreditLedger,
-        MembershipPlan,
-        PlanType,
-    )
-    from passes.models import (
-        Membership as PlanMembership,
-    )
+    from passes.models import CreditLedger, MembershipPlan, PlanType
+    from passes.models import Membership as PlanMembership
     from scheduling.catalogue import ClassCategory, ClassOffering, ClassSession
 
-    org = Organization.objects.get(slug="downtown-dance")
-    main = Venue.objects.get(organization=org, slug="main")
-    teacher = demo_user("demo-teacher")
+    org = Organization.objects.get(slug=org_slug)
+    venue = Venue.objects.get(organization=org, slug=venue_slug)
+    teacher = create_user(teacher_username)
     OrgRole.objects.get_or_create(
         organization=org,
-        venue=main,
+        venue=venue,
         user=teacher,
         role=OrgRole.Role.TEACHER,
     )
@@ -118,27 +128,33 @@ def _remodel_graph():
     )
     plan, _ = MembershipPlan.objects.get_or_create(
         organization=org,
-        name="Dance 10-Class Pack",
+        name=plan_name,
         defaults={"plan_type": PlanType.CREDIT_PACK, "validity_days": 30},
     )
-    for username in ("demo-member", "demo-member2"):
-        user = demo_user(username)
+    users = {}
+    today = timezone.now().date()
+    for username, credits in roster.items():
+        user = create_user(username)
+        users[username] = user
         membership, created = PlanMembership.objects.get_or_create(
             user=user,
             plan=plan,
             defaults={
-                "credits_remaining": 10,
-                "starts_on": timezone.now().date(),
+                "credits_remaining": credits,
+                "starts_on": today,
+                # Every membership has a known window: packs expire per plan
+                # validity, monthlies at the billing period end.
+                "ends_on": today + timedelta(days=plan.validity_days),
             },
         )
         if created:
             CreditLedger.objects.create(
                 membership=membership,
-                delta=10,
+                delta=credits,
                 reason=CreditLedger.Reason.PURCHASE,
             )
     offering, _ = ClassOffering.objects.get_or_create(
-        venue=main,
+        venue=venue,
         teacher=teacher,
         title="Spin",
         category=ClassCategory.GROUP,
@@ -147,12 +163,17 @@ def _remodel_graph():
     ClassSession.objects.filter(
         offering=offering, starts_at__lte=timezone.now()
     ).delete()
-    if not ClassSession.objects.filter(
+    session = ClassSession.objects.filter(
         offering=offering, starts_at__gt=timezone.now()
-    ).exists():
-        ClassSession.objects.create(
+    ).first()
+    if session is None:
+        session = ClassSession.objects.create(
             offering=offering, starts_at=timezone.now() + timedelta(days=1)
         )
+    if book_all:
+        for user in users.values():
+            with suppress(DuplicateBooking, SeatFull):
+                book_session(member=user, session=session)
 
 
 class Command(BaseCommand):

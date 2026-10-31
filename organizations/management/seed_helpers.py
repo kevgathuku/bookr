@@ -14,7 +14,7 @@ from django.utils import timezone
 from organizations.models import Membership, VenuePolicy
 
 
-def demo_user(username):
+def create_user(username):
     User = get_user_model()
     user, created = User.objects.get_or_create(
         username=username,
@@ -139,12 +139,12 @@ def grant_passes(product_venue, name, credits, members):
     return product
 
 
-def try_book(member, klass, key):
+def try_book(member, session):
     from booking.errors import DuplicateBooking, SeatFull
-    from booking.services import book_seat
+    from booking.services import book_session
 
     with contextlib.suppress(DuplicateBooking, SeatFull):
-        book_seat(member, klass, idempotency_key=key)
+        book_session(member=member, session=session)
 
 
 def seed_new_graph(venue, people):
@@ -159,7 +159,31 @@ def seed_new_graph(venue, people):
         defaults={"duration_minutes": 60, "credit_cost": 1},
     )
     start = timezone.now() + timedelta(days=class_days_out())
-    if not ClassSession.objects.filter(
+    session = ClassSession.objects.filter(
         offering=offering, starts_at__gt=timezone.now()
-    ).exists():
-        ClassSession.objects.create(offering=offering, starts_at=start)
+    ).first()
+    if session is None:
+        session = ClassSession.objects.create(offering=offering, starts_at=start)
+    return session
+
+
+def booker_membership(venue, user, name="Credits", credits=10, validity_days=30):
+    """Get-or-create a credit-pack membership for API/seed booking flows."""
+    from passes.models import Membership as PlanMembership
+    from passes.models import MembershipPlan, PlanType
+
+    plan, _ = MembershipPlan.objects.get_or_create(
+        organization=venue.organization,
+        name=name,
+        defaults={"plan_type": PlanType.CREDIT_PACK, "validity_days": validity_days},
+    )
+    membership, _ = PlanMembership.objects.get_or_create(
+        user=user,
+        plan=plan,
+        defaults={
+            "credits_remaining": credits,
+            "starts_on": timezone.now().date(),
+            "ends_on": timezone.now().date() + timedelta(days=validity_days),
+        },
+    )
+    return membership

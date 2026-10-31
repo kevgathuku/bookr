@@ -12,8 +12,9 @@ from django.utils import timezone
 
 from access.models import AccessEvent, AccessPoint
 from booking.errors import DuplicateBooking, SeatFull
-from booking.services import book_seat
+from booking.services import book_session
 from organizations.management.seed_helpers import (
+    booker_membership,
     class_days_out,
     ensure_membership,
     schedule_class,
@@ -96,29 +97,37 @@ def _e2e_org():
     )
 
 
+def _seed_appointment(venue, people, member, resource):
+    Appointment.objects.filter(
+        venue=venue, teacher=people["teacher"], starts_at__lte=timezone.now()
+    ).delete()
+    appt_start = timezone.now() + timezone.timedelta(days=2)
+    if Appointment.objects.filter(
+        venue=venue, teacher=people["teacher"], starts_at__gt=timezone.now()
+    ).exists():
+        return
+    Appointment.objects.create(
+        venue=venue,
+        member=member,
+        teacher=people["teacher"],
+        resource=resource,
+        starts_at=appt_start,
+        ends_at=appt_start + timezone.timedelta(hours=1),
+    )
+
+
 def _seed_bookings(venue, people, klass, resource, product):
     member = people["member"]
     booker = people["booker"]
     if not booker.passes.exists():
         issue_pass(booker, product)
-    Appointment.objects.filter(
-        venue=venue, teacher=people["teacher"], starts_at__lte=timezone.now()
-    ).delete()
-    appt_start = timezone.now() + timezone.timedelta(days=2)
-    existing = Appointment.objects.filter(
-        venue=venue, teacher=people["teacher"], starts_at__gt=timezone.now()
-    ).first()
-    if existing is None:
-        Appointment.objects.create(
-            venue=venue,
-            member=member,
-            teacher=people["teacher"],
-            resource=resource,
-            starts_at=appt_start,
-            ends_at=appt_start + timezone.timedelta(hours=1),
-        )
+    membership = booker_membership(venue, booker)
+    booker_membership(venue, member)
+    booker_membership(venue, member)
+    _seed_appointment(venue, people, member, resource)
+    session = seed_new_graph(venue, people)
     with contextlib.suppress(DuplicateBooking, SeatFull):
-        book_seat(booker, klass, idempotency_key="e2e-seed-book")
+        book_session(member=booker, session=session, membership=membership)
     member_pass = member.passes.first()
     if member_pass is not None:
         adjust_credit(member_pass, 1, "e2e goodwill", people["teacher"])
