@@ -215,7 +215,8 @@ def check_in(*, booking_id, actor):
         )
         _require_door(actor, organization)
         booking.status = Booking.Status.ATTENDED
-        booking.save(update_fields=["status"])
+        booking.checked_in_at = timezone.now()
+        booking.save(update_fields=["status", "checked_in_at"])
         return booking
 
 

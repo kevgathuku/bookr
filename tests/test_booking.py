@@ -362,5 +362,6 @@ class TestBookingApi:
 
         assert response.status_code == 200
         assert response.data[0]["member"] == member.username
-        assert response.data[0]["session_title"] == "Spin"
+        assert response.data[0]["class_title"] == "Spin"
+        assert response.data[0]["checked_in_at"] is None
         assert response.data[0]["id"] == booking.pk

@@ -26,9 +26,9 @@ urlpatterns = [
         name="booking-no-show",
     ),
     path(
-        "bookings/<int:pk>/check-in/",
+        "bookings/<int:pk>/checkin/",
         CheckInView.as_view(),
-        name="booking-check-in",
+        name="booking-checkin",
     ),
     # cancellation-policies, not policies/: the old versioned-policy
     # list still serves that path until the .7 contract.

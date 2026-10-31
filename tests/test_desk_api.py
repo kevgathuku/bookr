@@ -72,7 +72,7 @@ class TestRoster:
         assert response.status_code == 200
         rows = {row["id"]: row for row in response.json()}
         assert rows[booking.pk]["member"].startswith("roster-member")
-        assert rows[booking.pk]["session_title"] == "Spin"
+        assert rows[booking.pk]["class_title"] == "Spin"
 
 
 class TestMemberSearch:
@@ -185,7 +185,7 @@ class TestDeskCancelFlows:
 
         response = self._client(desk, venue).post(
             f"/api/v1/bookings/{booking.pk}/cancel/",
-            {"on_behalf_of": True, "reason": "called in sick"},
+            {"staff_override": True, "reason": "called in sick"},
             format="json",
         )
 
@@ -219,6 +219,18 @@ class TestDeskCancelFlows:
 
         assert response.status_code == 200
         assert response.data["enforcement_applied"] == "none"
+
+    def test_member_cancel_needs_no_body(self):
+        # The member UI posts a bare cancel; every field has a default.
+        venue, _desk = self._world(slug="desk-bare")
+        member, booking, _session = self._book(venue, "m-bare")
+
+        response = self._client(member, venue).post(
+            f"/api/v1/bookings/{booking.pk}/cancel/"
+        )
+
+        assert response.status_code == 200
+        assert response.data["cause"] == "member_cancel"
 
     def test_desk_waives_forfeit(self):
         from booking.models import CancellationPolicy
@@ -282,3 +294,23 @@ class TestDeskCancelFlows:
 
         booking.refresh_from_db()
         assert booking.status == "no_show"
+
+    def test_door_check_in_stamps_time(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        venue, desk = self._world(slug="desk-checkin")
+        member, booking, session = self._book(venue, "m-checkin")
+        session.starts_at = timezone.now() - timedelta(minutes=30)
+        session.save(update_fields=["starts_at"])
+
+        checked = self._client(desk, venue).post(
+            f"/api/v1/bookings/{booking.pk}/checkin/"
+        )
+
+        assert checked.status_code == 200
+        assert checked.data["status"] == "attended"
+        assert checked.data["checked_in_at"] is not None
+        booking.refresh_from_db()
+        assert booking.checked_in_at is not None

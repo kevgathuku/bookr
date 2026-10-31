@@ -35,6 +35,8 @@ class Booking(models.Model):
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.BOOKED
     )
+    # When the door marked attendance; the roster shows it, not the status.
+    checked_in_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -23,6 +23,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "membership",
             "credits_spent",
             "status",
+            "checked_in_at",
             "created_at",
         ]
         read_only_fields: ClassVar[list[str]] = fields
@@ -64,7 +65,8 @@ class RecordSerializer(serializers.ModelSerializer):
 
 
 class CancelBookingSerializer(serializers.Serializer):
-    on_behalf_of = serializers.BooleanField(default=False)
+    # Desk-UI spelling of the initiator flag: staff acting for the member.
+    staff_override = serializers.BooleanField(default=False)
     waive_penalty = serializers.BooleanField(default=False)
     reason = serializers.CharField(allow_blank=True, default="")
 

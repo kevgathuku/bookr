@@ -72,9 +72,10 @@ class BookingsView(APIView):
 class RosterRowSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     member = serializers.CharField()
-    session_title = serializers.CharField()
+    class_title = serializers.CharField()
     starts_at = serializers.DateTimeField()
     status = serializers.CharField()
+    checked_in_at = serializers.DateTimeField(allow_null=True)
 
 
 class RosterView(APIView):
@@ -112,9 +113,10 @@ class RosterView(APIView):
                     {
                         "id": booking.pk,
                         "member": booking.member.username,
-                        "session_title": booking.session.offering.title,
+                        "class_title": booking.session.offering.title,
                         "starts_at": booking.session.starts_at,
                         "status": booking.status,
+                        "checked_in_at": booking.checked_in_at,
                     }
                     for booking in rows
                 ],
@@ -192,12 +194,15 @@ class BookingCancelView(APIView):
         data = CancelBookingSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         params = data.validated_data
-        params["reason"] = params.get("reason") or ""
         return _record_response(
             request,
             pk,
             lambda booking: cancel_booking(
-                booking_id=booking.pk, actor=request.user, **params
+                booking_id=booking.pk,
+                actor=request.user,
+                on_behalf_of=params["staff_override"],
+                waive_penalty=params["waive_penalty"],
+                reason=params.get("reason") or "",
             ),
         )
 
