@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import timedelta
 
 import factory
@@ -27,8 +28,17 @@ class UserFactory(factory.django.DjangoModelFactory):
     class Meta:
         # evaluated at import; fine under test setup
         model = get_user_model()
+        skip_postgeneration_save = True
 
     username = factory.Sequence(lambda n: f"user-{n}")
+
+    @factory.post_generation
+    def password(obj, create, extracted, **kwargs):
+        """Known login password for every factory user (e2e login, auth flows)."""
+        if not create:
+            return
+        obj.set_password(extracted or "password")
+        obj.save(update_fields=["password"])
 
 
 class OrganizationFactory(factory.django.DjangoModelFactory):
@@ -153,15 +163,30 @@ class AggregatorFactory(factory.django.DjangoModelFactory):
     service_user = factory.SubFactory(UserFactory)
 
 
-def user_with_role(venue, role, username=None, org_wide=False):
+def user_with_roles(
+    venue: Venue,
+    roles: Iterable[tuple[OrgRole.Role, bool]],
+    username: str | None = None,
+):
+    """User holding several OrgRoles: (role, org_wide) pairs share one user."""
+    user = UserFactory(username=username) if username else UserFactory()
+    for role, org_wide in roles:
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None if org_wide else venue,
+            user=user,
+            role=role,
+        )
+    return user
+
+
+def user_with_role(
+    venue: Venue,
+    role: OrgRole.Role,
+    username: str | None = None,
+    org_wide: bool = False,
+):
     """User holding an OrgRole: avoids the create-user-then-role repetition.
 
     Pass org_wide=True for org-level roles (venue=None)."""
-    user = UserFactory(username=username) if username else UserFactory()
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=None if org_wide else venue,
-        user=user,
-        role=role,
-    )
-    return user
+    return user_with_roles(venue, [(role, org_wide)], username=username)

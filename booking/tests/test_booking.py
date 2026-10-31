@@ -365,3 +365,11 @@ class TestBookingApi:
         assert response.data[0]["class_title"] == "Spin"
         assert response.data[0]["checked_in_at"] is None
         assert response.data[0]["id"] == booking.pk
+
+    def test_roster_member_403(self):
+        venue = _venue("api-roster-403")
+        member = _member("m1", venue)
+
+        response = self._client(member, venue).get("/api/v1/bookings/roster/")
+
+        assert response.status_code == 403

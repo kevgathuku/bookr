@@ -53,6 +53,7 @@ package = false
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 pythonpath = ["."]
+addopts = ["--reuse-db"]
 markers = [
     "smoke: per-commit end-to-end smoke (live server, no sleeps)",
     "e2e: full nightly/pre-release suite (needs worker, mailpit, frontend)",

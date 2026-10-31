@@ -1,6 +1,6 @@
 """E2E dataset: fixed e2e-run org with known credentials and sessions the
-smoke suite touches. Re-runnable by construction; invoked via
-seed_demo --e2e."""
+smoke suite touches. Re-runnable by construction; invoked directly as
+`manage.py seed_e2e` (boot.sh, pytest fixture)."""
 
 import contextlib
 
@@ -32,7 +32,6 @@ _PEOPLE_SPECS = (
     ("teacher", "e2e-run-teacher", OrgRole.Role.TEACHER),
     ("member", "e2e-run-member", OrgRole.Role.MEMBER),
     ("stranger", "e2e-run-stranger", OrgRole.Role.MEMBER),
-    ("sub", "e2e-run-sub", OrgRole.Role.TEACHER),
     ("booker", "e2e-run-booker", OrgRole.Role.MEMBER),
     ("frontdesk", "e2e-run-frontdesk", OrgRole.Role.FRONTDESK),
 )
@@ -68,8 +67,8 @@ def _e2e_org():
     )[0]
     people = _e2e_people(org)
     _seed_memberships(venue, people)
-    seed_new_graph(venue, people)
-    try_book(people["booker"], seed_new_graph(venue, people))
+    session = seed_new_graph(venue, people)
+    try_book(people["booker"], session)
     _seed_door(venue, people)
     _seed_annex_session(annex, people)
 

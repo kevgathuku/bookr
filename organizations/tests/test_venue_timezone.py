@@ -1,26 +1,28 @@
 import pytest
 from django.core.exceptions import ValidationError
 
-from organizations.models import Organization, Venue, _iana_time_zone
+from organizations.models import Venue, _iana_time_zone
+from tests.factories import OrganizationFactory
 
 pytestmark = pytest.mark.django_db
 
 
-def _org():
-    return Organization.objects.create(slug="tz-org", name="TZ Org")
+@pytest.fixture
+def org():
+    return OrganizationFactory(slug="tz-org", name="TZ Org")
 
 
 class TestVenueTimeZone:
-    def test_valid_iana_zone_passes(self):
+    def test_valid_iana_zone_passes(self, org):
         venue = Venue(
-            organization=_org(), slug="nbo", name="Nairobi", time_zone="Africa/Nairobi"
+            organization=org, slug="nbo", name="Nairobi", time_zone="Africa/Nairobi"
         )
 
         venue.full_clean()
 
-    def test_bogus_zone_fails(self):
+    def test_bogus_zone_fails(self, org):
         venue = Venue(
-            organization=_org(),
+            organization=org,
             slug="nowhere",
             name="Nowhere",
             time_zone="Narnia/Nowhere",
@@ -29,9 +31,9 @@ class TestVenueTimeZone:
         with pytest.raises(ValidationError):
             venue.full_clean()
 
-    def test_typo_zone_fails(self):
+    def test_typo_zone_fails(self, org):
         venue = Venue(
-            organization=_org(), slug="typo", name="Typo", time_zone="Afrika/Nairobi"
+            organization=org, slug="typo", name="Typo", time_zone="Afrika/Nairobi"
         )
 
         with pytest.raises(ValidationError):

@@ -1,6 +1,9 @@
 import pytest
 
 from organizations.capabilities import (
+    DOOR_STAFF_ROLES,
+    MANAGE_ROLES,
+    OPERATE_DESK_ROLES,
     can_manage_staff,
     can_operate_desk,
     can_staff_door,
@@ -8,7 +11,7 @@ from organizations.capabilities import (
     roles_for,
 )
 from organizations.models import OrgRole
-from tests.factories import OrgRoleFactory, VenueFactory
+from tests.factories import UserFactory, VenueFactory, user_with_role, user_with_roles
 
 pytestmark = pytest.mark.django_db
 
@@ -16,14 +19,9 @@ pytestmark = pytest.mark.django_db
 class TestRolesFor:
     def test_collects_pinned_and_org_wide_roles(self):
         venue = VenueFactory()
-        user = OrgRoleFactory(
-            organization=venue.organization, venue=None, role=OrgRole.Role.MEMBER
-        ).user
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=user,
-            role=OrgRole.Role.TEACHER,
+        user = user_with_roles(
+            venue,
+            [(OrgRole.Role.MEMBER, True), (OrgRole.Role.TEACHER, False)],
         )
 
         assert roles_for(user, venue) == {"member", "teacher"}
@@ -31,41 +29,108 @@ class TestRolesFor:
     def test_ignores_other_venues_and_orgs(self):
         venue = VenueFactory()
         other = VenueFactory()
-        user = OrgRoleFactory(
-            organization=venue.organization, venue=venue, role=OrgRole.Role.MEMBER
-        ).user
 
-        assert other.pk not in {venue.pk}
+        user = user_with_role(venue, OrgRole.Role.MEMBER)
+
         assert roles_for(user, other) == set()
+
+    def test_pinned_role_does_not_leak_to_sibling_venue(self):
+        venue = VenueFactory()
+        sibling = VenueFactory(organization=venue.organization)
+
+        user = user_with_role(venue, OrgRole.Role.MEMBER)
+
+        assert roles_for(user, venue) == {"member"}
+        assert roles_for(user, sibling) == set()
+
+    def test_org_wide_role_covers_every_venue(self):
+        venue = VenueFactory()
+        sibling = VenueFactory(organization=venue.organization)
+
+        user = user_with_role(venue, OrgRole.Role.FRONTDESK, "frontdesk", True)
+
+        assert roles_for(user, venue) == {"frontdesk"}
+        assert roles_for(user, sibling) == {"frontdesk"}
+
+    def test_no_roles_is_empty(self):
+        assert roles_for(UserFactory(), VenueFactory()) == set()
 
 
 class TestCapabilities:
-    def test_desk_is_frontdesk_and_up(self):
-        assert can_operate_desk({"frontdesk"})
-        assert can_operate_desk({"manager"})
-        assert can_operate_desk({"owner"})
+    # sorted: frozenset order varies per process (hash seed) and breaks
+    # xdist, which requires identical collection on every worker.
+    @pytest.mark.parametrize("role", sorted(OPERATE_DESK_ROLES))
+    def test_desk_is_frontdesk_and_up(self, role):
+        assert can_operate_desk({role})
 
-    def test_desk_excludes_teaching_and_plain_members(self):
-        assert not can_operate_desk({"teacher"})
-        assert not can_operate_desk({"member"})
+    @pytest.mark.parametrize(
+        ("role", "allowed"),
+        [
+            ("manager", True),
+            ("owner", True),
+            ("frontdesk", True),
+            ("teacher", False),
+            ("member", False),
+        ],
+    )
+    def test_desk_excludes_teaching_and_plain_members(self, role, allowed):
+        assert can_operate_desk({role}) is allowed
         assert not can_operate_desk(set())
 
-    def test_manage_is_manager_and_up(self):
-        assert can_manage_staff({"manager"})
-        assert can_manage_staff({"owner"})
-        assert not can_manage_staff({"frontdesk"})
-        assert not can_manage_staff({"teacher"})
-        assert not can_manage_staff({"member"})
+    @pytest.mark.parametrize(
+        ("role", "allowed"),
+        [
+            ("manager", True),
+            ("owner", True),
+            ("frontdesk", False),
+            ("teacher", False),
+            ("member", False),
+        ],
+    )
+    def test_manage_is_manager_and_up(self, role, allowed):
+        assert can_manage_staff({role}) is allowed
 
-    def test_waive_matches_desk(self):
-        assert can_waive({"frontdesk"})
-        assert can_waive({"owner"})
-        assert not can_waive({"teacher"})
-        assert not can_waive({"member"})
+    @pytest.mark.parametrize(
+        ("role", "allowed"),
+        [
+            ("manager", True),
+            ("owner", True),
+            ("frontdesk", False),
+            ("teacher", False),
+            ("member", False),
+        ],
+    )
+    def test_waive_matches_desk(self, role, allowed):
+        assert can_manage_staff({role}) is allowed
+        assert not can_waive(set())
 
-    def test_door_staff_excludes_plain_members(self):
-        assert can_staff_door({"teacher"})
-        assert can_staff_door({"frontdesk"})
-        assert can_staff_door({"manager"})
-        assert can_staff_door({"owner"})
-        assert not can_staff_door({"member"})
+    @pytest.mark.parametrize(
+        ("role", "allowed"),
+        [
+            ("teacher", True),
+            ("manager", True),
+            ("owner", True),
+            ("frontdesk", True),
+            ("member", False),
+        ],
+    )
+    def test_door_staff_excludes_plain_members(self, role, allowed):
+        assert can_staff_door({role}) is allowed
+        assert not can_staff_door(set())
+
+    def test_rank_sets_nest(self):
+        assert MANAGE_ROLES <= OPERATE_DESK_ROLES <= DOOR_STAFF_ROLES
+
+    def test_owner_in_all_rank_sets(self):
+        assert OrgRole.Role.OWNER in MANAGE_ROLES
+        assert OrgRole.Role.OWNER in OPERATE_DESK_ROLES
+        assert OrgRole.Role.OWNER in DOOR_STAFF_ROLES
+
+    def test_member_in_no_rank_set(self):
+        assert OrgRole.Role.MEMBER not in MANAGE_ROLES
+        assert OrgRole.Role.MEMBER not in OPERATE_DESK_ROLES
+        assert OrgRole.Role.MEMBER not in DOOR_STAFF_ROLES
+
+    @pytest.mark.parametrize("role", OrgRole.Role.values)
+    def test_waive_matches_desk_for_every_role(self, role):
+        assert can_waive({role}) == can_operate_desk({role})
