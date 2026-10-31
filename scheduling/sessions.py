@@ -10,6 +10,7 @@ sessions are not a hot race path.
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
+from dateutil.rrule import rrulestr
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
@@ -32,6 +33,42 @@ def schedule_session(*, offering, starts_at, capacity=None):
     if capacity is not None:
         fields["capacity"] = capacity
     return ClassSession.objects.create(**fields)
+
+
+GENERATE_LIMIT = 200
+
+
+@transaction.atomic
+def generate_sessions(*, offering, rrule, after, before, capacity=None):
+    """Expand an RFC recurrence rule into sessions, all or nothing.
+
+    Occurrences outside [after, before) are skipped; a clash anywhere
+    aborts the whole batch so retries never half-create a series."""
+    wanted = [
+        occurrence
+        for occurrence in _expand(rrule, offering)
+        if after <= occurrence < before
+    ]
+    if len(wanted) > GENERATE_LIMIT:
+        raise ValidationError(f"More than {GENERATE_LIMIT} sessions in window.")
+    return [
+        schedule_session(offering=offering, starts_at=start, capacity=capacity)
+        for start in wanted
+    ]
+
+
+def _expand(rrule, offering):
+    try:
+        occurrences = list(rrulestr(rrule))
+    except ValueError as error:
+        raise ValidationError(f"Bad recurrence rule: {error}")
+    tz = ZoneInfo(offering.venue.time_zone or "UTC")
+    return [
+        timezone.make_aware(occurrence, tz)
+        if timezone.is_naive(occurrence)
+        else occurrence
+        for occurrence in occurrences
+    ]
 
 
 def _ensure_aware(starts_at, offering):

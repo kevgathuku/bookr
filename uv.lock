@@ -127,6 +127,7 @@ dependencies = [
     { name = "dj-database-url" },
     { name = "django" },
     { name = "django-extensions" },
+    { name = "django-filter" },
     { name = "djangorestframework" },
     { name = "djangorestframework-simplejwt" },
     { name = "drf-spectacular" },
@@ -134,6 +135,7 @@ dependencies = [
     { name = "ipython" },
     { name = "prometheus-client" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "python-dateutil" },
     { name = "redis" },
     { name = "tzdata" },
     { name = "whitenoise" },
@@ -164,6 +166,7 @@ requires-dist = [
     { name = "dj-database-url", specifier = ">=3.1.2" },
     { name = "django", specifier = ">=6.1.2,<7" },
     { name = "django-extensions", specifier = ">=4.1" },
+    { name = "django-filter", specifier = ">=26.2" },
     { name = "djangorestframework", specifier = ">=3.18.3" },
     { name = "djangorestframework-simplejwt", specifier = ">=5.5.1" },
     { name = "drf-spectacular", specifier = ">=0.30.0" },
@@ -171,6 +174,7 @@ requires-dist = [
     { name = "ipython", specifier = ">=9.17.1" },
     { name = "prometheus-client", specifier = ">=0.26.0" },
     { name = "psycopg", extras = ["binary"] },
+    { name = "python-dateutil", specifier = ">=3.0.0" },
     { name = "redis", specifier = ">=8.1.0" },
     { name = "tzdata", specifier = ">=2026.5" },
     { name = "whitenoise", specifier = ">=6.12.0" },
@@ -509,6 +513,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6d/b3/ed0f54ed706ec0b54fd251cc0364a249c6cd6c6ec97f04dc34be5e929eac/django_extensions-4.1.tar.gz", hash = "sha256:7b70a4d28e9b840f44694e3f7feb54f55d495f8b3fa6c5c0e5e12bcb2aa3cdeb", size = 283078, upload-time = "2025-04-11T01:15:39.617Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/64/96/d967ca440d6a8e3861120f51985d8e5aec79b9a8bdda16041206adfe7adc/django_extensions-4.1-py3-none-any.whl", hash = "sha256:0699a7af28f2523bf8db309a80278519362cd4b6e1fd0a8cd4bf063e1e023336", size = 232980, upload-time = "2025-04-11T01:15:37.701Z" },
+]
+
+[[package]]
+name = "django-filter"
+version = "26.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/07/ee/c0f950fe24f3e0b69d054ad957f9229632b50bdc78e968f966d8b4efe16a/django_filter-26.2.tar.gz", hash = "sha256:fd5cc83995fbe9f5f07fb5dcda16fde0f04de1ecf8ef82628b6c0ec921b751af", size = 144828, upload-time = "2026-10-03T12:01:01.007Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/92/6b098caa5b980a9d13a8db4825b7670410fa572e9195e39648f7700f2a37/django_filter-26.2-py3-none-any.whl", hash = "sha256:df8f737841d6359df00b84dda9b5ab59067fe60292091f1bdae1e3e6281cedb0", size = 94077, upload-time = "2026-10-03T12:00:59.162Z" },
 ]
 
 [[package]]

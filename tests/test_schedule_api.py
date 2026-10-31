@@ -339,3 +339,82 @@ class TestOfferingList:
 
         assert response.status_code == 200
         assert [row["title"] for row in response.data] == ["Spin"]
+
+
+class TestGenerateSessionsEndpoint:
+    def _client(self, user, venue):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
+        return client
+
+    def _desk(self, venue):
+        from organizations.models import OrgRole
+
+        user = UserFactory(username="desk-gen")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=user,
+            role=OrgRole.Role.FRONTDESK,
+        )
+        return user
+
+    def _payload(self, start):
+        return {
+            "rrule": start.strftime("DTSTART:%Y%m%dT%H%M%S\n")
+            + "RRULE:FREQ=WEEKLY;COUNT=2",
+            "after": (start - timedelta(hours=1)).isoformat(),
+            "before": (start + timedelta(days=30)).isoformat(),
+        }
+
+    def test_desk_generates_series(self):
+        venue = VenueFactory(slug="series")
+        offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
+        start = timezone.now() + timedelta(days=1)
+
+        response = self._client(self._desk(venue), venue).post(
+            f"/api/v1/offerings/{offering.pk}/sessions/generate/",
+            self._payload(start),
+            format="json",
+        )
+
+        assert response.status_code == 201
+        assert len(response.data) == 2
+
+    def test_member_cannot_generate(self):
+        from organizations.models import OrgRole
+
+        venue = VenueFactory(slug="series-member")
+        offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
+        member = UserFactory(username="member-gen")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        start = timezone.now() + timedelta(days=1)
+
+        response = self._client(member, venue).post(
+            f"/api/v1/offerings/{offering.pk}/sessions/generate/",
+            self._payload(start),
+            format="json",
+        )
+
+        assert response.status_code == 403
+
+    def test_bad_rule_is_400(self):
+        venue = VenueFactory(slug="series-bad")
+        offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
+        start = timezone.now() + timedelta(days=1)
+        payload = self._payload(start)
+        payload["rrule"] = "not a rule"
+
+        response = self._client(self._desk(venue), venue).post(
+            f"/api/v1/offerings/{offering.pk}/sessions/generate/",
+            payload,
+            format="json",
+        )
+
+        assert response.status_code == 400

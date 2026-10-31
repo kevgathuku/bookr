@@ -6,13 +6,16 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.response import Response
 
-from organizations.permissions import IsStaffOrReadOnly, IsVenueMember
+from organizations.permissions import IsDesk, IsStaffOrReadOnly, IsVenueMember
 from scheduling.catalogue import ClassOffering, ClassSession
 from scheduling.models import ClassType, Room, ScheduledClass, TeacherSubstitution
 from scheduling.serializers import (
     ClassTypeSerializer,
+    GenerateSessionsSerializer,
     OfferingSerializer,
     RoomSerializer,
     ScheduledClassSerializer,
@@ -172,6 +175,24 @@ class OfferingViewSet(viewsets.ReadOnlyModelViewSet):
             .select_related("teacher")
             .order_by("title")
         )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="sessions/generate",
+        permission_classes=[IsVenueMember, IsDesk],
+    )
+    def generate(self, request, pk=None):
+        """Expand an RFC recurrence rule into sessions, all or nothing."""
+        from scheduling.sessions import generate_sessions
+
+        serializer = GenerateSessionsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        offering = self.get_object()
+        if offering.venue_id != request.venue.pk:
+            raise NotFound("No such venue.")
+        sessions = generate_sessions(offering=offering, **serializer.validated_data)
+        return Response(SessionSerializer(sessions, many=True).data, status=201)
 
 
 class SessionViewSet(viewsets.ReadOnlyModelViewSet):

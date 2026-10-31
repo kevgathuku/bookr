@@ -90,6 +90,13 @@ class TeacherSubstitutionSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class GenerateSessionsSerializer(serializers.Serializer):
+    rrule = serializers.CharField()
+    after = serializers.DateTimeField()
+    before = serializers.DateTimeField()
+    capacity = serializers.IntegerField(min_value=1, required=False)
+
+
 class OfferingSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source="teacher.username", read_only=True)
 

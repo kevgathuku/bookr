@@ -3,7 +3,7 @@
 from rest_framework import permissions
 from rest_framework.exceptions import NotFound, PermissionDenied
 
-from organizations.capabilities import can_operate_desk
+from organizations.capabilities import can_operate_desk, can_staff_door
 from organizations.tenancy import STAFF_ROLES, _covers, _ensure_venue
 
 
@@ -73,5 +73,45 @@ class IsStaff(permissions.BasePermission):
         if venue is None or not request.user.is_authenticated:
             raise NotFound("No such venue.")
         if not staff_covering(request, venue):
+            raise PermissionDenied(self.message)
+        return True
+
+
+def _capability_covering(request, venue, capable):
+    """Dual-source capability check: legacy staff rows pass through (the
+    old model never split desk from door); OrgRole rows go through the
+    capability predicate."""
+    if _legacy_staff(request, venue):
+        return True
+    covered = [
+        row.role for row in getattr(request, "org_roles", ()) if _covers(row, venue)
+    ]
+    return capable(covered)
+
+
+class IsDesk(permissions.BasePermission):
+    """Front-desk operations: operate-desk capability covering the venue."""
+
+    message = "Front desk only."
+
+    def has_permission(self, request, view):
+        venue = _ensure_venue(request)
+        if venue is None or not request.user.is_authenticated:
+            raise NotFound("No such venue.")
+        if not _capability_covering(request, venue, can_operate_desk):
+            raise PermissionDenied(self.message)
+        return True
+
+
+class IsDoor(permissions.BasePermission):
+    """Door operations: door-staff capability covering the venue."""
+
+    message = "Door staff only."
+
+    def has_permission(self, request, view):
+        venue = _ensure_venue(request)
+        if venue is None or not request.user.is_authenticated:
+            raise NotFound("No such venue.")
+        if not _capability_covering(request, venue, can_staff_door):
             raise PermissionDenied(self.message)
         return True
