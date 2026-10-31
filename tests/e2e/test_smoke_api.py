@@ -1,8 +1,6 @@
 """Smoke journey against the live app: login → schedule → book →
-ledger shows the spend → door grants, stranger denied.
-
-Cancel + refund return with the cancel ticket (.4); until then this file
-asserts the book half only (status, debit, list).
+ledger shows the spend → cancel refunds (or forfeits when late) →
+door grants, stranger denied.
 
 One ordered journey (plus an independent door test): smoke must stay
 fast and deterministic, never share hidden state between files.
@@ -258,3 +256,102 @@ def test_cancel_promotes_waitlisted_member(base_url):
     promoted = next(b for b in mine.json() if b["id"] == waiting.json()["id"])
     assert promoted["status"] == "booked"
     assert promoted["credits_spent"] > 0
+
+
+def _solo_world(title, username, starts_in_hours, enforcement=None):
+    """Committed session + one credited member; optional org-wide policy."""
+    from django.contrib.auth import get_user_model
+    from django.utils import timezone
+
+    from booking.models import CancellationPolicy
+    from organizations.management.seed_helpers import (
+        booker_membership,
+        ensure_org_role,
+    )
+    from organizations.models import OrgRole, Venue
+    from tests.factories import ClassOfferingFactory, ClassSessionFactory
+
+    users = get_user_model().objects
+    venue = Venue.objects.get(organization__slug=ORG_SLUG, slug="main")
+    teacher = users.get(username="e2e-run-teacher")
+    offering = ClassOfferingFactory(venue=venue, teacher=teacher, title=title)
+    session = ClassSessionFactory(
+        offering=offering,
+        starts_at=timezone.now() + timedelta(hours=starts_in_hours),
+    )
+    if enforcement is not None:
+        CancellationPolicy.objects.create(
+            organization=venue.organization,
+            enforcement=enforcement,
+            late_cancel_hours=12,
+        )
+    user = users.create_user(username=username, password=PASSWORD)
+    ensure_org_role(venue.organization, user, OrgRole.Role.MEMBER)
+    booker_membership(venue, user)
+    return session
+
+
+def _ledger_entry(member, api, booking_id, reason):
+    ledger = member.get(f"{api}/ledger/")
+    assert ledger.status_code == 200, ledger.text
+    return next(
+        (
+            entry
+            for entry in ledger.json()
+            if entry["booking"] == booking_id and entry["reason"] == reason
+        ),
+        None,
+    )
+
+
+def test_cancel_refunds_and_ledger_balances(base_url):
+    api = f"{base_url}/api/v1"
+    session = _solo_world("Refund Spin", "rf-booker", starts_in_hours=48)
+    member = _login(base_url, "rf-booker")
+
+    booked = member.post(f"{api}/bookings/", json={"session": session.pk})
+    assert booked.status_code == 201, booked.text
+    booking_id = booked.json()["id"]
+    spent = booked.json()["credits_spent"]
+    assert spent > 0
+
+    cancel = member.post(f"{api}/bookings/{booking_id}/cancel/", json={})
+    assert cancel.status_code == 200, cancel.text
+    assert cancel.json()["credits_refunded"] == spent
+
+    mine = member.get(f"{api}/bookings/me/", params={"mine": "true"})
+    cancelled = next(b for b in mine.json() if b["id"] == booking_id)
+    assert cancelled["status"] == "cancelled"
+    refund = _ledger_entry(member, api, booking_id, "refund")
+    assert refund is not None and refund["delta"] == spent
+
+
+def test_late_cancel_forfeits_credit(base_url):
+    from booking.models import CancellationPolicy
+
+    api = f"{base_url}/api/v1"
+    session = _solo_world(
+        "Late Spin",
+        "lc-booker",
+        starts_in_hours=2,
+        enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
+    )
+    member = _login(base_url, "lc-booker")
+
+    booked = member.post(f"{api}/bookings/", json={"session": session.pk})
+    assert booked.status_code == 201, booked.text
+    booking_id = booked.json()["id"]
+
+    cancel = member.post(f"{api}/bookings/{booking_id}/cancel/", json={})
+    assert cancel.status_code == 200, cancel.text
+    outcome = cancel.json()
+    assert (
+        outcome["was_late"],
+        outcome["enforcement_applied"],
+        outcome["credits_refunded"],
+    ) == (True, "lose_credit", 0)
+
+    mine = member.get(f"{api}/bookings/me/", params={"mine": "true"})
+    late = next(b for b in mine.json() if b["id"] == booking_id)
+    assert late["status"] == "late_cancelled"
+    assert _ledger_entry(member, api, booking_id, "refund") is None
