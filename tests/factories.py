@@ -30,6 +30,8 @@ class UserFactory(factory.django.DjangoModelFactory):
         model = get_user_model()
 
     username = factory.Sequence(lambda n: f"user-{n}")
+    # Known login password for every factory user (e2e login, auth flows).
+    password = factory.PostGenerationMethodCall("set_password", "password")
 
 
 class OrganizationFactory(factory.django.DjangoModelFactory):
