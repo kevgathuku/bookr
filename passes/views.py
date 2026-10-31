@@ -1,6 +1,7 @@
 from typing import ClassVar
 
 from django.contrib.auth import get_user_model
+from django.db import models
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, serializers
 from rest_framework.exceptions import NotFound
@@ -42,6 +43,7 @@ class CreditLedgerSerializer(serializers.ModelSerializer):
         fields: ClassVar[list[str]] = [
             "id",
             "member_pass",
+            "membership",
             "booking",
             "delta",
             "reason",
@@ -105,11 +107,19 @@ class LedgerView(generics.ListAPIView):
 
     def get_queryset(self):
         entries = CreditLedger.objects.select_related(
-            "member_pass", "booking"
+            "member_pass", "membership", "booking"
         ).order_by("-created_at")
         if self._is_staff():
-            return entries.filter(member_pass__product__venue=self.request.venue)
-        return entries.filter(member_pass__member=self.request.user)
+            return entries.filter(
+                models.Q(member_pass__product__venue=self.request.venue)
+                | models.Q(
+                    membership__plan__organization=self.request.venue.organization
+                )
+            )
+        return entries.filter(
+            models.Q(member_pass__member=self.request.user)
+            | models.Q(membership__user=self.request.user)
+        )
 
     def _is_staff(self):
         return staff_covering(self.request, self.request.venue)

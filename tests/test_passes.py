@@ -295,3 +295,83 @@ class TestLedgerNote:
 
         row = member_pass.entries.get(reason="adjustment")
         assert row.note == "goodwill"
+
+
+class TestLedgerUnion:
+    def _client(self, user, slug="ledger-union"):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.defaults["HTTP_X_VENUE_SLUG"] = slug
+        return client
+
+    def test_member_sees_plan_membership_rows(self):
+        from organizations.models import OrgRole
+        from tests.factories import (
+            MembershipPlanFactory,
+            OrgRoleFactory,
+            PlanMembershipFactory,
+            UserFactory,
+            VenueFactory,
+        )
+
+        venue = VenueFactory(slug="ledger-union")
+        member = UserFactory(username="ledger-member")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        plan = MembershipPlanFactory(organization=venue.organization)
+        membership = PlanMembershipFactory(user=member, plan=plan)
+        CreditLedger.objects.create(
+            membership=membership,
+            delta=-2,
+            reason=CreditLedger.Reason.BOOKING,
+        )
+
+        response = self._client(member).get("/api/v1/ledger/")
+
+        assert response.status_code == 200
+        assert len(response.data) == 1
+        assert response.data[0]["delta"] == -2
+
+    def test_staff_sees_org_plan_rows(self):
+        from organizations.models import OrgRole
+        from tests.factories import (
+            MembershipPlanFactory,
+            OrgRoleFactory,
+            PlanMembershipFactory,
+            UserFactory,
+            VenueFactory,
+        )
+
+        venue = VenueFactory(slug="ledger-staff")
+        member = UserFactory(username="ledger-m2")
+        staff = UserFactory(username="ledger-s2")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=staff,
+            role=OrgRole.Role.MANAGER,
+        )
+        plan = MembershipPlanFactory(organization=venue.organization)
+        membership = PlanMembershipFactory(user=member, plan=plan)
+        CreditLedger.objects.create(
+            membership=membership,
+            delta=-2,
+            reason=CreditLedger.Reason.BOOKING,
+        )
+
+        response = self._client(staff, slug="ledger-staff").get("/api/v1/ledger/")
+
+        assert response.status_code == 200
+        assert len(response.data) == 1
