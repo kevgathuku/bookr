@@ -66,13 +66,15 @@ class TestVenue:
 
 
 class TestOrgRole:
-    def test_str_org_wide(self):
-        role = OrgRoleFactory(role=OrgRole.Role.MANAGER, venue=None)
+    @pytest.mark.parametrize("role", list(OrgRole.Role))
+    def test_str_org_wide(self, role):
+        org_role = OrgRoleFactory(role=role, venue=None)
 
-        assert str(role) == f"{role.user} · manager @ all venues"
+        assert str(org_role) == f"{org_role.user} · {role.value} @ all venues"
 
-    def test_str_single_venue(self):
+    @pytest.mark.parametrize("role", list(OrgRole.Role))
+    def test_str_single_venue(self, role):
         venue = VenueFactory(name="Downtown")
-        role = OrgRoleFactory(role=OrgRole.Role.MANAGER, venue=venue)
+        org_role = OrgRoleFactory(role=role, venue=venue)
 
-        assert str(role) == f"{role.user} · manager @ Downtown"
+        assert str(org_role) == f"{org_role.user} · {role.value} @ Downtown"
