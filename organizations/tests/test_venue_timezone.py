@@ -2,7 +2,7 @@ import pytest
 from django.core.exceptions import ValidationError
 
 from organizations.models import Venue, _iana_time_zone
-from tests.factories import OrganizationFactory, VenueFactory
+from tests.factories import OrganizationFactory
 
 pytestmark = pytest.mark.django_db
 
