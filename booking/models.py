@@ -91,7 +91,11 @@ class CancellationPolicy(models.Model):
         help_text="Cancel at least this many hours before start."
     )
     enforcement = models.CharField(max_length=20, choices=Enforcement.choices)
-    priority = models.IntegerField(default=0)
+    priority = models.IntegerField(
+        default=0,
+        help_text="Higher wins ties between equally specific rules."
+        " The auto baseline sits at -1 so any explicit rule beats it.",
+    )
 
     SCOPE_FIELDS = (  # noqa: WPS115 — scope tuple lives on the model per design
         "venue_id",
@@ -125,3 +129,61 @@ class CancellationPolicy(models.Model):
 
     def __str__(self):
         return f"policy #{self.pk} ({self.specificity} scopes)"
+
+    def delete(self, *args, **kwargs):
+        # Last-rule protection: resolution always needs a rule to apply.
+        # (Model-level only; queryset deletes bypass it by Django design.)
+        remaining = CancellationPolicy.objects.filter(
+            organization_id=self.organization_id
+        ).count()
+        if remaining <= 1:
+            raise ValidationError(
+                "Cannot delete the last cancellation rule of an organization."
+            )
+        return super().delete(*args, **kwargs)
+
+
+class CancellationRecord(models.Model):
+    """One immutable row per cancellation outcome. The snapshot pins the
+    full context (session, member, plan, policy, actor, cause) so history
+    stays readable after rules change. Never edited: forgiveness arrives
+    as a linked ledger adjustment, never a rewrite."""
+
+    class Cause(models.TextChoices):
+        MEMBER_CANCEL = "member_cancel", "Member cancel"
+        STAFF_DECISION = "staff_decision", "Staff decision"
+        SESSION_CANCELLED = "session_cancelled", "Session cancelled"
+        NO_SHOW = "no_show", "No-show"
+
+    booking = models.ForeignKey(
+        Booking, on_delete=models.PROTECT, related_name="cancellation_records"
+    )
+    member = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="cancellation_records",
+    )
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="cancellation_records",
+    )
+    cause = models.CharField(max_length=20, choices=Cause.choices)
+    was_late = models.BooleanField()
+    enforcement_applied = models.CharField(
+        max_length=20, choices=CancellationPolicy.Enforcement.choices
+    )
+    penalty_waived = models.BooleanField(default=False)
+    waived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    credits_refunded = models.PositiveIntegerField(default=0)
+    snapshot = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"cancel record #{self.pk} ({self.cause})"

@@ -119,6 +119,17 @@ class CreditLedger(models.Model):
     delta = models.IntegerField()
     reason = models.CharField(max_length=16, choices=Reason.choices)
     note = models.CharField(max_length=280, blank=True, default="")
+    # Retroactive waiver marker: the compensating ADJUSTMENT for one
+    # forfeited cancel. One row per record (unique); the record itself is
+    # never edited. Strike waivers are inline-only — strikes move no
+    # money, so there is nothing to compensate (see waive_record).
+    cancellation_record = models.ForeignKey(
+        "booking.CancellationRecord",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="waiver_adjustments",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -133,6 +144,10 @@ class CreditLedger(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(delta=0),
                 name="ledger_delta_nonzero",
+            ),
+            models.UniqueConstraint(
+                fields=["cancellation_record"],
+                name="one_waiver_per_record",
             ),
         ]
 
