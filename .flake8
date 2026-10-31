@@ -38,6 +38,10 @@
 # coexist during the expand transition; contract deletes the old half) —
 # endpoint files grow one view per staff ticket by design; splitting by
 # ticket would scatter the API surface across modules.
+# Per-file: organizations/permissions.py ignores WPS202 — the gate module
+# grows one class per capability the tickets introduce (member, staff,
+# desk, door); splitting gates from the dual-source helpers they share
+# would scatter one access-control story.
 # Per-file: booking/cancellations.py ignores WPS202/WPS211 — the cancel
 # flow is one transaction split into named steps (load, check, decide,
 # write); the public seam keeps ticket-mandated keyword args explicit.
@@ -90,6 +94,8 @@ per-file-ignores =
         WPS202,
         WPS211,
     booking/errors.py:
+        WPS202,
+    organizations/permissions.py:
         WPS202,
     booking/services.py:
         WPS202,
