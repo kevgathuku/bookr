@@ -6,8 +6,11 @@ so API calls work with no proxy. Seeded e2e-run org provides both venues
 and the capacity-1 Tiny class.
 """
 
+from datetime import timedelta
+
 import pytest
 import requests
+from django.utils import timezone
 
 pytestmark = [pytest.mark.e2e, pytest.mark.django_db(transaction=True)]
 
@@ -15,24 +18,23 @@ MEMBER = ("e2e-run-member", "password")
 BOOKER = ("e2e-run-booker", "password")
 
 
-def _tiny_id(base_url):
-    anonymous = requests.Session()
-    token = anonymous.post(
-        f"{base_url}/api/v1/auth/token/",
-        json={"username": MEMBER[0], "password": MEMBER[1]},
-    ).json()["access"]
-    member = requests.Session()
-    member.headers.update(
-        {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-            "X-Venue-Slug": "main",
-        }
+def _tiny_session():
+    """Committed capacity-1 GROUP session in the main venue (the Tiny class)."""
+    from django.contrib.auth import get_user_model
+
+    from organizations.models import Venue
+    from tests.factories import ClassOfferingFactory, ClassSessionFactory
+
+    venue = Venue.objects.get(organization__slug="e2e-run", slug="main")
+    teacher = get_user_model().objects.get(username="e2e-run-teacher")
+    offering = ClassOfferingFactory(venue=venue, teacher=teacher, title="Tiny")
+    # Saturday sessions fall into next week's grid; seed later today instead.
+    days_out = 0.2 if timezone.now().weekday() == 5 else 1
+    return ClassSessionFactory(
+        offering=offering,
+        starts_at=timezone.now() + timedelta(days=days_out),
+        capacity=1,
     )
-    classes = member.get(f"{base_url}/api/v1/classes/").json()
-    tiny = [klass for klass in classes if klass["capacity"] == 1]
-    assert tiny, "seed must provide the capacity-1 Tiny class"
-    return tiny[0]["id"]
 
 
 def _login(page, frontend_url, credentials):
@@ -47,11 +49,13 @@ def _login(page, frontend_url, credentials):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="member UI booking needs the .8 frontend rework; waitlist needs .9",
+    reason="member UI still posts the pre-remodel contract "
+    "(scheduled_class/idempotency_key, 'confirmed' status); "
+    "needs the frontend follow-up",
 )
 def test_member_journey(frontend_url):
     playwright = pytest.importorskip("playwright.sync_api")
-    tiny_id = _tiny_id(frontend_url)
+    tiny_id = _tiny_session().pk
     with playwright.sync_playwright() as driver:
         browser = driver.chromium.launch()
         page = browser.new_context().new_page()
@@ -114,8 +118,6 @@ FRONTDESK = ("e2e-run-frontdesk", "password")
 
 
 def _book_tiny(base_url):
-    import uuid
-
     anonymous = requests.Session()
     token = anonymous.post(
         f"{base_url}/api/v1/auth/token/",
@@ -129,10 +131,10 @@ def _book_tiny(base_url):
             "X-Venue-Slug": "main",
         }
     )
-    tiny_id = _tiny_id(base_url)
+    tiny_id = _tiny_session().pk
     booked = member.post(
         f"{base_url}/api/v1/bookings/",
-        json={"scheduled_class": tiny_id, "idempotency_key": uuid.uuid4().hex},
+        json={"session": tiny_id},
     )
     assert booked.status_code == 201, booked.text
     return tiny_id
