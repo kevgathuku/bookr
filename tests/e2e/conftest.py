@@ -40,7 +40,7 @@ def seeded_db(django_db_blocker):
     from django.core.management import call_command
 
     with django_db_blocker.unblock():
-        call_command("seed_demo", e2e=True)
+        call_command("seed_e2e")
 
 
 def service_available(name, url, timeout=2):
