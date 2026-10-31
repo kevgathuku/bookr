@@ -1,9 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.utils import timezone
 
 from organizations.models import Organization, Venue
@@ -12,6 +13,13 @@ from scheduling.models import (
     Room,
     ScheduledClass,
     TeacherSubstitution,
+)
+from scheduling.sessions import schedule_session
+from tests.factories import (
+    ClassOfferingFactory,
+    ClassSessionFactory,
+    UserFactory,
+    VenueFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -66,6 +74,18 @@ def _class(venue, room, teacher, start, end, **overrides):
 
 
 NOW = timezone.now
+
+
+def _race_book(offering, start, errors):
+    """schedule_session worker for the concurrency test."""
+    try:
+        schedule_session(offering=offering, starts_at=start)
+    except ValidationError as exc:
+        errors.append(exc)
+    finally:
+        # Threads keep their DB connections open otherwise, and teardown
+        # can't drop test_bookr while sessions linger.
+        connection.close()
 
 
 class TestClassTypeAndRoom:
@@ -269,3 +289,67 @@ class TestTeacherSubstitution:
 
         # History kept: the row is still there.
         assert TeacherSubstitution.objects.filter(pk=sub.pk).exists()
+
+
+class TestSessionOverlap:
+    """Same-teacher sessions may not overlap; cancelled ones free the slot.
+
+    Ends derive from start plus offering duration, so overlap is checked
+    against the derived window, not a stored column.
+    """
+
+    def _offering(self, **kwargs):
+        kwargs.setdefault("venue", VenueFactory())
+        kwargs.setdefault("teacher", UserFactory())
+        return ClassOfferingFactory(**kwargs)
+
+    def test_overlapping_same_offering_rejected(self):
+
+        session = ClassSessionFactory(offering=self._offering())
+
+        with pytest.raises(ValidationError):
+            schedule_session(
+                offering=session.offering,
+                starts_at=session.starts_at + timedelta(minutes=30),
+            )
+
+    def test_cancelled_session_frees_slot(self):
+
+        session = ClassSessionFactory(offering=self._offering())
+        session.cancelled_at = timezone.now()
+        session.save(update_fields=["cancelled_at"])
+
+        made = schedule_session(offering=session.offering, starts_at=session.starts_at)
+
+        assert made.pk is not None
+
+    def test_teacher_cannot_double_book_across_offerings(self):
+
+        first = ClassSessionFactory(offering=self._offering())
+        other = ClassOfferingFactory(
+            venue=first.offering.venue, teacher=first.offering.teacher
+        )
+
+        with pytest.raises(ValidationError):
+            schedule_session(
+                offering=other, starts_at=first.starts_at + timedelta(minutes=30)
+            )
+
+    def test_back_to_back_allowed(self):
+
+        first = ClassSessionFactory(offering=self._offering())
+        made = schedule_session(offering=first.offering, starts_at=first.ends_at)
+        assert made.pk is not None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_concurrent_same_slot_single_winner(self):
+        # Plain django_db wraps the test in a transaction other threads
+        # can't see into — so this one commits for real (flushed after).
+
+        offering = ClassOfferingFactory()
+        start = timezone.now() + timedelta(days=1)
+        errors = []
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: _race_book(offering, start, errors), range(2)))
+        assert len(errors) == 1  # loser hits the overlap check
+        assert offering.sessions.count() == 1
