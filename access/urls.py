@@ -1,7 +1,6 @@
 from django.urls import path
 
-from access.events import RecentEventsView
-from access.views import CheckView
+from access.views import CheckView, RecentEventsView
 
 urlpatterns = [
     path("api/access/check/", CheckView.as_view(), name="access-check"),

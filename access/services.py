@@ -123,26 +123,24 @@ def _is_staff(member, venue):
 
 
 def _live_booking(member, venue, now):
-    for booking in _bookings(member, venue, True):
-        target = booking.scheduled_class
-        if _window_ok(target.starts_at, target.ends_at, now):
-            return booking
-    for booking in _bookings(member, venue, False):
-        target = booking.appointment
-        if _window_ok(target.starts_at, target.ends_at, now):
+    for booking in _bookings(member, venue):
+        start = booking.session.starts_at
+        end = start + timedelta(minutes=booking.session.offering.duration_minutes)
+        if _window_ok(start, end, now):
             return booking
     return None
 
 
-def _bookings(member, venue, classes):
-    found = Booking.objects.filter(
-        venue=venue, member=member, status__in=ACTIVE_STATUSES
-    )
-    if classes:
-        return found.filter(scheduled_class__isnull=False).select_related(
-            "scheduled_class"
+def _bookings(member, venue):
+    return (
+        Booking.objects.filter(
+            member=member,
+            session__offering__venue=venue,
+            status__in=ACTIVE_STATUSES,
         )
-    return found.filter(appointment__isnull=False).select_related("appointment")
+        .select_related("session", "session__offering")
+        .order_by("session__starts_at")
+    )
 
 
 def _window_ok(starts, ends, now):
