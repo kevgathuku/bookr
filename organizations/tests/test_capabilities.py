@@ -11,7 +11,7 @@ from organizations.capabilities import (
     roles_for,
 )
 from organizations.models import OrgRole
-from tests.factories import OrgRoleFactory, UserFactory, VenueFactory
+from tests.factories import UserFactory, VenueFactory, user_with_role, user_with_roles
 
 pytestmark = pytest.mark.django_db
 
@@ -19,14 +19,9 @@ pytestmark = pytest.mark.django_db
 class TestRolesFor:
     def test_collects_pinned_and_org_wide_roles(self):
         venue = VenueFactory()
-        user = OrgRoleFactory(
-            organization=venue.organization, venue=None, role=OrgRole.Role.MEMBER
-        ).user
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=user,
-            role=OrgRole.Role.TEACHER,
+        user = user_with_roles(
+            venue,
+            [(OrgRole.Role.MEMBER, True), (OrgRole.Role.TEACHER, False)],
         )
 
         assert roles_for(user, venue) == {"member", "teacher"}
@@ -34,18 +29,16 @@ class TestRolesFor:
     def test_ignores_other_venues_and_orgs(self):
         venue = VenueFactory()
         other = VenueFactory()
-        user = OrgRoleFactory(
-            organization=venue.organization, venue=venue, role=OrgRole.Role.MEMBER
-        ).user
+
+        user = user_with_role(venue, OrgRole.Role.MEMBER)
 
         assert roles_for(user, other) == set()
 
     def test_pinned_role_does_not_leak_to_sibling_venue(self):
         venue = VenueFactory()
         sibling = VenueFactory(organization=venue.organization)
-        user = OrgRoleFactory(
-            organization=venue.organization, venue=venue, role=OrgRole.Role.MEMBER
-        ).user
+
+        user = user_with_role(venue, OrgRole.Role.MEMBER)
 
         assert roles_for(user, venue) == {"member"}
         assert roles_for(user, sibling) == set()
@@ -53,11 +46,9 @@ class TestRolesFor:
     def test_org_wide_role_covers_every_venue(self):
         venue = VenueFactory()
         sibling = VenueFactory(organization=venue.organization)
-        user = OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            role=OrgRole.Role.FRONTDESK,
-        ).user
+
+        user = user_with_role(venue, OrgRole.Role.FRONTDESK, "frontdesk", True)
+
         assert roles_for(user, venue) == {"frontdesk"}
         assert roles_for(user, sibling) == {"frontdesk"}
 

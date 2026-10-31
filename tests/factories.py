@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import timedelta
 
 import factory
@@ -153,15 +154,30 @@ class AggregatorFactory(factory.django.DjangoModelFactory):
     service_user = factory.SubFactory(UserFactory)
 
 
-def user_with_role(venue, role, username=None, org_wide=False):
+def user_with_roles(
+    venue: Venue,
+    roles: Iterable[tuple[OrgRole.Role, bool]],
+    username: str | None = None,
+):
+    """User holding several OrgRoles: (role, org_wide) pairs share one user."""
+    user = UserFactory(username=username) if username else UserFactory()
+    for role, org_wide in roles:
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None if org_wide else venue,
+            user=user,
+            role=role,
+        )
+    return user
+
+
+def user_with_role(
+    venue: Venue,
+    role: OrgRole.Role,
+    username: str | None = None,
+    org_wide: bool = False,
+):
     """User holding an OrgRole: avoids the create-user-then-role repetition.
 
     Pass org_wide=True for org-level roles (venue=None)."""
-    user = UserFactory(username=username) if username else UserFactory()
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=None if org_wide else venue,
-        user=user,
-        role=role,
-    )
-    return user
+    return user_with_roles(venue, [(role, org_wide)], username=username)
