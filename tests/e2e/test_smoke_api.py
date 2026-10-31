@@ -262,15 +262,16 @@ def _given_session(title, starts_in_hours, capacity=None):
 
 def _given_member(username, venue):
     """Credited member of the venue's org."""
-    from organizations.management.seed_helpers import booker_membership
     from organizations.models import OrgRole
-    from tests.factories import user_with_role
+    from passes.models import PlanType
+    from tests.factories import PlanFactory, PlanMembershipFactory, user_with_role
 
     user = user_with_role(venue, OrgRole.Role.MEMBER, username=username, org_wide=True)
     # Factories leave an unusable password; the login flow needs the known one.
     user.set_password(PASSWORD)
     user.save(update_fields=["password"])
-    booker_membership(venue, user)
+    plan = PlanFactory(organization=venue.organization, plan_type=PlanType.CREDIT_PACK)
+    PlanMembershipFactory(user=user, plan=plan, credits_remaining=10)
     return user
 
 
