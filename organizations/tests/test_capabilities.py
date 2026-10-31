@@ -57,7 +57,9 @@ class TestRolesFor:
 
 
 class TestCapabilities:
-    @pytest.mark.parametrize("role", OPERATE_DESK_ROLES)
+    # sorted: frozenset order varies per process (hash seed) and breaks
+    # xdist, which requires identical collection on every worker.
+    @pytest.mark.parametrize("role", sorted(OPERATE_DESK_ROLES))
     def test_desk_is_frontdesk_and_up(self, role):
         assert can_operate_desk({role})
 
