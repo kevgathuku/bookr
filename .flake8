@@ -19,6 +19,9 @@
 # demo world needs one builder per concern (cast, schedule, passes,
 # bookings) plus the domain imports each consumes; fewer members would
 # merge unrelated builders, more helpers would exist only to shorten.
+# Per-file: seed_helpers.py ignores WPS202/WPS210/WPS211/WPS221 — one shared
+# builder per seed concern with explicit params; fewer members or bundled
+# options would merge unrelated builders or obscure the call sites.
 # Per-file: test_browser.py ignores WPS202/WPS210/WPS213 — linear E2E scripts;
 # splitting further would be helpers that exist only to shorten.
 # Per-file: booking/views.py, aggregators/views.py, scheduling/views.py
@@ -76,6 +79,11 @@ per-file-ignores =
         WPS201,
     organizations/management/commands/seed_demo.py:
         WPS201,
+        WPS202,
+        WPS210,
+        WPS211,
+        WPS221,
+    organizations/management/seed_helpers.py:
         WPS202,
         WPS210,
         WPS211,

@@ -13,7 +13,11 @@ from django.utils import timezone
 from access.models import AccessEvent, AccessPoint
 from booking.errors import DuplicateBooking, SeatFull
 from booking.services import book_seat
-from organizations.management.commands.seed_demo import _membership, _schedule
+from organizations.management.seed_helpers import (
+    class_days_out,
+    ensure_membership,
+    schedule_class,
+)
 from organizations.models import Membership, Organization, Venue, VenuePolicy
 from passes.models import PassProduct
 from passes.services import adjust_credit, issue_pass
@@ -47,7 +51,7 @@ def _e2e_people(org):
         user = get_user_model().objects.get_or_create(username=username)[0]
         user.set_password("password")
         user.save()
-        _membership(org, user, role)
+        ensure_membership(org, user, role)
         users[key] = user
     return users
 
@@ -84,7 +88,9 @@ def _e2e_org():
         org,
         people,
         product,
-        _schedule(venue, people["teacher"], "Spin", "Main Room"),
+        schedule_class(
+            venue, people["teacher"], "Spin", "Main Room", days=class_days_out()
+        ),
     )
 
 
@@ -152,7 +158,9 @@ def _seed_extra_places(org, people, venue):
         annex.time_zone = "Africa/Nairobi"
         annex.save(update_fields=["time_zone"])
     VenuePolicy.objects.get_or_create(venue=annex, valid_until=None)
-    _schedule(annex, people["teacher"], "Yoga", "Annex Room")
+    schedule_class(
+        annex, people["teacher"], "Yoga", "Annex Room", days=class_days_out()
+    )
     room = Room.objects.get_or_create(
         venue=venue, name="Closet", defaults={"capacity": 1}
     )[0]
