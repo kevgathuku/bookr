@@ -13,7 +13,8 @@ from organizations.models import Membership, Organization, Venue
 from scheduling.models import ClassType, Room, ScheduledClass
 
 #  Schedule API seam: GET /api/v1/classes/ is bounded (31d max), cheap
-#  (<=3 queries), and venue-scoped. Publishing is staff-only.
+#  (memberships + org-roles loads; contract drops the legacy load), and
+#  venue-scoped. Publishing is staff-only.
 #
 #  Isolation trio: cross-organization access 404s, cross-venue access 404s
 #  (no id leaks — never 403), and a spanning member gets 200 in both venues.
@@ -79,13 +80,13 @@ def _client(user, venue_slug=None):
 
 
 class TestScheduleList:
-    def test_bounded_list_three_queries(self, world):
+    def test_bounded_list_query_count(self, world):
         client = _client(world["spanning"], "main")
 
         with CaptureQueriesContext(connection) as ctx:
             response = client.get("/api/v1/classes/")
 
-        assert len(ctx) == 3
+        assert len(ctx) == 4  # memberships + org-roles loads (contract: 3)
 
         assert response.status_code == 200
         assert len(response.data) == 1

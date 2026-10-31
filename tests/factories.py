@@ -6,6 +6,8 @@ from django.template.defaultfilters import slugify
 from django.utils import timezone
 from faker import Faker
 
+from aggregators.models import Aggregator
+from aggregators.tokens import new_token
 from booking.models import CancellationPolicy
 from organizations.models import Membership, Organization, OrgRole, Venue
 from passes.models import (
@@ -17,6 +19,7 @@ from passes.models import (
     Membership as PlanMembership,
 )
 from scheduling.catalogue import ClassCategory, ClassOffering, ClassSession
+from scheduling.models import ClassType, Room, ScheduledClass
 
 fake = Faker()
 
@@ -153,3 +156,48 @@ class CreditLedgerFactory(factory.django.DjangoModelFactory):
     membership = factory.SubFactory(PlanMembershipFactory)
     delta = 1
     reason = CreditLedger.Reason.PURCHASE
+
+
+class ClassTypeFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = ClassType
+
+    venue = factory.SubFactory(VenueFactory)
+    name = factory.Sequence(lambda n: f"Class {n}")
+    duration_min = 45
+
+
+class RoomFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Room
+
+    venue = factory.SubFactory(VenueFactory)
+    name = factory.Sequence(lambda n: f"Room {n}")
+    capacity = 20
+
+
+class ScheduledClassFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = ScheduledClass
+
+    venue = factory.SubFactory(VenueFactory)
+    class_type = factory.SubFactory(ClassTypeFactory)
+    room = factory.SubFactory(RoomFactory)
+    teacher = factory.SubFactory(UserFactory)
+    starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=1))
+    ends_at = factory.LazyAttribute(
+        lambda session: (
+            session.starts_at + timedelta(minutes=session.class_type.duration_min)
+        )
+    )
+
+
+class AggregatorFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Aggregator
+
+    slug = factory.Sequence(lambda n: f"aggregator-{n}")
+    name = factory.LazyAttribute(lambda partner: partner.slug.title())
+    api_token_hash = factory.LazyAttribute(lambda _partner: new_token()[1])
+    seat_allotment = 4
+    service_user = factory.SubFactory(UserFactory)

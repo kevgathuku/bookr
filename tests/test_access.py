@@ -2,17 +2,27 @@ from datetime import timedelta
 from unittest import mock
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.db import OperationalError
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from access.models import AccessEvent, AccessPoint
+from access.services import decide
 from booking.services import book_seat
-from organizations.models import Membership, Organization, Venue, VenuePolicy
-from passes.models import PassProduct
+from organizations.models import Membership, OrgRole, VenuePolicy
+from passes.models import PassProduct, PlanType
 from passes.services import issue_pass
-from scheduling.models import ClassType, Room, ScheduledClass
+from tests.factories import (  # noqa: WPS235 — access tests build every domain object via factories
+    ClassTypeFactory,
+    MembershipPlanFactory,
+    OrganizationFactory,
+    OrgRoleFactory,
+    PlanMembershipFactory,
+    RoomFactory,
+    ScheduledClassFactory,
+    UserFactory,
+    VenueFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -35,12 +45,13 @@ def _clear_cache():
 
 
 def _user(username):
-    return get_user_model().objects.create_user(username=username)
+    return UserFactory(username=username)
 
 
 def _venue(slug="downtown"):
-    org = Organization.objects.create(slug=f"org-{slug}", name=f"Org {slug}")
-    venue = Venue.objects.create(organization=org, slug=slug, name=slug.title())
+    org = OrganizationFactory(slug=f"org-{slug}", name=f"Org {slug}")
+    venue = VenueFactory(organization=org, slug=slug, name=slug.title())
+    # No factory for the legacy policy: single open row, creation semantics.
     VenuePolicy.objects.create(venue=venue)
     return venue
 
@@ -70,16 +81,10 @@ def _member_with_pass(venue, username="member"):
 
 
 def _class(venue, teacher, start):
-    class_type, _ = ClassType.objects.get_or_create(
-        venue=venue, name="Spin", defaults={"duration_min": 45}
-    )
-    room, _ = Room.objects.get_or_create(
-        venue=venue, name="Studio", defaults={"capacity": 20}
-    )
-    return ScheduledClass.objects.create(
+    return ScheduledClassFactory(
         venue=venue,
-        class_type=class_type,
-        room=room,
+        class_type=ClassTypeFactory(venue=venue, name="Spin", duration_min=45),
+        room=RoomFactory(venue=venue, name="Studio", capacity=20),
         teacher=teacher,
         starts_at=start,
         ends_at=start + timedelta(hours=1),
@@ -285,6 +290,160 @@ class TestStaleGrant:
         assert granted is True
         cancel_booking(member, booking)
 
-        granted, _reason, _recheck = decide(point, member)
+        granted, _stale_reason, _stale_recheck = decide(point, member)
+
+        assert granted is False
+
+
+class TestRoleBasedAccess:
+    """Dual-source permissions: OrgRole rows grant exactly like old rows."""
+
+    def _client(self, user, venue):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
+        return client
+
+    def test_org_role_member_reads_schedule(self):
+        venue = VenueFactory()
+        user = _user("rolemember")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=user,
+            role=OrgRole.Role.MEMBER,
+        )
+
+        response = self._client(user, venue).get("/api/v1/classes/")
+
+        assert response.status_code == 200
+
+    def test_org_role_does_not_cross_venues(self):
+        org = OrganizationFactory()
+        first = VenueFactory(organization=org)
+        second = VenueFactory(organization=org)
+        user = _user("pinned")
+        OrgRoleFactory(
+            organization=org, venue=first, user=user, role=OrgRole.Role.MEMBER
+        )
+
+        response = self._client(user, second).get("/api/v1/classes/")
+
+        assert response.status_code == 404
+
+    def test_org_wide_role_covers_all_org_venues(self):
+        org = OrganizationFactory()
+        first = VenueFactory(organization=org)
+        second = VenueFactory(organization=org)
+        user = _user("spanning")
+        OrgRoleFactory(
+            organization=org, venue=None, user=user, role=OrgRole.Role.MEMBER
+        )
+
+        assert self._client(user, first).get("/api/v1/classes/").status_code == 200
+        assert self._client(user, second).get("/api/v1/classes/").status_code == 200
+
+    def test_org_role_frontdesk_can_publish(self):
+        venue = VenueFactory()
+        teacher = _user("teacher")
+        class_type = ClassTypeFactory(venue=venue, name="Spin", duration_min=45)
+        room = RoomFactory(venue=venue, name="Studio", capacity=20)
+        staff = _user("desker")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=staff,
+            role=OrgRole.Role.FRONTDESK,
+        )
+        start = timezone.now() + timedelta(days=2)
+
+        response = self._client(staff, venue).post(
+            "/api/v1/classes/",
+            {
+                "venue": venue.pk,
+                "class_type": class_type.pk,
+                "room": room.pk,
+                "teacher": teacher.pk,
+                "starts_at": start.isoformat(),
+                "ends_at": (start + timedelta(hours=1)).isoformat(),
+            },
+        )
+
+        assert response.status_code == 201
+
+
+class TestDoorPlanMemberships:
+    """Door grants on plan validity: monthly by dates, packs by balance."""
+
+    def _check_decide(self, venue, member):
+
+        point, _token = _point(venue)
+        return decide(point, member)
+
+    def test_monthly_plan_grants_without_balance(self):
+        venue = _venue()
+        member = _user("monthly")
+        plan = MembershipPlanFactory(
+            organization=venue.organization, plan_type=PlanType.MONTHLY
+        )
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=0)
+
+        granted, reason, _booking = self._check_decide(venue, member)
+
+        assert (granted, reason) == (True, "active_pass")
+
+    def test_pack_with_balance_grants(self):
+        venue = _venue()
+        member = _user("packholder")
+        plan = MembershipPlanFactory(
+            organization=venue.organization, plan_type=PlanType.CREDIT_PACK
+        )
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=3)
+
+        granted, _reason, _booking = self._check_decide(venue, member)
+
+        assert granted is True
+
+    def test_depleted_pack_denies(self):
+        venue = _venue()
+        member = _user("depleted")
+        plan = MembershipPlanFactory(
+            organization=venue.organization, plan_type=PlanType.CREDIT_PACK
+        )
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=0)
+
+        granted, _reason, _booking = self._check_decide(venue, member)
+
+        assert granted is False
+
+    def test_org_role_teacher_opens_staff_door(self):
+
+        venue = _venue()
+        point, _token = _point(venue)
+        teacher = _user("door-teacher")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=teacher,
+            role=OrgRole.Role.TEACHER,
+        )
+
+        granted, reason, _booking = decide(point, teacher)
+
+        assert (granted, reason) == (True, "staff")
+
+    def test_org_role_plain_member_door_denied(self):
+
+        venue = _venue()
+        point, _token = _point(venue)
+        member = _user("doormember")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+
+        granted, _reason, _booking = decide(point, member)
 
         assert granted is False

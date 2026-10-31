@@ -1,23 +1,24 @@
 import pytest
-from django.contrib.auth import get_user_model
 from django.db import IntegrityError
+from rest_framework.test import APIClient
 from test_staff_api import _class, _member, _venue
 
-from aggregators.models import Aggregator, AggregatorBooking
+from aggregators.models import AggregatorBooking
 from aggregators.tokens import new_token, rotate, verify
 from booking.models import Booking
+from organizations.models import OrgRole
+from tests.factories import AggregatorFactory, OrgRoleFactory, UserFactory, VenueFactory
 
 pytestmark = pytest.mark.django_db
 
 
 def _partner(slug="classpass"):
-    user = get_user_model().objects.create_user(username=f"svc-{slug}")
-    return Aggregator.objects.create(
+    from tests.factories import UserFactory
+
+    return AggregatorFactory(
         slug=slug,
         name=slug.title(),
-        api_token_hash="x",
-        seat_allotment=4,
-        service_user=user,
+        service_user=UserFactory(username=f"svc-{slug}"),
     )
 
 
@@ -309,3 +310,41 @@ class TestReviewFixes:
         assert response.json() != []
         assert "teacher" not in response.json()[0]
         assert "teacher_name" not in response.json()[0]
+
+
+class TestStaffGatesOnRoles:
+    """Aggregator back-office honors OrgRole staff ranks, not just rows."""
+
+    def test_org_role_manager_lists_partners(self):
+        venue = VenueFactory()
+        manager = UserFactory(username="agg-manager")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=manager,
+            role=OrgRole.Role.MANAGER,
+        )
+        client = APIClient()
+        client.force_authenticate(user=manager)
+        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
+
+        response = client.get("/api/v1/staff/aggregators/")
+
+        assert response.status_code == 200
+
+    def test_org_role_member_cannot_list_partners(self):
+        venue = VenueFactory()
+        member = UserFactory(username="agg-member")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        client = APIClient()
+        client.force_authenticate(user=member)
+        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
+
+        response = client.get("/api/v1/staff/aggregators/")
+
+        assert response.status_code == 403

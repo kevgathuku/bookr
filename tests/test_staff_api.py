@@ -7,7 +7,8 @@ from rest_framework.test import APIClient
 
 from organizations.models import Membership, Organization, Venue, VenuePolicy
 from passes.models import PassProduct
-from scheduling.models import ClassType, Room, ScheduledClass, TeacherSubstitution
+from scheduling.models import TeacherSubstitution
+from tests.factories import ClassTypeFactory, RoomFactory, ScheduledClassFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -59,16 +60,10 @@ def _member(venue, username="member"):
 
 def _class(venue, teacher=None):
     start = timezone.now() + timedelta(days=1)
-    class_type, _ = ClassType.objects.get_or_create(
-        venue=venue, name="Spin", defaults={"duration_min": 45}
-    )
-    room, _ = Room.objects.get_or_create(
-        venue=venue, name="Studio", defaults={"capacity": 20}
-    )
-    return ScheduledClass.objects.create(
+    return ScheduledClassFactory(
         venue=venue,
-        class_type=class_type,
-        room=room,
+        class_type=ClassTypeFactory(venue=venue, name="Spin", duration_min=45),
+        room=RoomFactory(venue=venue, name="Studio", capacity=20),
         teacher=teacher or _user(f"teacher-{venue.slug}"),
         starts_at=start,
         ends_at=start + timedelta(hours=1),
