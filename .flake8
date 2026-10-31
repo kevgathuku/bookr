@@ -19,18 +19,20 @@
 # demo world needs one builder per concern (cast, schedule, passes,
 # bookings) plus the domain imports each consumes; fewer members would
 # merge unrelated builders, more helpers would exist only to shorten.
-# Per-file: seed_helpers.py ignores WPS202/WPS210/WPS211/WPS221 — one shared
-# builder per seed concern with explicit params; fewer members or bundled
-# options would merge unrelated builders or obscure the call sites.
+# Per-file: seed_helpers.py ignores WPS201/WPS202/WPS210/WPS211/WPS221 — one shared
+# builder per seed concern with the domain imports each consumes; fewer
+# members or bundled options would merge unrelated builders or obscure
+# the call sites.
 # Per-file: access/services.py ignores WPS202 — the door decision needs one
 # predicate per grant path (pass, booking, staff) plus shared helpers;
 # splitting it would scatter a single verdict.
 # Per-file: test_browser.py ignores WPS202/WPS210/WPS213 — linear E2E scripts;
 # splitting further would be helpers that exist only to shorten.
-# Per-file: booking/views.py, aggregators/views.py, scheduling/views.py
-# ignore WPS201; organizations/views.py ignores WPS202 — endpoint files grow
-# one view per staff ticket by design; splitting by ticket would scatter the
-# API surface across modules.
+# Per-file: booking/views.py, aggregators/views.py ignore WPS201;
+# scheduling/views.py ignores WPS201 + WPS202 (old + new catalogue viewsets
+# coexist during the expand transition; contract deletes the old half) —
+# endpoint files grow one view per staff ticket by design; splitting by
+# ticket would scatter the API surface across modules.
 # Per-file: booking/services.py ignores WPS211 — book_seat/_create channel
 # kwargs (spend_credits, source) stay explicit; bundling them into an
 # options object would obscure the seat-lock hot path.
@@ -69,6 +71,7 @@ per-file-ignores =
         WPS201,
     scheduling/views.py:
         WPS201,
+        WPS202,
     booking/services.py:
         WPS211,
     organizations/models.py:
@@ -87,6 +90,7 @@ per-file-ignores =
         WPS211,
         WPS221,
     organizations/management/seed_helpers.py:
+        WPS201,
         WPS202,
         WPS210,
         WPS211,

@@ -1,5 +1,29 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import models
+from django.db.models import DateTimeField, ExpressionWrapper, F, Value
+
+
+def derived_end():
+    """DB expression matching ClassSession.ends_at (start + duration)."""
+    return ExpressionWrapper(
+        F("starts_at") + F("offering__duration_minutes") * Value(timedelta(minutes=1)),
+        output_field=DateTimeField(),
+    )
+
+
+class ClassSessionQuerySet(models.QuerySet):
+    def for_venue(self, venue):
+        return self.filter(offering__venue=venue)
+
+    def live(self):
+        return self.filter(cancelled_at__isnull=True)
+
+    def in_window(self, start, end):
+        return self.annotate(derived_end=derived_end()).filter(
+            starts_at__lt=end, derived_end__gt=start
+        )
 
 
 class ClassCategory(models.TextChoices):
@@ -32,6 +56,8 @@ class ClassOffering(models.Model):
 class ClassSession(models.Model):
     """The "when": one occurrence of an offering. End derives from start
     plus the offering duration — never stored, so the two cannot disagree."""
+
+    objects = ClassSessionQuerySet.as_manager()
 
     offering = models.ForeignKey(
         ClassOffering, on_delete=models.CASCADE, related_name="sessions"

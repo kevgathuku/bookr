@@ -11,11 +11,14 @@ from rest_framework.exceptions import NotFound
 from booking.http import Conflict
 from booking.models import ACTIVE_STATUSES, Booking
 from organizations.permissions import IsStaffOrReadOnly, IsVenueMember
+from scheduling.catalogue import ClassOffering, ClassSession
 from scheduling.models import ClassType, Room, ScheduledClass, TeacherSubstitution
 from scheduling.serializers import (
     ClassTypeSerializer,
+    OfferingSerializer,
     RoomSerializer,
     ScheduledClassSerializer,
+    SessionSerializer,
     TeacherSubstitutionSerializer,
 )
 
@@ -164,3 +167,57 @@ class ScheduledClassViewSet(viewsets.ModelViewSet):
         if end <= start or end - start > MAX_WINDOW:
             raise serializers.ValidationError("Window must span 1s to 31d.")
         return start, end
+
+
+def _window(request):
+    """Shared bounded-window parsing for the new read endpoints."""
+    params = request.query_params
+    start = parse_window_bound(params.get("from"), timezone.now())
+    end = parse_window_bound(params.get("to"), start + MAX_WINDOW)
+    if end <= start or end - start > MAX_WINDOW:
+        raise serializers.ValidationError("Window must span 1s to 31d.")
+    return start, end
+
+
+class OfferingViewSet(viewsets.ReadOnlyModelViewSet):
+    """Venues' offerings. Creation lives in admin (contract owns the form)."""
+
+    serializer_class = OfferingSerializer
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
+
+    def get_queryset(self):
+        venue = self.request.venue
+        param = self.request.query_params.get("venue")
+        if param is not None and param != venue.slug:
+            raise NotFound("No such venue.")
+        return (
+            ClassOffering.objects.filter(venue=venue)
+            .select_related("teacher")
+            .order_by("title")
+        )
+
+
+class SessionViewSet(viewsets.ReadOnlyModelViewSet):
+    """Bookable sessions with derived ends; cancelled ones never listed."""
+
+    serializer_class = SessionSerializer
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
+
+    def get_queryset(self):
+        venue = self.request.venue
+        param = self.request.query_params.get("venue")
+        if param is not None and param != venue.slug:
+            raise NotFound("No such venue.")
+        start, end = _window(self.request)
+        sessions = ClassSession.objects.for_venue(venue).live()
+        return (
+            sessions.in_window(start, end)
+            .select_related("offering", "offering__teacher")
+            .order_by("starts_at")
+        )
