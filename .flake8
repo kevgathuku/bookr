@@ -67,6 +67,10 @@
 # time_zone validator only).
 # Per-file: settings/base.py ignores WPS407 (module constants by Django
 # convention) and E501 (dotted validator paths stay whole for grep).
+# Per-file: settings/test.py ignores F403/F405/WPS300/E402/WPS407 — the
+# dev-shape star import plus env setdefaults before it are the module's
+# whole job (prefix-free local defaults, CI overrides via env); settings
+# are module constants by Django convention.
 [flake8]
 max-line-length = 88
 max-asserts = 6
@@ -125,6 +129,12 @@ per-file-ignores =
         WPS601,
     config/settings/base.py:
         E501,
+        WPS407,
+    config/settings/test.py:
+        E402,
+        F403,
+        F405,
+        WPS300,
         WPS407,
     organizations/management/commands/seed_e2e.py:
         WPS201,

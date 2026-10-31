@@ -53,7 +53,8 @@ no API key, $0).
 - Quality gates: `uv run ruff check .`, `uv run ruff format --check .`,
   `DATABASE_URL=... SECRET_KEY=... uv run mypy .`,
   `uv run flake8 <touched files>` (wemake, config in `.flake8`),
-  `DATABASE_URL=... uv run pytest tests/ -q` (+ CI in `.github/`).
+  `uv run pytest tests/ -q` (+ CI in `.github/`). Parallel unit run (live-server
+  smoke/e2e stay serial): `uv run pytest tests/ -q -n auto -m "not e2e and not smoke"`.
 - Conventions: explicit names with units (`class_late_cancel_hours`, not
   `_h`); `condition=` (Django 6.1, never `check=`); `ClassVar` on Meta
   constraint lists (RUF012); no code before its lesson.

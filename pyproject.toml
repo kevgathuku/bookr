@@ -51,7 +51,7 @@ exclude = ["*/migrations/*.py"]
 package = false
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "config.settings.dev"
+DJANGO_SETTINGS_MODULE = "config.settings.test"
 pythonpath = ["."]
 markers = [
     "smoke: per-commit end-to-end smoke (live server, no sleeps)",
@@ -91,6 +91,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-django>=4.14.0",
     "pytest-playwright>=0.10.0",
+    "pytest-xdist>=3.8.0",
     "requests>=2.34.2",
     "ruff>=0.17.2",
     "types-django-filter>=26.2.0.20261005",
