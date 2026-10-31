@@ -110,6 +110,9 @@ class LedgerView(generics.ListAPIView):
             "member_pass", "membership", "booking"
         ).order_by("-created_at")
         if self._is_staff():
+            # Plan rows are org-wide by design (plans have no venue), so
+            # venue staff see their venue's pass rows plus the org's plan
+            # rows; per-venue partitioning can return in .7 if needed.
             return entries.filter(
                 models.Q(member_pass__product__venue=self.request.venue)
                 | models.Q(
