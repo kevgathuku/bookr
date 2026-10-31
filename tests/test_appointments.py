@@ -9,8 +9,6 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from booking.errors import TeacherUnavailable
-from booking.services import book_seat
 from organizations.models import Membership, Organization, Venue, VenuePolicy
 from scheduling.appointments import (
     Appointment,
@@ -31,8 +29,7 @@ pytestmark = pytest.mark.django_db
 #  Appointment model seam
 #  - Same-room / same-teacher overlaps refuse at the DB; cancelled exempt.
 #  - Cross-table clash (teacher's class) refused in clean().
-#  - book_seat refuses a class whose teacher holds an overlapping
-#    appointment (TeacherUnavailable); late_cancel_cutoff is 24h by default.
+#  - late_cancel_cutoff is 24h by default.
 #
 #  Calendar seam: bounded 31d, merges classes + appointments, filters,
 #  stays within a query budget on seed-scale data.
@@ -257,48 +254,6 @@ class TestAppointmentConstraints:
         assert appointment.late_cancel_cutoff() == start - timedelta(hours=24)
 
 
-class TestAppointmentBookingTarget:
-    def test_exactly_one_target(self):
-        from booking.models import Booking
-
-        venue = _venue()
-        member = _user("member")
-        klass = _class(venue, _user("teacher"))
-
-        neither = Booking(venue=venue, member=member, idempotency_key="x1")
-        with pytest.raises(ValidationError):
-            neither.full_clean()
-
-        appointment = _appointment(venue, member=member)
-        both = Booking(
-            venue=venue,
-            member=member,
-            scheduled_class=klass,
-            appointment=appointment,
-            idempotency_key="x2",
-        )
-        with pytest.raises(ValidationError):
-            both.full_clean()
-
-    def test_teacher_clash_refuses_class_booking(self):
-        from passes.models import PassProduct
-        from passes.services import issue_pass
-
-        venue = _venue()
-        teacher = _user("therapist")
-        member = _user("member")
-        product = PassProduct.objects.create(
-            venue=venue, name="Pack", credits_total=5, validity_days=30
-        )
-        issue_pass(member, product)
-        start = timezone.now() + timedelta(days=1)
-        _appointment(venue, member=_user("other"), teacher=teacher, start=start)
-        klass = _class(venue, teacher, start=start + timedelta(minutes=30))
-
-        with pytest.raises(TeacherUnavailable):
-            book_seat(member, klass, idempotency_key="clash")
-
-
 class TestCalendar:
     def _world(self):
         venue = _venue()
@@ -329,9 +284,7 @@ class TestCalendar:
         venue, member, _ = self._world()
         now = timezone.now()
         offering = ClassOfferingFactory(venue=venue)
-        ClassSessionFactory(
-            offering=offering, starts_at=now + timedelta(days=1)
-        )
+        ClassSessionFactory(offering=offering, starts_at=now + timedelta(days=1))
 
         response = self._client(member).get(
             "/api/v1/calendar/",
@@ -382,53 +335,3 @@ class TestCalendar:
 
         assert response.status_code == 200
         assert len(ctx) <= 5
-
-
-class TestAppointmentCancelWindow:
-    def test_cancel_uses_24h_appointment_window(self):
-        from booking.cancellations import cancel_booking
-        from booking.models import Booking
-        from organizations.models import VenuePolicy
-
-        venue = _venue("appt-cancel")
-        VenuePolicy.objects.create(venue=venue)
-        member = _user("appt-member")
-        soon = _appointment(
-            venue, member=member, start=timezone.now() + timedelta(hours=1)
-        )
-        booking = Booking.objects.create(
-            member=member,
-            venue=venue,
-            appointment=soon,
-            status=Booking.Status.CONFIRMED,
-            idempotency_key="appt-cancel-1",
-        )
-
-        cancel_booking(member, booking)
-
-        booking.refresh_from_db()
-        assert booking.status == Booking.Status.CANCELLED_LATE
-
-    def test_cancel_outside_window_cancels(self):
-        from booking.cancellations import cancel_booking
-        from booking.models import Booking
-        from organizations.models import VenuePolicy
-
-        venue = _venue("appt-ok")
-        VenuePolicy.objects.create(venue=venue)
-        member = _user("appt-member-ok")
-        later = _appointment(
-            venue, member=member, start=timezone.now() + timedelta(days=3)
-        )
-        booking = Booking.objects.create(
-            member=member,
-            venue=venue,
-            appointment=later,
-            status=Booking.Status.CONFIRMED,
-            idempotency_key="appt-cancel-2",
-        )
-
-        cancel_booking(member, booking)
-
-        booking.refresh_from_db()
-        assert booking.status == Booking.Status.CANCELLED

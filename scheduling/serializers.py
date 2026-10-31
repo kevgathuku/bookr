@@ -116,6 +116,12 @@ class SessionSerializer(serializers.ModelSerializer):
     )
     venue = serializers.IntegerField(source="offering.venue_id", read_only=True)
     ends_at = serializers.DateTimeField(read_only=True)
+    spots_left = serializers.SerializerMethodField()
+
+    def get_spots_left(self, obj) -> int | None:
+        if obj.capacity is None:
+            return None
+        return max(obj.capacity - (getattr(obj, "booked", 0) or 0), 0)
 
     class Meta:
         model = ClassSession
@@ -130,4 +136,5 @@ class SessionSerializer(serializers.ModelSerializer):
             "starts_at",
             "ends_at",
             "capacity",
+            "spots_left",
         ]

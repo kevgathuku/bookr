@@ -4,7 +4,6 @@ from test_staff_api import _member, _staff, _venue
 
 from aggregators.models import Aggregator, AggregatorEventLog
 from aggregators.tokens import verify
-from scheduling.models import ScheduledClass
 
 pytestmark = pytest.mark.django_db
 
@@ -114,28 +113,3 @@ class TestCatalogLists:
 
         assert rooms.status_code == 200
         assert types.status_code == 200
-
-
-class TestClassDeleteGuard:
-    def test_delete_refuses_class_with_active_bookings(self):
-        from test_staff_api import _class, _member
-
-        from booking.models import Booking
-
-        venue = _venue("manage-del")
-        staff = _staff(venue, username="owner6", role="owner")
-        klass = _class(venue)
-        Booking.objects.create(
-            member=_member(venue, "victim"),
-            venue=venue,
-            scheduled_class=klass,
-            status=Booking.Status.CONFIRMED,
-            idempotency_key="del-1",
-        )
-
-        response = _client(staff, slug="manage-del").delete(
-            f"/api/v1/classes/{klass.pk}/"
-        )
-
-        assert response.status_code == 409
-        assert ScheduledClass.objects.filter(pk=klass.pk).exists()

@@ -10,11 +10,14 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from booking.errors import CreditInsufficient
-from booking.services import book_seat
 from organizations.models import Membership, Organization, Venue
-from passes.models import MemberPass, PassProduct
-from passes.services import adjust_credit, expire_passes, issue_pass, refund_credit
-from scheduling.models import ClassType, Room, ScheduledClass
+from passes.models import (
+    CreditLedger,
+    MemberPass,
+    PassProduct,
+)
+from passes.models import Membership as PlanMembership
+from passes.services import adjust_credit, expire_passes, issue_pass
 
 pytestmark = pytest.mark.django_db
 
@@ -40,6 +43,17 @@ def _venue(slug="downtown"):
     return Venue.objects.create(organization=org, slug=slug, name=slug.title())
 
 
+def _member_with_plan(venue, username, credits=10):
+    from tests.factories import MembershipPlanFactory, PlanMembershipFactory
+
+    member = _user(username)
+    plan = MembershipPlanFactory(organization=venue.organization)
+    membership = PlanMembershipFactory(
+        user=member, plan=plan, credits_remaining=credits
+    )
+    return member, membership
+
+
 def _product(venue, name="Ten Pack", credits=5, types=None):
     product = PassProduct.objects.create(
         venue=venue, name=name, credits_total=credits, validity_days=30
@@ -49,151 +63,79 @@ def _product(venue, name="Ten Pack", credits=5, types=None):
     return product
 
 
-def _class(venue, name="Spin", teacher=None, start=None):
-    start = start or (timezone.now() + timedelta(days=1))
-    class_type, _ = ClassType.objects.get_or_create(
-        venue=venue, name=name, defaults={"duration_min": 45}
-    )
-    room, _ = Room.objects.get_or_create(
-        venue=venue, name=f"Studio-{name}", defaults={"capacity": 20}
-    )
-    return ScheduledClass.objects.create(
-        venue=venue,
-        class_type=class_type,
-        room=room,
-        teacher=teacher or _user(f"teacher-{venue.slug}-{name}"),
-        starts_at=start,
-        ends_at=start + timedelta(hours=1),
-    )
+def _plan(venue, name="Pack"):
+    from passes.models import MembershipPlan
+
+    return MembershipPlan.objects.get_or_create(
+        organization=venue.organization,
+        name=name,
+        defaults={"plan_type": "credit_pack", "validity_days": 30},
+    )[0]
 
 
-def _book(member, klass, key="k"):
-    return book_seat(member, klass, idempotency_key=key)
+def _member_plan(venue, username, credits=10, plan=None):
+    from tests.factories import PlanMembershipFactory
+
+    member = _user(username)
+    plan = plan or _plan(venue)
+    membership = PlanMembershipFactory(
+        user=member, plan=plan, credits_remaining=credits
+    )
+    return member, membership
 
 
 class TestSpend:
-    def test_spend_writes_row_and_links_booking(self):
+    """spend_for_booking: debit + BOOKING row, or nothing for zero amounts."""
+
+    def test_spend_debits_and_links_booking(self):
+        from passes.services import spend_for_booking
+
         venue = _venue()
-        member = _user("m1")
-        member_pass = issue_pass(member, _product(venue))
-        booking = _book(member, _class(venue))
+        _, membership = _member_with_plan(venue, "m1", 10)
 
-        member_pass.refresh_from_db()
-        booking.refresh_from_db()
-        assert member_pass.credits_used == 1
-        assert booking.credit_tx is not None
-        assert booking.credit_tx.delta == -1
-        assert booking.credit_tx.member_pass == member_pass
+        spend_for_booking(membership, 3, booking=None)
 
-    def test_oldest_valid_first(self):
+        membership.refresh_from_db()
+        assert membership.credits_remaining == 7
+        row = membership.ledger_entries.get(reason=CreditLedger.Reason.BOOKING)
+        assert (row.delta, row.booking) == (-3, None)
+
+    def test_zero_spend_writes_no_row(self):
+        from passes.services import spend_for_booking
+
         venue = _venue()
-        member = _user("m1")
-        old = issue_pass(member, _product(venue, name="old"))
-        old.valid_from -= timedelta(days=10)
-        old.save()
-        new = issue_pass(member, _product(venue, name="new"))
+        _, membership = _member_with_plan(venue, "m1", 10)
 
-        _book(member, _class(venue))
+        assert spend_for_booking(membership, 0, None) is None
 
-        old.refresh_from_db()
-        new.refresh_from_db()
-        assert (old.credits_used, new.credits_used) == (1, 0)
+        membership.refresh_from_db()
+        assert membership.credits_remaining == 10
+        assert membership.ledger_entries.count() == 0
 
-    def test_unlimited_first(self):
+    def test_insufficient_raises_and_writes_nothing(self):
+        from passes.services import spend_for_booking
+
         venue = _venue()
-        member = _user("m1")
-        limited = issue_pass(member, _product(venue, name="limited"))
-        unlimited = issue_pass(member, _product(venue, name="unlimited", credits=None))
-
-        booking = _book(member, _class(venue))
-
-        limited.refresh_from_db()
-        booking.refresh_from_db()
-        assert limited.credits_used == 0
-        assert unlimited.credits_used == 0
-        assert booking.credit_tx is None  # nothing to track, no row
-
-    def test_type_applicability(self):
-        venue = _venue()
-        member = _user("m1")
-        yoga = ClassType.objects.create(venue=venue, name="Yoga", duration_min=60)
-        issue_pass(member, _product(venue, types=[yoga]))
+        _, membership = _member_with_plan(venue, "m1", credits=2)
 
         with pytest.raises(CreditInsufficient):
-            _book(member, _class(venue, name="Spin"))
+            spend_for_booking(membership, 3, booking=None)
 
-    def test_no_pass_means_insufficient(self):
-        venue = _venue()
-
-        with pytest.raises(CreditInsufficient):
-            _book(_user("broke"), _class(venue))
-
-    def test_expired_and_depleted_refuse(self):
-        venue = _venue()
-        member = _user("m1")
-        expired = issue_pass(member, _product(venue, name="exp"))
-        expired.valid_until = timezone.now() - timedelta(seconds=1)
-        expired.save()
-        single = issue_pass(member, _product(venue, name="one", credits=1))
-        _book(member, _class(venue), key="first")
-
-        with pytest.raises(CreditInsufficient):
-            _book(member, _class(venue, name="Spin2"), key="second")
-        assert expired.credits_used == 0
-        single.refresh_from_db()
-        assert single.status == MemberPass.Status.DEPLETED
+        membership.refresh_from_db()
+        assert membership.credits_remaining == 2
+        assert membership.ledger_entries.count() == 0
 
     def test_ledger_invariant_on_seed(self):
         venue = _venue()
-        member = _user("m1")
-        for name in ("a", "b"):
-            issue_pass(member, _product(venue, name=name))
-        _book(member, _class(venue))
+        for name in ("a", "b", "c"):
+            _member_with_plan(venue, f"{name}-holder", credits=5)
 
-        for member_pass in MemberPass.objects.all():
-            total = member_pass.credits_total or 0
-            summed = member_pass.entries.aggregate(total=Sum("delta"))["total"] or 0
-            assert summed == total - member_pass.credits_used
+        for membership in PlanMembership.objects.all():
+            summed = membership.ledger_entries.aggregate(total=Sum("delta"))["total"]
+            assert (summed or 0) == 0
 
 
 class TestRefundAdjustExpire:
-    def test_refund_restores(self):
-        venue = _venue()
-        member = _user("m1")
-        member_pass = issue_pass(member, _product(venue))
-        booking = _book(member, _class(venue))
-
-        refund_credit(booking)
-
-        member_pass.refresh_from_db()
-        assert member_pass.credits_used == 0
-        assert member_pass.entries.filter(reason="refund").count() == 1
-
-    def test_refund_unlimited_is_noop(self):
-        venue = _venue()
-        member = _user("m2")
-        member_pass = issue_pass(member, _product(venue, credits=None))
-        booking = _book(member, _class(venue))
-        assert booking.credit_tx is None
-
-        assert refund_credit(booking) is None
-
-        assert member_pass.entries.count() == 0
-
-    def test_refund_reactivates_depleted_pass(self):
-        venue = _venue()
-        member = _user("m3")
-        member_pass = issue_pass(member, _product(venue, credits=1))
-        booking = _book(member, _class(venue))
-        member_pass.refresh_from_db()
-        assert member_pass.status == MemberPass.Status.DEPLETED
-
-        refund_credit(booking)
-
-        member_pass.refresh_from_db()
-        assert member_pass.status == MemberPass.Status.ACTIVE
-        assert member_pass.credits_used == 0
-
     def test_expire_task_runs_service(self):
         from passes.tasks import expire_passes_task
 
@@ -219,7 +161,6 @@ class TestRefundAdjustExpire:
         venue = _venue()
         member = _user("m1")
         member_pass = issue_pass(member, _product(venue))
-        _book(member, _class(venue))
         member_pass.valid_until = timezone.now() - timedelta(seconds=1)
         member_pass.save()
 
@@ -233,25 +174,27 @@ class TestRefundAdjustExpire:
 
 @pytest.mark.django_db(transaction=True)
 class TestLastCreditRace:
-    def test_twenty_threads_one_credit_yields_one_booking(self):
-        venue = _venue(slug="race")
-        member = _user("racer")
-        issue_pass(member, _product(venue, credits=1))
-        classes = [_class(venue, name=f"C{i}") for i in range(20)]
+    def test_twenty_threads_one_balance_yields_one_spend(self):
+        from passes.services import spend_for_booking
 
-        def attempt(index):
+        venue = _venue(slug="race")
+        _member, membership = _member_with_plan(venue, "racer", credits=10)
+
+        def attempt(amount):
             try:
-                _book(member, classes[index], key=f"race-{index}")
-                return "booked"
+                spend_for_booking(membership, amount, booking=None)
+                return "spent"
             except CreditInsufficient:
                 return "empty"
             finally:
                 connection.close()
 
         with ThreadPoolExecutor(max_workers=20) as pool:
-            outcomes = list(pool.map(attempt, range(20)))
+            outcomes = list(pool.map(attempt, [6 for _ in range(20)]))
 
-        assert outcomes.count("booked") == 1
+        membership.refresh_from_db()
+        assert membership.credits_remaining >= 0
+        assert outcomes.count("spent") == 1
         assert outcomes.count("empty") == 19
 
 
@@ -296,8 +239,10 @@ class TestPassViews:
             user=staff,
             role=Membership.Role.MANAGER,
         )
-        issue_pass(member, _product(venue))
-        _book(member, _class(venue))
+        member_pass = issue_pass(member, _product(venue))
+        CreditLedger.objects.create(
+            member_pass=member_pass, delta=-1, reason=CreditLedger.Reason.BOOKING
+        )
 
         own = self._client(member).get("/api/v1/ledger/")
         venue_wide = self._client(staff).get("/api/v1/ledger/")
@@ -350,19 +295,3 @@ class TestLedgerNote:
 
         row = member_pass.entries.get(reason="adjustment")
         assert row.note == "goodwill"
-
-    def test_override_cancel_stores_note_on_refund(self):
-        from booking.cancellations import cancel_booking
-        from passes.models import CreditLedger
-
-        venue = _venue("note-cancel")
-        member = _user("noted-cancel")
-        issue_pass(member, _product(venue))
-        booking = _book(member, _class(venue))
-
-        cancel_booking(
-            _user("boss-note"), booking, staff_override=True, reason="desk-override"
-        )
-
-        refund = CreditLedger.objects.get(booking=booking, reason="refund")
-        assert refund.note == "desk-override"

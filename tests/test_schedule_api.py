@@ -8,13 +8,16 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from booking.models import Booking
+from booking.services import book_session
 from organizations.models import Membership, Organization, Venue
 from scheduling.models import ClassType, Room, ScheduledClass
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
+    MembershipPlanFactory,
     OrgRoleFactory,
+    PlanMembershipFactory,
+    UserFactory,
     VenueFactory,
 )
 
@@ -116,22 +119,6 @@ class TestScheduleList:
         response = Client().get("/api/v1/classes/", HTTP_X_VENUE_SLUG="main")
 
         assert response.status_code in (401, 403, 404)
-
-    def test_list_includes_spots_left(self, world):
-        klass = ScheduledClass.objects.get(venue=world["a1"])
-        Booking.objects.create(
-            venue=world["a1"],
-            member=world["spanning"],
-            scheduled_class=klass,
-            idempotency_key="spot-1",
-        )
-        client = _client(world["spanning"], "main")
-
-        response = client.get("/api/v1/classes/")
-
-        assert response.status_code == 200
-        assert response.data[0]["capacity"] == 20
-        assert response.data[0]["spots_left"] == 19
 
 
 class TestIsolation:
@@ -295,7 +282,7 @@ class TestSessionList:
         response = self._get(member, venue, params)
 
         assert response.status_code == 200
-        assert response.data == []
+        assert not response.data
 
     def test_window_over_31d_rejected(self):
         venue, _offering, member = self._world()
@@ -306,6 +293,23 @@ class TestSessionList:
         response = self._get(member, venue, params)
 
         assert response.status_code == 400
+
+    def test_lists_spots_left(self):
+        venue, offering, member = self._world()
+        session = ClassSessionFactory(offering=offering)
+        booker = UserFactory(username="spot-booker")
+        plan = MembershipPlanFactory(organization=venue.organization)
+        membership = PlanMembershipFactory(user=booker, plan=plan, credits_remaining=5)
+        book_session(member=booker, session=session, membership=membership)
+        start = session.starts_at.isoformat()
+        end = (session.starts_at + timedelta(days=1)).isoformat()
+        params = {"from": start, "to": end}
+
+        response = self._get(member, venue, params)
+
+        assert response.status_code == 200
+        row = next(r for r in response.data if r["id"] == session.pk)
+        assert row["spots_left"] == session.capacity - 1
 
     def test_cross_venue_404(self):
         venue, _offering, member = self._world()

@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from booking.models import Booking
 from organizations.models import Membership, Organization, Venue, VenuePolicy
 
 pytestmark = pytest.mark.django_db
@@ -102,33 +103,25 @@ class TestBookingSpellings:
             ends_at=start + timedelta(hours=1),
         )
 
-    def test_waitlist_query_param(self):
-        from passes.models import PassProduct
-        from passes.services import issue_pass
+    def test_waitlist_param_rejected_until_waitlist_ticket(self):
+        # Waitlists were deferred out of the remodel (.9 re-adds them).
+        # Booking must refuse the flag loudly instead of silently booking.
+        from tests.factories import ClassOfferingFactory, ClassSessionFactory
 
         venue = _venue()
-        klass = self._full_class(venue)
-        first = _member(venue, "first")
-        second = _member(venue, "second")
-        for user in (first, second):
-            product, _ = PassProduct.objects.get_or_create(
-                venue=venue,
-                name="Pack",
-                defaults={"credits_total": 10, "validity_days": 30},
-            )
-            issue_pass(user, product)
-        _client(first).post(
-            "/api/v1/bookings/",
-            {"scheduled_class": klass.pk, "idempotency_key": "fill-1"},
+        member = _member(venue, "waiter")
+        offering = ClassOfferingFactory(venue=venue)
+        session = ClassSessionFactory(
+            offering=offering, starts_at=timezone.now() + timedelta(days=1)
         )
 
-        response = _client(second).post(
+        response = _client(member).post(
             "/api/v1/bookings/?waitlist=true",
-            {"scheduled_class": klass.pk, "idempotency_key": "fill-2"},
+            {"session": session.pk},
         )
 
-        assert response.status_code == 201
-        assert response.data["status"] == "waitlisted"
+        assert response.status_code == 400
+        assert Booking.objects.count() == 0
 
     def test_mine_query_param(self):
         venue = _venue()

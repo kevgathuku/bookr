@@ -17,7 +17,7 @@ Booking with credits:
 1. As a member on a credit pack, I want credits deducted when I book a class, so that my balance reflects what I have left.
 2. As a member on an unlimited monthly plan, I want to book without touching any credit balance, so that booking stays frictionless.
 3. As a drop-in guest, I want my single-credit membership to pay for my booking like any other plan, so that guests flow through the same path as members.
-4. As a comp-guest holder, I want to book without any payment reference, so that staff can invite guests freely.
+4. As a complimentary-guest holder, I want to book without any payment reference, so that staff can invite guests freely.
 5. As a member, I want booking refused when the class is full, already started, or cancelled, so that I never hold a meaningless booking.
 6. As a member, I want booking refused when my plan is expired or I have no credits left, so that I know to top up first.
 

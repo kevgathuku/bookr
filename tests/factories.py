@@ -145,7 +145,11 @@ class PlanMembershipFactory(factory.django.DjangoModelFactory):
     plan = factory.SubFactory(MembershipPlanFactory)
     credits_remaining = 0
     starts_on = factory.LazyFunction(lambda: timezone.now().date())
-    ends_on = None
+    ends_on = factory.LazyAttribute(
+        lambda membership: (
+            membership.starts_on + timedelta(days=membership.plan.validity_days)
+        )
+    )
     payment_ref = ""
 
 
@@ -201,3 +205,17 @@ class AggregatorFactory(factory.django.DjangoModelFactory):
     api_token_hash = factory.LazyAttribute(lambda _partner: new_token()[1])
     seat_allotment = 4
     service_user = factory.SubFactory(UserFactory)
+
+
+def user_with_role(venue, role, username=None, org_wide=False):
+    """User holding an OrgRole: avoids the create-user-then-role repetition.
+
+    Pass org_wide=True for org-level roles (venue=None)."""
+    user = UserFactory(username=username) if username else UserFactory()
+    OrgRoleFactory(
+        organization=venue.organization,
+        venue=None if org_wide else venue,
+        user=user,
+        role=role,
+    )
+    return user

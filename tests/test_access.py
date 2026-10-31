@@ -8,20 +8,23 @@ from rest_framework.test import APIClient
 
 from access.models import AccessEvent, AccessPoint
 from access.services import decide
-from booking.services import book_seat
-from organizations.models import Membership, OrgRole, VenuePolicy
+from booking.models import Booking
+from booking.services import book_session
+from organizations.models import OrgRole, VenuePolicy
 from passes.models import PassProduct, PlanType
 from passes.services import issue_pass
 from tests.factories import (  # noqa: WPS235 — access tests build every domain object via factories
+    ClassOfferingFactory,
+    ClassSessionFactory,
     ClassTypeFactory,
     MembershipPlanFactory,
     OrganizationFactory,
     OrgRoleFactory,
     PlanMembershipFactory,
     RoomFactory,
-    ScheduledClassFactory,
     UserFactory,
     VenueFactory,
+    user_with_role,
 )
 
 pytestmark = pytest.mark.django_db
@@ -66,13 +69,7 @@ def _point(venue):
 
 
 def _member_with_pass(venue, username="member"):
-    member = _user(username)
-    Membership.objects.create(
-        organization=venue.organization,
-        venue=venue,
-        user=member,
-        role=Membership.Role.MEMBER,
-    )
+    member = user_with_role(venue, OrgRole.Role.MEMBER, username=username)
     product = PassProduct.objects.create(
         venue=venue, name="Pack", credits_total=5, validity_days=30
     )
@@ -80,15 +77,25 @@ def _member_with_pass(venue, username="member"):
     return member
 
 
-def _class(venue, teacher, start):
-    return ScheduledClassFactory(
+def _session(venue, teacher=None, minutes_from_now=10):
+    offering = ClassOfferingFactory(
         venue=venue,
-        class_type=ClassTypeFactory(venue=venue, name="Spin", duration_min=45),
-        room=RoomFactory(venue=venue, name="Studio", capacity=20),
-        teacher=teacher,
-        starts_at=start,
-        ends_at=start + timedelta(hours=1),
+        teacher=teacher or UserFactory(username=f"teacher-{venue.slug}"),
+        title="Spin",
     )
+    return ClassSessionFactory(
+        offering=offering,
+        starts_at=timezone.now() + timedelta(minutes=minutes_from_now),
+    )
+
+
+def _member_with_plan(venue, username, credits=5):
+    member = _user(username)
+    plan = MembershipPlanFactory(
+        organization=venue.organization, name=f"{username}-pack"
+    )
+    PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
+    return member
 
 
 def _check(token, member_pk, point_pk):
@@ -117,22 +124,13 @@ class TestGrantDeny:
     def test_live_booking_window_grants(self):
         venue = _venue()
         point, token = _point(venue)
-        teacher = _user("teacher")
-        member = _user("dropin")
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=member,
-            role=Membership.Role.MEMBER,
-        )
-        start = timezone.now() - timedelta(minutes=5)  # class started 5m ago
-        klass = _class(venue, teacher, start)
-        # No pass: book via unlimited? booking needs credit — grant one credit.
-        product = PassProduct.objects.create(
-            venue=venue, name="Single", credits_total=1, validity_days=30
-        )
-        issue_pass(member, product)
-        book_seat(member, klass, idempotency_key="dropin-1")
+        member = _member_with_plan(venue, "dropin")
+        session = _session(venue, minutes_from_now=10)
+        book_session(member=member, session=session)
+        # Expire the plan after booking: the live booking alone must grant.
+        membership = member.plan_memberships.get()
+        membership.ends_on = timezone.now().date() - timedelta(days=1)
+        membership.save(update_fields=["ends_on"])
 
         response = _check(token, member.pk, point.pk)
 
@@ -142,13 +140,7 @@ class TestGrantDeny:
     def test_staff_grants_without_pass_or_booking(self):
         venue = _venue()
         point, token = _point(venue)
-        staff = _user("manager")
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=staff,
-            role=Membership.Role.MANAGER,
-        )
+        staff = user_with_role(venue, OrgRole.Role.MANAGER, username="manager")
 
         response = _check(token, staff.pk, point.pk)
 
@@ -158,13 +150,7 @@ class TestGrantDeny:
     def test_stranger_denies_and_logs(self):
         venue = _venue()
         point, token = _point(venue)
-        stranger = _user("stranger")
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=stranger,
-            role=Membership.Role.MEMBER,
-        )
+        stranger = user_with_role(venue, OrgRole.Role.MEMBER, username="stranger")
 
         response = _check(token, stranger.pk, point.pk)
 
@@ -226,13 +212,7 @@ class TestRecentEvents:
         venue = _venue()
         point, token = _point(venue)
         member = _member_with_pass(venue)
-        staff = _user("frontdesk")
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=staff,
-            role=Membership.Role.FRONTDESK,
-        )
+        staff = user_with_role(venue, OrgRole.Role.FRONTDESK, username="frontdesk")
         _check(token, member.pk, point.pk)
 
         client = APIClient()
@@ -265,30 +245,20 @@ class TestRecentEvents:
 
 class TestStaleGrant:
     def test_cancel_inside_ttl_denies_on_recheck(self):
+        # Cancel action itself returns in .4; here the status transition is
+        # applied directly to test the decision layer, not the action.
         from access.services import decide
-        from booking.cancellations import cancel_booking
 
         venue = _venue("stale-door")
         point, _token = _point(venue)
-        teacher = _user("stale-teacher")
-        member = _user("stale-member")
-        Membership.objects.create(
-            organization=venue.organization,
-            venue=venue,
-            user=member,
-            role=Membership.Role.MEMBER,
-        )
-        product = PassProduct.objects.create(
-            venue=venue, name="Single", credits_total=1, validity_days=30
-        )
-        issue_pass(member, product)
-        start = timezone.now() - timedelta(minutes=5)
-        klass = _class(venue, teacher, start)
-        booking = book_seat(member, klass, idempotency_key="stale-1")
+        member = _member_with_plan(venue, "stale-member", credits=1)
+        session = _session(venue)
+        booking = book_session(member=member, session=session)
 
         granted, _reason, _booking = decide(point, member)
         assert granted is True
-        cancel_booking(member, booking)
+        booking.status = Booking.Status.CANCELLED
+        booking.save(update_fields=["status"])
 
         granted, _stale_reason, _stale_recheck = decide(point, member)
 

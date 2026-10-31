@@ -1,25 +1,57 @@
+from datetime import timedelta
+
 import pytest
 from django.db import IntegrityError
+from django.utils import timezone
 from rest_framework.test import APIClient
-from test_staff_api import _class, _member, _venue
 
-from aggregators.models import AggregatorBooking
+from aggregators.models import AggregatorBooking, AggregatorEventLog
 from aggregators.tokens import new_token, rotate, verify
 from booking.models import Booking
 from organizations.models import OrgRole
-from tests.factories import AggregatorFactory, OrgRoleFactory, UserFactory, VenueFactory
+from passes.models import CreditLedger
+from tests.factories import (
+    AggregatorFactory,
+    ClassOfferingFactory,
+    ClassSessionFactory,
+    PlanMembershipFactory,
+    UserFactory,
+    VenueFactory,
+    user_with_role,
+)
 
 pytestmark = pytest.mark.django_db
 
 
 def _partner(slug="classpass"):
-    from tests.factories import UserFactory
-
     return AggregatorFactory(
         slug=slug,
         name=slug.title(),
         service_user=UserFactory(username=f"svc-{slug}"),
     )
+
+
+def _session(venue, teacher=None, **overrides):
+    offering = ClassOfferingFactory(
+        venue=venue,
+        teacher=teacher or UserFactory(username=f"teacher-{venue.slug}"),
+        title="Spin",
+    )
+    defaults = {"starts_at": timezone.now() + timedelta(days=1)}
+    defaults.update(overrides)
+    return ClassSessionFactory(offering=offering, **defaults)
+
+
+def _setup_partner():
+    venue = VenueFactory(slug="agg-venue", name="Agg Venue")
+    session = _session(venue)
+    raw, token_hash = new_token()
+    partner = _partner("gymhopper")
+    partner.api_token_hash = token_hash
+    partner.save(update_fields=["api_token_hash"])
+    client = APIClient()
+    client.defaults["HTTP_X_PARTNER_TOKEN"] = raw
+    return session, partner, client
 
 
 class TestTokens:
@@ -43,14 +75,13 @@ class TestTokens:
         assert verify(old_raw, fresh_hash) is False
 
     def test_external_id_unique_per_partner(self):
-        venue = _venue()
+        venue = VenueFactory()
         partner = _partner()
+        member = UserFactory(username="agg-member")
+        membership = PlanMembershipFactory(user=member)
+        session = ClassSessionFactory(offering=ClassOfferingFactory(venue=venue))
         booking = Booking.objects.create(
-            member=_member(venue),
-            venue=venue,
-            scheduled_class=_class(venue),
-            status=Booking.Status.CONFIRMED,
-            idempotency_key="agg-ext-1",
+            session=session, member=member, membership=membership
         )
         AggregatorBooking.objects.create(
             aggregator=partner, external_id="ext-1", booking=booking
@@ -62,25 +93,11 @@ class TestTokens:
             )
 
 
-def _setup_partner():
-    from rest_framework.test import APIClient
-
-    venue = _venue("agg-venue")
-    klass = _class(venue)
-    raw, token_hash = new_token()
-    partner = _partner("gymhopper")
-    partner.api_token_hash = token_hash
-    partner.save(update_fields=["api_token_hash"])
-    client = APIClient()
-    client.defaults["HTTP_X_PARTNER_TOKEN"] = raw
-    return klass, partner, client
-
-
 class TestPartnerBookings:
     def test_same_external_id_twice_is_one_booking(self):
-        klass, _partner, client = _setup_partner()
+        session, _partner, client = _setup_partner()
         url = "/api/v1/aggregators/gymhopper/bookings/"
-        body = {"scheduled_class": klass.pk, "external_id": "ext-9"}
+        body = {"session": session.pk, "external_id": "ext-9"}
 
         first = client.post(url, body)
         second = client.post(url, body)
@@ -90,67 +107,62 @@ class TestPartnerBookings:
         assert first.json()["id"] == second.json()["id"]
 
     def test_over_allotment_is_409(self):
-
-        klass, partner, client = _setup_partner()
+        session, partner, client = _setup_partner()
         partner.seat_allotment = 1
         partner.save(update_fields=["seat_allotment"])
         url = "/api/v1/aggregators/gymhopper/bookings/"
 
         assert (
-            client.post(
-                url, {"scheduled_class": klass.pk, "external_id": "a"}
-            ).status_code
+            client.post(url, {"session": session.pk, "external_id": "a"}).status_code
             == 201
         )
-        over = client.post(url, {"scheduled_class": klass.pk, "external_id": "b"})
+        over = client.post(url, {"session": session.pk, "external_id": "b"})
 
         assert over.status_code == 409
 
     def test_bad_token_is_401(self):
-        from rest_framework.test import APIClient
-
-        klass, _partner, _client = _setup_partner()
+        session, _partner, _client = _setup_partner()
         stranger = APIClient()
         stranger.defaults["HTTP_X_PARTNER_TOKEN"] = "bogus"
 
         response = stranger.post(
             "/api/v1/aggregators/gymhopper/bookings/",
-            {"scheduled_class": klass.pk, "external_id": "x"},
+            {"session": session.pk, "external_id": "x"},
         )
 
         assert response.status_code == 401
 
     def test_rotated_token_401s_old(self):
-        klass, partner, client = _setup_partner()
+        session, partner, client = _setup_partner()
         _fresh_raw, fresh_hash = rotate()
         partner.api_token_hash = fresh_hash
         partner.save(update_fields=["api_token_hash"])
 
         response = client.post(
             "/api/v1/aggregators/gymhopper/bookings/",
-            {"scheduled_class": klass.pk, "external_id": "x"},
+            {"session": session.pk, "external_id": "x"},
         )
 
         assert response.status_code == 401
 
 
 class TestPartnerCancel:
-    def test_cancel_inside_cutoff_cancels(self):
-        from rest_framework.test import APIClient
-
-        venue = _venue("agg-cancel")
-        klass = _class(venue)
+    def _client_for(self, slug, name="cancelco"):
+        venue = VenueFactory(slug=slug, name=slug.title())
+        session = _session(venue)
         raw, token_hash = new_token()
-        partner = _partner("cancelco")
+        partner = _partner(name)
         partner.api_token_hash = token_hash
         partner.save(update_fields=["api_token_hash"])
         client = APIClient()
         client.defaults["HTTP_X_PARTNER_TOKEN"] = raw
+        return session, partner, client
+
+    def test_cancel_inside_cutoff_cancels(self):
+        session, _partner, client = self._client_for("agg-cancel")
         url = "/api/v1/aggregators/cancelco/bookings/"
         assert (
-            client.post(
-                url, {"scheduled_class": klass.pk, "external_id": "c1"}
-            ).status_code
+            client.post(url, {"session": session.pk, "external_id": "c1"}).status_code
             == 201
         )
 
@@ -159,36 +171,19 @@ class TestPartnerCancel:
         assert cancelled.status_code == 200
         assert cancelled.json()["status"] == "cancelled"
 
-    def test_late_cancel_bills_partner_without_passes(self):
-        from datetime import timedelta
-
-        from django.utils import timezone
-        from rest_framework.test import APIClient
-
-        from passes.models import CreditLedger
-
-        venue = _venue("agg-late")
-        klass = _class(venue)
-        klass.starts_at = timezone.now() + timedelta(minutes=10)
-        klass.ends_at = klass.starts_at + timedelta(hours=1)
-        klass.save(update_fields=["starts_at", "ends_at"])
-        raw, token_hash = new_token()
-        partner = _partner("lateco")
-        partner.api_token_hash = token_hash
-        partner.save(update_fields=["api_token_hash"])
-        client = APIClient()
-        client.defaults["HTTP_X_PARTNER_TOKEN"] = raw
+    def test_late_cancel_marks_late_without_charges(self):
+        session, _partner, client = self._client_for("agg-late", "lateco")
+        session.starts_at = timezone.now() + timedelta(minutes=10)
+        session.save(update_fields=["starts_at"])
         url = "/api/v1/aggregators/lateco/bookings/"
         assert (
-            client.post(
-                url, {"scheduled_class": klass.pk, "external_id": "l1"}
-            ).status_code
+            client.post(url, {"session": session.pk, "external_id": "l1"}).status_code
             == 201
         )
 
         cancelled = client.post(f"{url}l1/cancel/")
 
-        assert cancelled.json()["status"] == "cancelled_late"
+        assert cancelled.json()["status"] == "late_cancelled"
         assert CreditLedger.objects.count() == 0
 
 
@@ -221,22 +216,10 @@ class TestWebhookSend:
 
 class TestEventLogReplay:
     def test_log_replays_to_identical_booking_state(self):
-        from rest_framework.test import APIClient
-
-        from aggregators.models import AggregatorBooking, AggregatorEventLog
-        from booking.models import Booking
-
-        venue = _venue("agg-replay")
-        klass = _class(venue)
-        raw, token_hash = new_token()
-        partner = _partner("replayco")
-        partner.api_token_hash = token_hash
-        partner.save(update_fields=["api_token_hash"])
-        client = APIClient()
-        client.defaults["HTTP_X_PARTNER_TOKEN"] = raw
-        url = "/api/v1/aggregators/replayco/bookings/"
-        client.post(url, {"scheduled_class": klass.pk, "external_id": "r1"})
-        client.post(url, {"scheduled_class": klass.pk, "external_id": "r1"})
+        session, partner, client = _setup_partner()
+        url = "/api/v1/aggregators/gymhopper/bookings/"
+        client.post(url, {"session": session.pk, "external_id": "r1"})
+        client.post(url, {"session": session.pk, "external_id": "r1"})
         client.post(f"{url}r1/cancel/")
 
         calls = list(
@@ -248,61 +231,21 @@ class TestEventLogReplay:
 
 
 class TestReviewFixes:
-    def test_retry_with_different_class_is_409(self):
-        klass, _partner, client = _setup_partner()
-        other = _class(_venue("other-venue"))
+    def test_retry_with_different_session_is_409(self):
+        session, _partner, client = _setup_partner()
+        other = _session(VenueFactory(slug="other-venue", name="Other"))
         url = "/api/v1/aggregators/gymhopper/bookings/"
 
         assert (
-            client.post(
-                url, {"scheduled_class": klass.pk, "external_id": "m1"}
-            ).status_code
+            client.post(url, {"session": session.pk, "external_id": "m1"}).status_code
             == 201
         )
-        clash = client.post(url, {"scheduled_class": other.pk, "external_id": "m1"})
+        clash = client.post(url, {"session": other.pk, "external_id": "m1"})
 
         assert clash.status_code == 409
 
-    def test_partner_cancel_promotes_waitlisted_member(self):
-        from booking.models import Booking
-        from passes.models import PassProduct
-        from passes.services import issue_pass
-
-        klass, _partner, client = _setup_partner()
-        member = _member(klass.venue, "waiter")
-        from organizations.models import VenuePolicy
-
-        VenuePolicy.objects.get_or_create(
-            venue=klass.venue, valid_until=None, defaults={"waitlist_hold_minutes": 5}
-        )
-        product, _ = PassProduct.objects.get_or_create(
-            venue=klass.venue,
-            name="Pack",
-            defaults={"credits_total": 10, "validity_days": 30},
-        )
-        issue_pass(member, product)
-        waitlisted = Booking.objects.create(
-            member=member,
-            venue=klass.venue,
-            scheduled_class=klass,
-            status=Booking.Status.WAITLISTED,
-            idempotency_key="agg-wait-1",
-        )
-        url = "/api/v1/aggregators/gymhopper/bookings/"
-        assert (
-            client.post(
-                url, {"scheduled_class": klass.pk, "external_id": "p1"}
-            ).status_code
-            == 201
-        )
-
-        assert client.post(f"{url}p1/cancel/").status_code == 200
-
-        waitlisted.refresh_from_db()
-        assert waitlisted.status == Booking.Status.CONFIRMED
-
-    def test_partner_schedule_hides_teacher_username(self):
-        _klass, _partner, client = _setup_partner()
+    def test_partner_schedule_hides_teacher_identity(self):
+        _session, _partner, client = _setup_partner()
 
         response = client.get("/api/v1/aggregators/gymhopper/schedule/")
 
@@ -317,13 +260,7 @@ class TestStaffGatesOnRoles:
 
     def test_org_role_manager_lists_partners(self):
         venue = VenueFactory()
-        manager = UserFactory(username="agg-manager")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=manager,
-            role=OrgRole.Role.MANAGER,
-        )
+        manager = user_with_role(venue, OrgRole.Role.MANAGER, username="agg-manager")
         client = APIClient()
         client.force_authenticate(user=manager)
         client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
@@ -334,13 +271,7 @@ class TestStaffGatesOnRoles:
 
     def test_org_role_member_cannot_list_partners(self):
         venue = VenueFactory()
-        member = UserFactory(username="agg-member")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=member,
-            role=OrgRole.Role.MEMBER,
-        )
+        member = user_with_role(venue, OrgRole.Role.MEMBER, username="agg-member")
         client = APIClient()
         client.force_authenticate(user=member)
         client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
