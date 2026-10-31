@@ -28,3 +28,8 @@ class AlreadyCancelled(BookingError):
 
 class SessionStarted(BookingError):
     """Session has started or been provider-cancelled."""
+
+
+class InvalidWaiver(BookingError):
+    """Waiver asked for something unwaivable: no penalty to waive, nothing
+    forfeited, or forgiveness that must happen inline at cancel time."""

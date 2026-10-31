@@ -20,7 +20,7 @@ from booking.cancellations import (
     strike_count,
     waive_record,
 )
-from booking.errors import AlreadyCancelled, SessionStarted
+from booking.errors import AlreadyCancelled, InvalidWaiver, SessionStarted
 from booking.models import Booking, CancellationPolicy, CancellationRecord
 from booking.services import book_session
 from organizations.models import OrgRole
@@ -451,6 +451,56 @@ class TestInitiator:
         assert record.credits_refunded == 2
         assert record.snapshot["cause"] == "staff_decision"
 
+    def test_teacher_cancels_own_roster_booking(self):
+        venue = _venue()
+        teacher = UserFactory(username="t-roster")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=teacher,
+            role=OrgRole.Role.TEACHER,
+        )
+        offering = ClassOfferingFactory(venue=venue, teacher=teacher)
+        session = ClassSessionFactory(
+            offering=offering,
+            starts_at=timezone.now() + timedelta(hours=2),
+        )
+        member = _member("m1", venue, credits=10)
+        _policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = _book(member, session)
+
+        record = cancel_booking(
+            booking_id=booking.pk,
+            actor=teacher,
+            now=timezone.now(),
+            reason="disruptive, remove",
+        )
+
+        assert record.snapshot["cause"] == "staff_decision"
+        assert record.enforcement_applied == NONE
+        assert record.credits_refunded == 2
+
+    def test_teacher_cannot_cancel_other_roster_booking(self):
+        venue = _venue()
+        teacher = UserFactory(username="t-stranger")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=None,
+            user=teacher,
+            role=OrgRole.Role.TEACHER,
+        )
+        session = _session(venue, starts_in_hours=2)
+        member = _member("m1", venue)
+        booking = _book(member, session)
+
+        with pytest.raises(PermissionDenied):
+            cancel_booking(
+                booking_id=booking.pk,
+                actor=teacher,
+                now=timezone.now(),
+                reason="not mine",
+            )
+
     def test_staff_cancel_requires_reason(self):
         venue = _venue()
         session = _session(venue)
@@ -473,7 +523,7 @@ class TestInitiator:
         desk = _staff("desk", venue)
         booking = _book(member, session)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(InvalidWaiver):
             cancel_booking(
                 booking_id=booking.pk,
                 actor=desk,
@@ -581,7 +631,7 @@ class TestWaiver:
             reason="late",
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(InvalidWaiver):
             waive_record(record_id=record.pk, actor=desk, reason="goodwill")
 
     def test_retroactive_waive_of_strike_raises(self):
@@ -600,7 +650,7 @@ class TestWaiver:
 
         # Strikes move no money: nothing to compensate. Forgiveness for
         # strikes is inline-only, at cancel time.
-        with pytest.raises(ValueError):
+        with pytest.raises(InvalidWaiver):
             waive_record(record_id=record.pk, actor=desk, reason="goodwill")
 
         assert strike_count(member, venue.organization, timezone.now()) == 1
@@ -888,7 +938,7 @@ class TestStrikes:
             reason="forgiven",
         )
         retro = late_cancel("d", 0)
-        with pytest.raises(ValueError):
+        with pytest.raises(InvalidWaiver):
             waive_record(record_id=retro.pk, actor=desk, reason="goodwill")
 
         assert strike_count(member, org, now) == 0  # other member's rows don't leak

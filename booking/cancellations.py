@@ -13,7 +13,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from booking.errors import AlreadyCancelled, SessionStarted
+from booking.errors import AlreadyCancelled, InvalidWaiver, SessionStarted
 from booking.models import (
     ACTIVE_STATUSES,
     Booking,
@@ -74,12 +74,22 @@ def _check_actor(actor, booking, organization, behalf, waive, reason):
     owner = actor.pk == booking.member_id
     if not owner:
         _require_staff(actor, organization, reason)
+        _require_roster_or_desk(actor, booking, organization)
     penalize = owner or behalf
     if waive:
         if not penalize:
-            raise ValueError("waive_penalty with no penalty to waive.")
+            raise InvalidWaiver("waive_penalty with no penalty to waive.")
         _require_waiver(actor, organization, reason)
     return penalize
+
+
+def _require_roster_or_desk(actor, booking, organization):
+    # Desk roles cancel any booking; teachers only their own roster.
+    teacher = booking.session.offering.teacher_id == actor.pk
+    if not teacher and not can_operate_desk(_roles(actor, organization)):
+        raise PermissionDenied(
+            "Teachers may only cancel bookings in classes they teach."
+        )
 
 
 def _apply_cancel(
@@ -207,14 +217,14 @@ def waive_record(*, record_id, actor, reason=""):
             record.penalty_waived
             or record.enforcement_applied != CancellationPolicy.Enforcement.LOSE_CREDIT
         ):
-            raise ValueError("Record carries no standing forfeit to waive.")
+            raise InvalidWaiver("Record carries no standing forfeit to waive.")
         owed = record.snapshot["credits_spent"] - record.credits_refunded
         if owed <= 0:
             # Monthly and comped seats forfeit nothing: no money moved,
             # so there is nothing to compensate (and zero-delta rows are
             # forbidden). Strike forgiveness is inline-only for the same
             # reason.
-            raise ValueError("Record carries no standing forfeit to waive.")
+            raise InvalidWaiver("Record carries no standing forfeit to waive.")
         adjustment, created = CreditLedger.objects.get_or_create(
             cancellation_record=record,
             defaults={
@@ -273,7 +283,9 @@ def _load_open_booking(booking_id, moment, allow_started=False):
         raise SessionStarted("Session has been cancelled.")
     started = session.starts_at <= moment
     if started and not allow_started:
-        raise SessionStarted("Session has already started.")
+        raise SessionStarted(
+            "Session has already started; record attendance with no-show."
+        )
     venue = session.offering.venue
     return booking, session, venue, venue.organization
 
