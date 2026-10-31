@@ -1,12 +1,14 @@
-"""Smoke journey against the live app: login → schedule → book →
-ledger shows the spend → cancel refunds (or forfeits when late) →
-door grants, stranger denied.
+"""Smoke journeys against the live app: schedule → book → ledger →
+cancel (refund or late forfeit) → door; plus partner channel idempotency.
 
-One ordered journey (plus an independent door test): smoke must stay
-fast and deterministic, never share hidden state between files.
+Each test composes small given/when helpers (`_given_session`,
+`_as_member`, `_book`, `_cancel`) so scenarios read as setup → act →
+assert. Smoke must stay fast and deterministic, never share hidden
+state between tests.
 """
 
 from datetime import timedelta
+from typing import NamedTuple
 
 import pytest
 import requests
@@ -26,7 +28,6 @@ def _session(base_url, token=None, venue=True):
         session.headers["Authorization"] = f"Bearer {token}"
     if venue:
         session.headers["X-Venue-Slug"] = VENUE_SLUG
-    session.base = base_url
     return session
 
 
@@ -40,11 +41,24 @@ def _login(base_url, username):
     return _session(base_url, token=response.json()["access"])
 
 
-def _upcoming(api, member):
+class _Stage(NamedTuple):
+    """Logged-in member client bound to the API root."""
+
+    api: str
+    client: requests.Session
+
+
+def _as_member(base_url, username):
+    """Given a main-venue member: stage to act with."""
+    return _Stage(f"{base_url}/api/v1", _login(base_url, username))
+
+
+def _upcoming(stage):
+    """Upcoming sessions from the seeded schedule."""
     start = timezone.now()
     end = start + timedelta(days=7)
-    listed = member.get(
-        f"{api}/sessions/",
+    listed = stage.client.get(
+        f"{stage.api}/sessions/",
         params={"from": start.isoformat(), "to": end.isoformat()},
     )
     assert listed.status_code == 200
@@ -57,31 +71,67 @@ def _upcoming(api, member):
     return upcoming
 
 
-def _try_book(api, member, upcoming):
+def _try_book(stage, upcoming):
+    """First bookable session id; the seed overbooks, so retry a few."""
     for session in upcoming[:3]:
-        attempt = member.post(f"{api}/bookings/", json={"session": session["id"]})
+        attempt = stage.client.post(
+            f"{stage.api}/bookings/", json={"session": session["id"]}
+        )
         if attempt.status_code == 201:
             return attempt.json()["id"]
     raise AssertionError("no bookable upcoming session")
 
 
-def test_login_and_schedule(base_url):
-    api = f"{base_url}/api/v1"
-    member = _login(base_url, f"{ORG_SLUG}-member")
+def _book(stage, session_id, waitlist=False):
+    """Book a seat; the created payload (201 asserted here, it is setup)."""
+    url = f"{stage.api}/bookings/"
+    if waitlist:
+        url = f"{url}?waitlist=true"
+    booked = stage.client.post(url, json={"session": session_id})
+    assert booked.status_code == 201, booked.text
+    return booked.json()
 
-    assert _upcoming(api, member) != []
+
+def _cancel(stage, booking_id):
+    response = stage.client.post(f"{stage.api}/bookings/{booking_id}/cancel/", json={})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _mine(stage, booking_id):
+    mine = stage.client.get(f"{stage.api}/bookings/me/", params={"mine": "true"})
+    assert mine.status_code == 200, mine.text
+    return next(booking for booking in mine.json() if booking["id"] == booking_id)
+
+
+def _ledger_entry(stage, booking_id, reason):
+    ledger = stage.client.get(f"{stage.api}/ledger/")
+    assert ledger.status_code == 200, ledger.text
+    return next(
+        (
+            entry
+            for entry in ledger.json()
+            if entry["booking"] == booking_id and entry["reason"] == reason
+        ),
+        None,
+    )
+
+
+def test_login_and_schedule(base_url):
+    member = _as_member(base_url, f"{ORG_SLUG}-member")
+
+    assert _upcoming(member) != []
 
 
 def test_calendar_matches_session_list(base_url):
-    api = f"{base_url}/api/v1"
-    member = _login(base_url, f"{ORG_SLUG}-member")
+    member = _as_member(base_url, f"{ORG_SLUG}-member")
     start = timezone.now()
     end = start + timedelta(days=7)
     params = {"from": start.isoformat(), "to": end.isoformat()}
 
-    listed = member.get(f"{api}/sessions/", params=params)
+    listed = member.client.get(f"{member.api}/sessions/", params=params)
     assert listed.status_code == 200
-    events = member.get(f"{api}/calendar/", params=params)
+    events = member.client.get(f"{member.api}/calendar/", params=params)
     assert events.status_code == 200
     session_events = [event for event in events.json() if event["kind"] == "session"]
     assert {event["id"] for event in session_events} == {
@@ -90,14 +140,10 @@ def test_calendar_matches_session_list(base_url):
 
 
 def test_book_debits_and_lists(base_url):
-    # Cancel + refund return with the cancel ticket; this asserts the book half.
-    api = f"{base_url}/api/v1"
-    member = _login(base_url, f"{ORG_SLUG}-member")
-    booking_id = _try_book(api, member, _upcoming(api, member))
+    member = _as_member(base_url, f"{ORG_SLUG}-member")
+    booking_id = _try_book(member, _upcoming(member))
 
-    mine = member.get(f"{api}/bookings/me/", params={"mine": "true"})
-    assert mine.status_code == 200
-    booked = next(b for b in mine.json() if b["id"] == booking_id)
+    booked = _mine(member, booking_id)
     assert booked["status"] == "booked"
     assert booked["credits_spent"] > 0
 
@@ -119,12 +165,13 @@ def test_door_grants_member_denies_stranger(base_url):
     member_id = users.get(username=f"{ORG_SLUG}-member").pk
     stranger_id = users.get(username=f"{ORG_SLUG}-stranger").pk
 
+    check = f"{base_url}/api/access/check/"
     granted = door.post(
-        f"{base_url}/api/access/check/",
+        check,
         json={"access_point": point.pk, "member": member_id},
     )
     denied = door.post(
-        f"{base_url}/api/access/check/",
+        check,
         json={"access_point": point.pk, "member": stranger_id},
     )
 
@@ -195,163 +242,107 @@ def test_partner_channel_capped_rotated(base_url):
     assert stale.status_code == 401
 
 
-def _waitlist_world():
-    """Committed capacity-1 GROUP session + two credited members."""
+def _given_session(title, starts_in_hours, capacity=None):
+    """Committed session in the main venue; capacity only when passed."""
     from django.contrib.auth import get_user_model
-    from django.utils import timezone
 
-    from organizations.management.seed_helpers import booker_membership, ensure_org_role
-    from organizations.models import OrgRole, Venue
+    from organizations.models import Venue
     from tests.factories import ClassOfferingFactory, ClassSessionFactory
 
-    users = get_user_model().objects
     venue = Venue.objects.get(organization__slug=ORG_SLUG, slug="main")
-    teacher = users.get(username="e2e-run-teacher")
-    offering = ClassOfferingFactory(venue=venue, teacher=teacher, title="Tiny Spin")
-    session = ClassSessionFactory(
-        offering=offering,
-        starts_at=timezone.now() + timedelta(days=1),
-        capacity=1,
-    )
-    for username in ("wl-booker", "wl-queued"):
-        user = users.create_user(username=username, password=PASSWORD)
-        ensure_org_role(venue.organization, user, OrgRole.Role.MEMBER)
-        booker_membership(venue, user)
-    return session
+    teacher = get_user_model().objects.get(username="e2e-run-teacher")
+    offering = ClassOfferingFactory(venue=venue, teacher=teacher, title=title)
+    starts_at = timezone.now() + timedelta(hours=starts_in_hours)
+    if capacity is not None:
+        return ClassSessionFactory(
+            offering=offering, starts_at=starts_at, capacity=capacity
+        )
+    return ClassSessionFactory(offering=offering, starts_at=starts_at)
+
+
+def _given_member(username, venue):
+    """Credited member of the venue's org."""
+    from organizations.management.seed_helpers import booker_membership
+    from organizations.models import OrgRole
+    from tests.factories import user_with_role
+
+    user = user_with_role(venue, OrgRole.Role.MEMBER, username=username, org_wide=True)
+    # Factories leave an unusable password; the login flow needs the known one.
+    user.set_password(PASSWORD)
+    user.save(update_fields=["password"])
+    booker_membership(venue, user)
+    return user
+
+
+def _given_policy(organization, enforcement):
+    """Org-wide cancellation rule (default 12h late window)."""
+    from tests.factories import CancellationPolicyFactory
+
+    return CancellationPolicyFactory(organization=organization, enforcement=enforcement)
 
 
 def test_waitlist_queue_returns_waitlisted(base_url):
-    api = f"{base_url}/api/v1"
-    session = _waitlist_world()
-    booker = _login(base_url, "wl-booker")
-    queued = _login(base_url, "wl-queued")
+    session = _given_session("Tiny Spin", starts_in_hours=24, capacity=1)
+    _given_member("wl-booker", session.offering.venue)
+    _given_member("wl-queued", session.offering.venue)
+    booker = _as_member(base_url, "wl-booker")
+    queued = _as_member(base_url, "wl-queued")
 
-    booked = booker.post(f"{api}/bookings/", json={"session": session.pk})
-    assert booked.status_code == 201, booked.text
-    full = queued.post(f"{api}/bookings/", json={"session": session.pk})
+    _book(booker, session.pk)
+    full = queued.client.post(f"{queued.api}/bookings/", json={"session": session.pk})
     assert full.status_code == 409, full.text
-
-    waitlist_url = f"{api}/bookings/?waitlist=true"
-    waiting = queued.post(waitlist_url, json={"session": session.pk})
-    assert waiting.status_code == 201, waiting.text
-    assert waiting.json()["status"] == "waitlisted"
-    assert waiting.json()["credits_spent"] == 0
+    waiting = _book(queued, session.pk, waitlist=True)
+    assert waiting["status"] == "waitlisted"
+    assert waiting["credits_spent"] == 0
 
 
 def test_cancel_promotes_waitlisted_member(base_url):
-    api = f"{base_url}/api/v1"
-    session = _waitlist_world()
-    booker = _login(base_url, "wl-booker")
-    queued = _login(base_url, "wl-queued")
+    session = _given_session("Tiny Spin", starts_in_hours=24, capacity=1)
+    _given_member("wl-booker", session.offering.venue)
+    _given_member("wl-queued", session.offering.venue)
+    booker = _as_member(base_url, "wl-booker")
+    queued = _as_member(base_url, "wl-queued")
 
-    booked = booker.post(f"{api}/bookings/", json={"session": session.pk})
-    waitlist_url = f"{api}/bookings/?waitlist=true"
-    waiting = queued.post(waitlist_url, json={"session": session.pk})
-    booking_id = booked.json()["id"]
-    cancel = booker.post(f"{api}/bookings/{booking_id}/cancel/", json={})
-    assert cancel.status_code == 200, cancel.text
+    booking = _book(booker, session.pk)
+    waiting = _book(queued, session.pk, waitlist=True)
+    _cancel(booker, booking["id"])
 
-    mine = queued.get(f"{api}/bookings/me/", params={"mine": "true"})
-    assert mine.status_code == 200, mine.text
-    promoted = next(b for b in mine.json() if b["id"] == waiting.json()["id"])
+    promoted = _mine(queued, waiting["id"])
     assert promoted["status"] == "booked"
     assert promoted["credits_spent"] > 0
 
 
-def _solo_world(title, username, starts_in_hours, enforcement=None):
-    """Committed session + one credited member; optional org-wide policy."""
-    from django.contrib.auth import get_user_model
-    from django.utils import timezone
-
-    from booking.models import CancellationPolicy
-    from organizations.management.seed_helpers import (
-        booker_membership,
-        ensure_org_role,
-    )
-    from organizations.models import OrgRole, Venue
-    from tests.factories import ClassOfferingFactory, ClassSessionFactory
-
-    users = get_user_model().objects
-    venue = Venue.objects.get(organization__slug=ORG_SLUG, slug="main")
-    teacher = users.get(username="e2e-run-teacher")
-    offering = ClassOfferingFactory(venue=venue, teacher=teacher, title=title)
-    session = ClassSessionFactory(
-        offering=offering,
-        starts_at=timezone.now() + timedelta(hours=starts_in_hours),
-    )
-    if enforcement is not None:
-        CancellationPolicy.objects.create(
-            organization=venue.organization,
-            enforcement=enforcement,
-            late_cancel_hours=12,
-        )
-    user = users.create_user(username=username, password=PASSWORD)
-    ensure_org_role(venue.organization, user, OrgRole.Role.MEMBER)
-    booker_membership(venue, user)
-    return session
-
-
-def _ledger_entry(member, api, booking_id, reason):
-    ledger = member.get(f"{api}/ledger/")
-    assert ledger.status_code == 200, ledger.text
-    return next(
-        (
-            entry
-            for entry in ledger.json()
-            if entry["booking"] == booking_id and entry["reason"] == reason
-        ),
-        None,
-    )
-
-
 def test_cancel_refunds_and_ledger_balances(base_url):
-    api = f"{base_url}/api/v1"
-    session = _solo_world("Refund Spin", "rf-booker", starts_in_hours=48)
-    member = _login(base_url, "rf-booker")
+    session = _given_session("Refund Spin", starts_in_hours=48)
+    _given_member("rf-booker", session.offering.venue)
+    member = _as_member(base_url, "rf-booker")
 
-    booked = member.post(f"{api}/bookings/", json={"session": session.pk})
-    assert booked.status_code == 201, booked.text
-    booking_id = booked.json()["id"]
-    spent = booked.json()["credits_spent"]
-    assert spent > 0
-
-    cancel = member.post(f"{api}/bookings/{booking_id}/cancel/", json={})
-    assert cancel.status_code == 200, cancel.text
-    assert cancel.json()["credits_refunded"] == spent
-
-    mine = member.get(f"{api}/bookings/me/", params={"mine": "true"})
-    cancelled = next(b for b in mine.json() if b["id"] == booking_id)
-    assert cancelled["status"] == "cancelled"
-    refund = _ledger_entry(member, api, booking_id, "refund")
-    assert refund is not None and refund["delta"] == spent
+    booking = _book(member, session.pk)
+    assert booking["credits_spent"] > 0
+    record = _cancel(member, booking["id"])
+    assert record["credits_refunded"] == booking["credits_spent"]
+    assert _mine(member, booking["id"])["status"] == "cancelled"
+    refund = _ledger_entry(member, booking["id"], "refund")
+    assert refund is not None and refund["delta"] == booking["credits_spent"]
 
 
 def test_late_cancel_forfeits_credit(base_url):
     from booking.models import CancellationPolicy
 
-    api = f"{base_url}/api/v1"
-    session = _solo_world(
-        "Late Spin",
-        "lc-booker",
-        starts_in_hours=2,
-        enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
+    session = _given_session("Late Spin", starts_in_hours=2)
+    _given_member("lc-booker", session.offering.venue)
+    _given_policy(
+        session.offering.venue.organization,
+        CancellationPolicy.Enforcement.LOSE_CREDIT,
     )
-    member = _login(base_url, "lc-booker")
+    member = _as_member(base_url, "lc-booker")
 
-    booked = member.post(f"{api}/bookings/", json={"session": session.pk})
-    assert booked.status_code == 201, booked.text
-    booking_id = booked.json()["id"]
-
-    cancel = member.post(f"{api}/bookings/{booking_id}/cancel/", json={})
-    assert cancel.status_code == 200, cancel.text
-    outcome = cancel.json()
+    booking = _book(member, session.pk)
+    outcome = _cancel(member, booking["id"])
     assert (
         outcome["was_late"],
         outcome["enforcement_applied"],
         outcome["credits_refunded"],
     ) == (True, "lose_credit", 0)
-
-    mine = member.get(f"{api}/bookings/me/", params={"mine": "true"})
-    late = next(b for b in mine.json() if b["id"] == booking_id)
-    assert late["status"] == "late_cancelled"
-    assert _ledger_entry(member, api, booking_id, "refund") is None
+    assert _mine(member, booking["id"])["status"] == "late_cancelled"
+    assert _ledger_entry(member, booking["id"], "refund") is None
