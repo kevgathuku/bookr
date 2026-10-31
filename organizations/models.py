@@ -230,3 +230,26 @@ class Membership(models.Model):
     def __str__(self):
         where = self.venue.name if self.venue else "all venues"
         return f"{self.user} · {self.role} @ {where}"
+
+
+class OrgRole(models.Model):
+    """Duties live here, not on User. One user can be a member at one venue
+    and a teacher at another. venue=None means the role applies org-wide."""
+
+    class Role(models.TextChoices):
+        MEMBER = "member", "Member"
+        TEACHER = "teacher", "Teacher"
+        FRONTDESK = "frontdesk", "Front desk"
+        MANAGER = "manager", "Manager"
+        OWNER = "owner", "Owner"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="org_roles"
+    )
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    venue = models.ForeignKey(Venue, null=True, blank=True, on_delete=models.CASCADE)
+    role = models.CharField(max_length=20, choices=Role.choices)
+
+    def __str__(self):
+        where = self.venue.name if self.venue else "all venues"
+        return f"{self.user} · {self.role} @ {where}"
