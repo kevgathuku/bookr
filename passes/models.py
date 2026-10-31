@@ -4,83 +4,12 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from organizations.tenancy import VenueScopedQuerySet
-
 
 class PlanType(models.TextChoices):
     MONTHLY = "monthly", "Monthly"
     CREDIT_PACK = "credit_pack", "Credit pack"
     DROP_IN = "drop_in", "Drop-in"
     COMPLIMENTARY = "complimentary", "Complimentary"
-
-
-class PassProduct(models.Model):
-    objects = VenueScopedQuerySet.as_manager()
-
-    venue = models.ForeignKey(
-        "organizations.Venue", on_delete=models.CASCADE, related_name="pass_products"
-    )
-    name = models.CharField(max_length=200)
-    credits_total = models.PositiveIntegerField(null=True, blank=True)
-    validity_days = models.PositiveIntegerField()
-    applicable_class_types = models.ManyToManyField(
-        "scheduling.ClassType", blank=True, related_name="pass_products"
-    )
-    transferable = models.BooleanField(default=False)
-
-    class Meta:
-        constraints: ClassVar[list[models.BaseConstraint]] = [
-            models.UniqueConstraint(
-                fields=["venue", "name"], name="passproduct_unique_per_venue"
-            ),
-        ]
-
-    def __str__(self):
-        return f"{self.name} @ {self.venue}"
-
-
-class MemberPass(models.Model):
-    class Status(models.TextChoices):
-        ACTIVE = "active", "Active"
-        EXPIRED = "expired", "Expired"
-        DEPLETED = "depleted", "Depleted"
-
-    member = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="passes"
-    )
-    product = models.ForeignKey(
-        PassProduct, on_delete=models.PROTECT, related_name="issued"
-    )
-    credits_total = models.PositiveIntegerField(null=True, blank=True)
-    credits_used = models.PositiveIntegerField(default=0)
-    valid_from = models.DateTimeField()
-    valid_until = models.DateTimeField()
-    status = models.CharField(
-        max_length=16, choices=Status.choices, default=Status.ACTIVE
-    )
-
-    @property
-    def is_unlimited(self):
-        return self.credits_total is None
-
-    def ledger_balance(self):
-        from django.db.models import Sum
-
-        return self.entries.aggregate(total=Sum("delta"))["total"] or 0
-
-    def covers(self, class_type, now):
-        """Valid, live, and applicable to this class type."""
-        if self.status != self.Status.ACTIVE:
-            return False
-        if not (self.valid_from <= now <= self.valid_until):
-            return False
-        if not self.is_unlimited and self.credits_used >= self.credits_total:
-            return False
-        applicable = self.product.applicable_class_types
-        return not applicable.exists() or applicable.filter(pk=class_type.pk).exists()
-
-    def __str__(self):
-        return f"{self.product} → {self.member} ({self.status})"
 
 
 class CreditLedger(models.Model):
@@ -92,22 +21,10 @@ class CreditLedger(models.Model):
         EXPIRY = "expiry", "Expiry"
         ADJUSTMENT = "adjustment", "Adjustment"
 
-    # `pass` is reserved: the FK is member_pass, never edited, only appended.
-    # Nullable in the expand phase: new rows key off membership instead.
-    # Contract removes member_pass and enforces membership.
-    member_pass = models.ForeignKey(
-        MemberPass,
-        on_delete=models.PROTECT,
-        related_name="entries",
-        null=True,
-        blank=True,
-    )
     membership = models.ForeignKey(
         "Membership",
         on_delete=models.PROTECT,
         related_name="ledger_entries",
-        null=True,
-        blank=True,
     )
     booking = models.ForeignKey(
         "booking.Booking",
@@ -159,8 +76,7 @@ class CreditLedger(models.Model):
 
     def __str__(self):
         sign = "+" if self.delta >= 0 else ""
-        holder = self.membership if self.membership_id else self.member_pass
-        return f"{holder}: {sign}{self.delta} ({self.reason})"
+        return f"{self.membership}: {sign}{self.delta} ({self.reason})"
 
 
 class Plan(models.Model):
