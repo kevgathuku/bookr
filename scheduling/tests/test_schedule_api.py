@@ -1,7 +1,6 @@
 from datetime import timedelta
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -24,19 +23,42 @@ from tests.factories import (
 #  (no id leaks — never 403), and a spanning member gets 200 in both venues.
 
 
-def _user(username, password="password"):
-    user = get_user_model().objects.create_user(username=username)
-    user.set_password(password)
-    user.save()
-    return user
-
-
 def _client(user, venue_slug=None):
     client = APIClient()
     client.force_authenticate(user=user)
     if venue_slug:
         client.defaults["HTTP_X_VENUE_SLUG"] = venue_slug
     return client
+
+
+@pytest.fixture()
+def venue():
+    return VenueFactory()
+
+
+@pytest.fixture()
+def member(venue):
+    """Venue-pinned member; the standard world most schedule tests share."""
+    from organizations.models import OrgRole
+
+    user = UserFactory()
+    OrgRoleFactory(
+        organization=venue.organization,
+        venue=venue,
+        user=user,
+        role=OrgRole.Role.MEMBER,
+    )
+    return user
+
+
+@pytest.fixture()
+def offering(venue):
+    return ClassOfferingFactory(venue=venue, title="Spin")
+
+
+@pytest.fixture()
+def member_client(member, venue):
+    return _client(member, venue.slug)
 
 
 class TestIsolation:
@@ -76,21 +98,8 @@ class TestIsolation:
 
 
 class TestGeneratePermissions:
-    def test_member_cannot_generate(self):
-        from organizations.models import OrgRole
-
-        venue = VenueFactory()
-        teacher = _user("gen-teacher")
-        offering = ClassOfferingFactory(venue=venue, teacher=teacher, title="Spin")
-        member = _user("gen-member")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=member,
-            role=OrgRole.Role.MEMBER,
-        )
-
-        response = _client(member, venue.slug).post(
+    def test_member_cannot_generate(self, member_client, offering):
+        response = member_client.post(
             f"/api/v1/offerings/{offering.pk}/sessions/generate/", {}
         )
 
@@ -99,9 +108,7 @@ class TestGeneratePermissions:
 
 class TestAuth:
     def test_jwt_obtain(self):
-        user = UserFactory(username="jwt-user")
-        user.set_password("password")
-        user.save()
+        UserFactory(username="jwt-user")
         client = APIClient()
 
         response = client.post(
@@ -119,32 +126,16 @@ pytestmark = pytest.mark.django_db
 class TestSessionList:
     """New-graph schedule reads: offerings + sessions, derived ends."""
 
-    def _world(self):
-        from organizations.models import OrgRole
+    def _get(self, client, params=None):
+        return client.get("/api/v1/sessions/", params or {})
 
-        venue = VenueFactory()
-        teacher = _user("sched-teacher")
-        offering = ClassOfferingFactory(venue=venue, teacher=teacher, title="Spin")
-        member = _user("sched-member")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=member,
-            role=OrgRole.Role.MEMBER,
-        )
-        return venue, offering, member
-
-    def _get(self, user, venue, params=None):
-        return _client(user, venue.slug).get("/api/v1/sessions/", params or {})
-
-    def test_lists_window_with_derived_ends(self):
-        venue, offering, member = self._world()
+    def test_lists_window_with_derived_ends(self, member_client, offering):
         session = ClassSessionFactory(offering=offering)
         start = session.starts_at.isoformat()
         end = (session.starts_at + timedelta(days=1)).isoformat()
 
         params = {"from": start, "to": end}
-        response = self._get(member, venue, params)
+        response = self._get(member_client, params)
 
         assert response.status_code == 200
         assert len(response.data) == 1
@@ -154,10 +145,9 @@ class TestSessionList:
 
         assert parse_datetime(row["ends_at"]) == session.ends_at
 
-    def test_excludes_cancelled(self):
+    def test_excludes_cancelled(self, member_client, offering):
         from django.utils import timezone as tz
 
-        venue, offering, member = self._world()
         session = ClassSessionFactory(offering=offering)
         session.cancelled_at = tz.now()
         session.save(update_fields=["cancelled_at"])
@@ -165,23 +155,21 @@ class TestSessionList:
         end = (session.starts_at + timedelta(days=1)).isoformat()
 
         params = {"from": start, "to": end}
-        response = self._get(member, venue, params)
+        response = self._get(member_client, params)
 
         assert response.status_code == 200
         assert not response.data
 
-    def test_window_over_31d_rejected(self):
-        venue, _offering, member = self._world()
+    def test_window_over_31d_rejected(self, member_client):
         start = timezone.now()
         end = start + timedelta(days=32)
 
         params = {"from": start.isoformat(), "to": end.isoformat()}
-        response = self._get(member, venue, params)
+        response = self._get(member_client, params)
 
         assert response.status_code == 400
 
-    def test_lists_spots_left(self):
-        venue, offering, member = self._world()
+    def test_lists_spots_left(self, member_client, venue, offering):
         session = ClassSessionFactory(offering=offering)
         booker = UserFactory(username="spot-booker")
         plan = PlanFactory(organization=venue.organization)
@@ -191,49 +179,29 @@ class TestSessionList:
         end = (session.starts_at + timedelta(days=1)).isoformat()
         params = {"from": start, "to": end}
 
-        response = self._get(member, venue, params)
+        response = self._get(member_client, params)
 
         assert response.status_code == 200
         row = next(r for r in response.data if r["id"] == session.pk)
         assert row["spots_left"] == session.capacity - 1
 
-    def test_cross_venue_404(self):
-        venue, _offering, member = self._world()
+    def test_cross_venue_404(self, member, venue):
         other = VenueFactory(organization=venue.organization)
 
-        response = self._get(member, other)
+        response = _client(member, other.slug).get("/api/v1/sessions/")
 
         assert response.status_code == 404
 
 
 class TestOfferingList:
-    def test_lists_venue_offerings(self):
-        from organizations.models import OrgRole
-
-        venue = VenueFactory()
-        ClassOfferingFactory(venue=venue, title="Spin")
-        member = _user("offering-member")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=member,
-            role=OrgRole.Role.MEMBER,
-        )
-        client = _client(member, venue.slug)
-
-        response = client.get("/api/v1/offerings/")
+    def test_lists_venue_offerings(self, member_client, offering):
+        response = member_client.get("/api/v1/offerings/")
 
         assert response.status_code == 200
         assert [row["title"] for row in response.data] == ["Spin"]
 
 
 class TestGenerateSessionsEndpoint:
-    def _client(self, user, venue):
-        client = APIClient()
-        client.force_authenticate(user=user)
-        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
-        return client
-
     def _desk(self, venue):
         from organizations.models import OrgRole
 
@@ -259,7 +227,7 @@ class TestGenerateSessionsEndpoint:
         offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
         start = timezone.now() + timedelta(days=1)
 
-        response = self._client(self._desk(venue), venue).post(
+        response = _client(self._desk(venue), venue.slug).post(
             f"/api/v1/offerings/{offering.pk}/sessions/generate/",
             self._payload(start),
             format="json",
@@ -282,7 +250,7 @@ class TestGenerateSessionsEndpoint:
         )
         start = timezone.now() + timedelta(days=1)
 
-        response = self._client(member, venue).post(
+        response = _client(member, venue.slug).post(
             f"/api/v1/offerings/{offering.pk}/sessions/generate/",
             self._payload(start),
             format="json",
@@ -297,7 +265,7 @@ class TestGenerateSessionsEndpoint:
         payload = self._payload(start)
         payload["rrule"] = "not a rule"
 
-        response = self._client(self._desk(venue), venue).post(
+        response = _client(self._desk(venue), venue.slug).post(
             f"/api/v1/offerings/{offering.pk}/sessions/generate/",
             payload,
             format="json",
@@ -307,12 +275,6 @@ class TestGenerateSessionsEndpoint:
 
 
 class TestPolicyListEndpoint:
-    def _client(self, user, venue):
-        client = APIClient()
-        client.force_authenticate(user=user)
-        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
-        return client
-
     def _setup(self, slug="policies"):
         from organizations.models import OrgRole
 
@@ -350,7 +312,7 @@ class TestPolicyListEndpoint:
             enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
         )
 
-        response = self._client(staff, venue).get(
+        response = _client(staff, venue.slug).get(
             "/api/v1/cancellation-policies/?class_category=private"
         )
 
@@ -361,7 +323,7 @@ class TestPolicyListEndpoint:
     def test_member_cannot_list_policies(self):
         venue, _staff, member = self._setup(slug="policies-member")
 
-        response = self._client(member, venue).get("/api/v1/cancellation-policies/")
+        response = _client(member, venue.slug).get("/api/v1/cancellation-policies/")
 
         assert response.status_code == 403
 
@@ -384,7 +346,7 @@ class TestPolicyListEndpoint:
             role=OrgRole.Role.MEMBER,
         )
 
-        response = self._client(member, venue).get(
+        response = _client(member, venue.slug).get(
             "/api/v1/sessions/?offering__category=private"
         )
 
