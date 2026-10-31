@@ -8,11 +8,31 @@ from django.utils import timezone
 
 from aggregators.models import AggregatorBooking
 from booking.errors import AllotmentExhausted, DuplicateBooking
-from booking.models import Booking
-from booking.services import book_seat
+from booking.models import ACTIVE_STATUSES, Booking
+from booking.services import book_session
+from passes.models import Membership, MembershipPlan, PlanType
 
 
-def book_partner_seat(partner, klass, external_id):
+def _comp_membership(partner, organization):
+    """The pass-free membership partner seats book through."""
+    plan, _ = MembershipPlan.objects.get_or_create(
+        organization=organization,
+        name="Aggregator complimentary",
+        defaults={"plan_type": PlanType.COMPLIMENTARY, "validity_days": 365},
+    )
+    membership, _ = Membership.objects.get_or_create(
+        user=partner.service_user,
+        plan=plan,
+        defaults={
+            "credits_remaining": 0,
+            "starts_on": timezone.now().date(),
+            "ends_on": timezone.now().date() + timedelta(days=365),
+        },
+    )
+    return membership
+
+
+def book_partner_seat(partner, session, external_id):
     """Idempotent allotment-capped booking. Returns (booking, created)."""
     link = (
         AggregatorBooking.objects.select_related("booking")
@@ -20,24 +40,24 @@ def book_partner_seat(partner, klass, external_id):
         .first()
     )
     if link is not None:
-        if link.booking.scheduled_class_id != klass.pk:
-            raise DuplicateBooking("external_id already books another class.")
+        if link.booking.session_id != session.pk:
+            raise DuplicateBooking("external_id already books another session.")
         return link.booking, False
     with transaction.atomic():
-        booking = book_seat(
-            partner.service_user,
-            klass,
-            idempotency_key=f"agg-{partner.slug}-{external_id}",
+        membership = _comp_membership(partner, session.offering.venue.organization)
+        booking = book_session(
+            session=session,
+            member=partner.service_user,
+            membership=membership,
             spend_credits=False,
-            source=f"aggregator:{partner.slug}",
         )
         # Count after the seat lock is held: a parallel retry serializes
         # behind us and sees our booking, so the cap holds. Over-limit
         # raises roll this booking back too, freeing the seat.
         held = AggregatorBooking.objects.filter(
             aggregator=partner,
-            booking__scheduled_class=klass,
-            booking__status=Booking.Status.CONFIRMED,
+            booking__session=session,
+            booking__status__in=ACTIVE_STATUSES,
         ).count()
         if held + 1 > partner.seat_allotment:
             raise AllotmentExhausted("Allotment exhausted.")
@@ -55,16 +75,17 @@ def book_partner_seat(partner, klass, external_id):
 
 def cancel_partner_booking(partner, booking):
     """Cancel with the contract cutoff; never touches member passes."""
-    from booking.endings import close_booking
-
-    target = booking.scheduled_class
-    if target is None:
-        raise ValidationError("Partner bookings target classes.")
-    if booking.status not in (
-        Booking.Status.CONFIRMED,
-        Booking.Status.WAITLISTED,
-    ):
+    target = booking.session
+    if booking.status != Booking.Status.BOOKED:
         raise ValidationError("Booking is already closed.")
     cutoff = target.starts_at - timedelta(minutes=partner.cancel_cutoff_minutes)
-    outcome = "partner_cancel" if timezone.now() <= cutoff else "partner_late_cancel"
-    return close_booking(booking, outcome)
+    late = timezone.now() > cutoff
+    with transaction.atomic():
+        locked = Booking.objects.select_for_update(of=("self",)).get(pk=booking.pk)
+        if locked.status != Booking.Status.BOOKED:
+            raise ValidationError("Booking is already closed.")
+        locked.status = (
+            Booking.Status.LATE_CANCELLED if late else Booking.Status.CANCELLED
+        )
+        locked.save(update_fields=["status"])
+    return locked
