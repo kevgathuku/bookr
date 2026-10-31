@@ -42,6 +42,10 @@
 # design — booking/views.py, scheduling/views.py and
 # scheduling/serializers.py ignore WPS202 (splitting by ticket would
 # scatter the API surface across modules).
+# Per-file: booking/admin.py ignores WPS221 — the coverage matrix is one
+# cross-product idea; spelling it as nested loops hides its shape.
+# Per-file: booking/admin.py ignores WPS202 — admin grows one view and
+# helper per staff ticket (same endpoint-file reasoning as the views).
 # Per-file: organizations/permissions.py ignores WPS202 — the gate module
 # grows one class per capability the tickets introduce (member, staff,
 # desk, door); splitting gates from the dual-source helpers they share
@@ -100,6 +104,9 @@ per-file-ignores =
         WPS211,
     booking/errors.py:
         WPS202,
+    booking/admin.py:
+        WPS202,
+        WPS221,
     organizations/permissions.py:
         WPS202,
     booking/services.py:

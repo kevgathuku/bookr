@@ -233,3 +233,50 @@ def _request(user):
     request.session = {}
     request._messages = FallbackStorage(request)
     return request
+
+
+class TestCoverageMatrix:
+    def _staff_client(self, org):
+        from organizations.models import OrgRole
+        from tests.factories import OrgRoleFactory
+
+        user = _user("matrix-staff", staff=True)
+        OrgRoleFactory(
+            organization=org, venue=None, user=user, role=OrgRole.Role.MANAGER
+        )
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def test_matrix_shows_winner_and_free(self):
+        from booking.models import CancellationPolicy
+        from tests.factories import VenueFactory
+
+        venue = VenueFactory(slug="matrix")
+        org = venue.organization
+        CancellationPolicy.objects.create(
+            organization=org,
+            venue=venue,
+            late_cancel_hours=12,
+            enforcement=CancellationPolicy.Enforcement.STRIKE,
+        )
+
+        response = self._staff_client(org).get(
+            "/admin/booking/cancellationpolicy/coverage/"
+        )
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert "strike" in body
+        assert "free by design" in body
+
+    def test_member_cannot_see_matrix(self):
+        from tests.factories import VenueFactory
+
+        VenueFactory(slug="matrix-member")
+        client = Client()
+        client.force_login(_user("matrix-member"))
+
+        response = client.get("/admin/booking/cancellationpolicy/coverage/")
+
+        assert response.status_code in (302, 403)

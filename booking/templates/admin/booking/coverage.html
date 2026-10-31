@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>{{ rows|length }} contexts. “free by design” means only the org-wide NONE baseline matched.</p>
+<table>
+  <thead>
+    <tr><th>Organization</th><th>Venue</th><th>Category</th><th>Plan</th><th>Winner</th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.organization }}</td>
+      <td>{{ row.venue }}</td>
+      <td>{{ row.category }}</td>
+      <td>{{ row.plan }}</td>
+      <td>{{ row.rule }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
