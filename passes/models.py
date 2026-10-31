@@ -6,6 +6,13 @@ from django.db import models
 from organizations.tenancy import VenueScopedQuerySet
 
 
+class PlanType(models.TextChoices):
+    MONTHLY = "monthly", "Monthly"
+    CREDIT_PACK = "credit_pack", "Credit pack"
+    DROP_IN = "drop_in", "Drop-in"
+    COMP = "comp", "Comp"
+
+
 class PassProduct(models.Model):
     objects = VenueScopedQuerySet.as_manager()
 
@@ -85,8 +92,21 @@ class CreditLedger(models.Model):
         ADJUSTMENT = "adjustment", "Adjustment"
 
     # `pass` is reserved: the FK is member_pass, never edited, only appended.
+    # Nullable in the expand phase: new rows key off membership instead.
+    # Contract removes member_pass and enforces membership.
     member_pass = models.ForeignKey(
-        MemberPass, on_delete=models.PROTECT, related_name="entries"
+        MemberPass,
+        on_delete=models.PROTECT,
+        related_name="entries",
+        null=True,
+        blank=True,
+    )
+    membership = models.ForeignKey(
+        "Membership",
+        on_delete=models.PROTECT,
+        related_name="ledger_entries",
+        null=True,
+        blank=True,
     )
     booking = models.ForeignKey(
         "booking.Booking",
@@ -123,4 +143,37 @@ class CreditLedger(models.Model):
 
     def __str__(self):
         sign = "+" if self.delta >= 0 else ""
-        return f"{self.member_pass}: {sign}{self.delta} ({self.reason})"
+        holder = self.membership if self.membership_id else self.member_pass
+        return f"{holder}: {sign}{self.delta} ({self.reason})"
+
+
+class MembershipPlan(models.Model):
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.CASCADE, related_name="plans"
+    )
+    name = models.CharField(max_length=200)
+    plan_type = models.CharField(max_length=20, choices=PlanType.choices)
+    validity_days = models.PositiveIntegerField(default=30)
+
+    def __str__(self):
+        return f"{self.name} ({self.plan_type})"
+
+
+class Membership(models.Model):
+    """A plan a specific user bought. The paying source for bookings."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="plan_memberships",
+    )
+    plan = models.ForeignKey(
+        MembershipPlan, on_delete=models.PROTECT, related_name="memberships"
+    )
+    credits_remaining = models.PositiveIntegerField(default=0)
+    starts_on = models.DateField()
+    ends_on = models.DateField(null=True, blank=True)
+    payment_ref = models.CharField(max_length=100, blank=True)
+
+    def __str__(self):
+        return f"{self.user} → {self.plan} ({self.credits_remaining} left)"
