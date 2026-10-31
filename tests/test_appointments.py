@@ -323,9 +323,15 @@ class TestCalendar:
         client.defaults["HTTP_X_VENUE_SLUG"] = slug
         return client
 
-    def test_merges_classes_and_appointments(self):
-        _, member, _ = self._world()
+    def test_merges_sessions_and_appointments(self):
+        from tests.factories import ClassOfferingFactory, ClassSessionFactory
+
+        venue, member, _ = self._world()
         now = timezone.now()
+        offering = ClassOfferingFactory(venue=venue)
+        ClassSessionFactory(
+            offering=offering, starts_at=now + timedelta(days=1)
+        )
 
         response = self._client(member).get(
             "/api/v1/calendar/",
@@ -334,7 +340,7 @@ class TestCalendar:
 
         assert response.status_code == 200
         kinds = sorted(event["kind"] for event in response.data)
-        assert kinds == ["appointment", "class"]
+        assert kinds == ["appointment", "session"]
 
     def test_window_over_31d_rejected(self):
         _, member, _ = self._world()

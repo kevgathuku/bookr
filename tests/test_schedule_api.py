@@ -11,6 +11,12 @@ from rest_framework.test import APIClient
 from booking.models import Booking
 from organizations.models import Membership, Organization, Venue
 from scheduling.models import ClassType, Room, ScheduledClass
+from tests.factories import (
+    ClassOfferingFactory,
+    ClassSessionFactory,
+    OrgRoleFactory,
+    VenueFactory,
+)
 
 #  Schedule API seam: GET /api/v1/classes/ is bounded (31d max), cheap
 #  (memberships + org-roles loads; contract drops the legacy load), and
@@ -232,3 +238,100 @@ class TestPublish:
         )
 
         assert response.status_code == 400
+
+
+pytestmark = pytest.mark.django_db
+
+
+class TestSessionList:
+    """New-graph schedule reads: offerings + sessions, derived ends."""
+
+    def _world(self):
+        from organizations.models import OrgRole
+
+        venue = VenueFactory()
+        teacher = _user("sched-teacher")
+        offering = ClassOfferingFactory(venue=venue, teacher=teacher, title="Spin")
+        member = _user("sched-member")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        return venue, offering, member
+
+    def _get(self, user, venue, params=None):
+        return _client(user, venue.slug).get("/api/v1/sessions/", params or {})
+
+    def test_lists_window_with_derived_ends(self):
+        venue, offering, member = self._world()
+        session = ClassSessionFactory(offering=offering)
+        start = session.starts_at.isoformat()
+        end = (session.starts_at + timedelta(days=1)).isoformat()
+
+        params = {"from": start, "to": end}
+        response = self._get(member, venue, params)
+
+        assert response.status_code == 200
+        assert len(response.data) == 1
+        row = response.data[0]
+        assert row["offering"] == offering.pk
+        from django.utils.dateparse import parse_datetime
+
+        assert parse_datetime(row["ends_at"]) == session.ends_at
+
+    def test_excludes_cancelled(self):
+        from django.utils import timezone as tz
+
+        venue, offering, member = self._world()
+        session = ClassSessionFactory(offering=offering)
+        session.cancelled_at = tz.now()
+        session.save(update_fields=["cancelled_at"])
+        start = session.starts_at.isoformat()
+        end = (session.starts_at + timedelta(days=1)).isoformat()
+
+        params = {"from": start, "to": end}
+        response = self._get(member, venue, params)
+
+        assert response.status_code == 200
+        assert response.data == []
+
+    def test_window_over_31d_rejected(self):
+        venue, _offering, member = self._world()
+        start = timezone.now()
+        end = start + timedelta(days=32)
+
+        params = {"from": start.isoformat(), "to": end.isoformat()}
+        response = self._get(member, venue, params)
+
+        assert response.status_code == 400
+
+    def test_cross_venue_404(self):
+        venue, _offering, member = self._world()
+        other = VenueFactory(organization=venue.organization)
+
+        response = self._get(member, other)
+
+        assert response.status_code == 404
+
+
+class TestOfferingList:
+    def test_lists_venue_offerings(self):
+        from organizations.models import OrgRole
+
+        venue = VenueFactory()
+        ClassOfferingFactory(venue=venue, title="Spin")
+        member = _user("offering-member")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        client = _client(member, venue.slug)
+
+        response = client.get("/api/v1/offerings/")
+
+        assert response.status_code == 200
+        assert [row["title"] for row in response.data] == ["Spin"]
