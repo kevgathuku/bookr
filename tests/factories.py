@@ -28,10 +28,17 @@ class UserFactory(factory.django.DjangoModelFactory):
     class Meta:
         # evaluated at import; fine under test setup
         model = get_user_model()
+        skip_postgeneration_save = True
 
     username = factory.Sequence(lambda n: f"user-{n}")
-    # Known login password for every factory user (e2e login, auth flows).
-    password = factory.PostGenerationMethodCall("set_password", "password")
+
+    @factory.post_generation
+    def password(obj, create, extracted, **kwargs):
+        """Known login password for every factory user (e2e login, auth flows)."""
+        if not create:
+            return
+        obj.set_password(extracted or "password")
+        obj.save(update_fields=["password"])
 
 
 class OrganizationFactory(factory.django.DjangoModelFactory):
