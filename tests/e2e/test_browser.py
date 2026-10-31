@@ -45,6 +45,10 @@ def _login(page, frontend_url, credentials):
     page.get_by_test_id("venue-switcher").select_option("main")
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="member UI booking needs the .8 frontend rework; waitlist needs .9",
+)
 def test_member_journey(frontend_url):
     playwright = pytest.importorskip("playwright.sync_api")
     tiny_id = _tiny_id(frontend_url)
