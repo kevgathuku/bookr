@@ -53,6 +53,17 @@ jobs:
       - run: uv run pytest -q -n auto -m "not e2e and not smoke" --cov --cov-report=
       - run: uv run pytest tests/e2e -q -m "smoke" --cov --cov-append --cov-report=term-missing --cov-fail-under=90
 
+      # Coverage table on the run's summary page (same spot as the
+      # frontend's Vitest Test Report). Always runs so failures still
+      # show what was covered.
+      - name: Coverage summary
+        if: always()
+        run: |
+          {
+            echo "## Coverage"
+            uv run coverage report --format=markdown
+          } >> "$GITHUB_STEP_SUMMARY"
+
   frontend:
     runs-on: ubuntu-latest
 
