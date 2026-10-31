@@ -365,10 +365,7 @@ class TestGenerateSessions:
         venue = VenueFactory(slug="gen")
         offering = self._offering(venue)
         start = timezone.now() + timedelta(days=1)
-        rule = (
-            start.strftime("DTSTART:%Y%m%dT%H%M%S\n")
-            + "RRULE:FREQ=WEEKLY;COUNT=3"
-        )
+        rule = start.strftime("DTSTART:%Y%m%dT%H%M%S\n") + "RRULE:FREQ=WEEKLY;COUNT=3"
 
         sessions = generate_sessions(
             offering=offering,
@@ -386,10 +383,7 @@ class TestGenerateSessions:
         venue = VenueFactory(slug="gen-skip")
         offering = self._offering(venue)
         start = timezone.now() + timedelta(days=1)
-        rule = (
-            start.strftime("DTSTART:%Y%m%dT%H%M%S\n")
-            + "RRULE:FREQ=DAILY;COUNT=5"
-        )
+        rule = start.strftime("DTSTART:%Y%m%dT%H%M%S\n") + "RRULE:FREQ=DAILY;COUNT=5"
 
         sessions = generate_sessions(
             offering=offering,
@@ -408,10 +402,7 @@ class TestGenerateSessions:
         offering = self._offering(venue)
         start = timezone.now() + timedelta(days=1)
         ClassSessionFactory(offering=offering, starts_at=start)
-        rule = (
-            start.strftime("DTSTART:%Y%m%dT%H%M%S\n")
-            + "RRULE:FREQ=WEEKLY;COUNT=2"
-        )
+        rule = start.strftime("DTSTART:%Y%m%dT%H%M%S\n") + "RRULE:FREQ=WEEKLY;COUNT=2"
 
         with pytest.raises(ValidationError):
             generate_sessions(

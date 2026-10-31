@@ -176,7 +176,7 @@ class TestDeskCancelFlows:
         from booking.models import CancellationPolicy
 
         venue, desk = self._world()
-        member, booking, _session = self._book(venue, "m-flow")
+        _member, booking, _session = self._book(venue, "m-flow")
         CancellationPolicy.objects.create(
             organization=venue.organization,
             late_cancel_hours=12,
@@ -264,7 +264,7 @@ class TestDeskCancelFlows:
 
     def test_session_cancel_refunds_via_api(self):
         venue, desk = self._world(slug="desk-session")
-        _member, booking, session = self._book(venue, "m-session")
+        _member, _booking, session = self._book(venue, "m-session")
 
         response = self._client(desk, venue).post(
             f"/api/v1/sessions/{session.pk}/cancel/",
@@ -278,7 +278,7 @@ class TestDeskCancelFlows:
 
     def test_door_marks_no_show_and_check_in(self):
         venue, desk = self._world(slug="desk-door")
-        member, booking, session = self._book(venue, "m-door")
+        _member, booking, session = self._book(venue, "m-door")
         from datetime import timedelta
 
         from django.utils import timezone
@@ -301,7 +301,7 @@ class TestDeskCancelFlows:
         from django.utils import timezone
 
         venue, desk = self._world(slug="desk-checkin")
-        member, booking, session = self._book(venue, "m-checkin")
+        _member, booking, session = self._book(venue, "m-checkin")
         session.starts_at = timezone.now() - timedelta(minutes=30)
         session.save(update_fields=["starts_at"])
 
