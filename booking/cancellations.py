@@ -20,6 +20,7 @@ from booking.models import (
     CancellationPolicy,
     CancellationRecord,
 )
+from booking.notifications import notify_member_cancel, notify_session_cancelled
 from booking.policies import resolve_policy
 from organizations.capabilities import (
     can_operate_desk,
@@ -57,17 +58,26 @@ def cancel_booking(
     moment = now or timezone.now()
     with transaction.atomic():
         booking, session, venue, organization = _load_open_booking(booking_id, moment)
-        return _apply_cancel(
-            booking,
-            session,
-            venue,
-            organization,
-            actor,
-            on_behalf_of,
-            waive_penalty,
-            moment,
-            reason,
+        return _committed(
+            _apply_cancel(
+                booking,
+                session,
+                venue,
+                organization,
+                actor,
+                on_behalf_of,
+                waive_penalty,
+                moment,
+                reason,
+            ),
+            notify_member_cancel,
         )
+
+
+def _committed(record, notify):
+    """Register a post-commit notice; the write itself already happened."""
+    transaction.on_commit(lambda: notify(record))
+    return record
 
 
 def _check_actor(actor, booking, organization, behalf, waive, reason):
@@ -145,16 +155,22 @@ def cancel_session(*, session_id, actor, reason=""):
             )
         session.cancelled_at = timezone.now()
         session.save(update_fields=["cancelled_at"])
-        bookings = (
-            session.bookings.filter(status__in=ACTIVE_STATUSES)
-            .select_for_update()
-            .select_related("membership__plan")
-            .order_by("pk")
-        )
-        return [
+        records = [
             _cancel_one_for_session(booking, session, venue, organization, actor)
-            for booking in bookings
+            for booking in _live_session_bookings(session)
         ]
+    for record in records:
+        _committed(record, notify_session_cancelled)
+    return records
+
+
+def _live_session_bookings(session):
+    return (
+        session.bookings.filter(status__in=ACTIVE_STATUSES)
+        .select_for_update()
+        .select_related("membership__plan")
+        .order_by("pk")
+    )
 
 
 def mark_no_show(*, booking_id, actor):
@@ -187,7 +203,7 @@ def mark_no_show(*, booking_id, actor):
             was_late=True,
             enforcement_applied=outcome.applied,
             credits_refunded=0,
-            snapshot=_snapshot(booking, session, outcome, actor),
+            snapshot=_snapshot(booking, session, outcome, actor, False),
         )
 
 
@@ -301,7 +317,7 @@ def _write_record(booking, session, organization, outcome, actor, late, waive_pe
         penalty_waived=waive_penalty,
         waived_by=actor if waive_penalty else None,
         credits_refunded=outcome.refund,
-        snapshot=_snapshot(booking, session, outcome, actor),
+        snapshot=_snapshot(booking, session, outcome, actor, waive_penalty),
     )
     booking.save(update_fields=["status"])
     return record
@@ -374,7 +390,7 @@ def _cancel_one_for_session(booking, session, venue, organization, actor):
         was_late=False,
         enforcement_applied=outcome.applied,
         credits_refunded=stamp,
-        snapshot=_snapshot(booking, session, outcome, actor),
+        snapshot=_snapshot(booking, session, outcome, actor, False),
     )
 
 
@@ -433,7 +449,7 @@ def _require_waiver(actor, organization, reason):
         raise PermissionDenied("Waiving penalties requires the capability.")
 
 
-def _snapshot(booking, session, outcome, actor):
+def _snapshot(booking, session, outcome, actor, waived):
     snapshot = {
         "cause": outcome.cause,
         "session_id": session.pk,
@@ -451,6 +467,10 @@ def _snapshot(booking, session, outcome, actor):
         "actor_id": actor.pk,
         "on_behalf_of": outcome.on_behalf_of,
         "reason": outcome.reason,
+        # Duplicates the columns on purpose: the snapshot must tell the
+        # whole outcome story without joining back to the row.
+        "penalty_waived": waived,
+        "waived_by_id": actor.pk if waived else None,
     }
     if outcome.policy is not None:
         snapshot["policy"] = {

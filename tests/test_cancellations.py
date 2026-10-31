@@ -380,6 +380,8 @@ class TestMemberCancel:
             "actor_id": member.pk,
             "on_behalf_of": False,
             "reason": "traffic",
+            "penalty_waived": False,
+            "waived_by_id": None,
         }
 
     def test_resolution_follows_current_rules(self):
@@ -568,10 +570,30 @@ class TestWaiver:
         )
 
         assert record.enforcement_applied == NONE
-        assert record.was_late is True
         assert record.penalty_waived is True
         assert record.waived_by == desk
         assert record.credits_refunded == 2
+
+    def test_inline_waive_snapshot_remembers(self):
+        venue = _venue()
+        session = _session(venue, starts_in_hours=2)
+        member = _member("m1", venue, credits=10)
+        desk = _staff("desk", venue)
+        _policy(venue.organization, STRIKE, late_cancel_hours=12)
+        booking = _book(member, session)
+
+        record = cancel_booking(
+            booking_id=booking.pk,
+            actor=desk,
+            on_behalf_of=True,
+            waive_penalty=True,
+            now=timezone.now(),
+            reason="regular, car broke down",
+        )
+
+        assert record.was_late is True
+        assert record.snapshot["penalty_waived"] is True
+        assert record.snapshot["waived_by_id"] == desk.pk
 
     def test_member_cannot_waive_own_penalty(self):
 
