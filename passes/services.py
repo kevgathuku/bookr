@@ -29,78 +29,6 @@ def issue_pass(member, product, valid_from=None):
     return member_pass
 
 
-def _spend_from(member_pass, booking):
-    CreditLedger.objects.create(
-        member_pass=member_pass,
-        booking=booking,
-        delta=-1,
-        reason=CreditLedger.Reason.BOOKING,
-    )
-    member_pass.credits_used += 1
-    if member_pass.credits_used >= member_pass.credits_total:
-        member_pass.status = MemberPass.Status.DEPLETED
-    member_pass.save(update_fields=["credits_used", "status"])
-    return member_pass.entries.latest("created_at")
-
-
-def _first_valid(candidates, class_type, now, unlimited_only):
-    for member_pass in candidates:
-        if member_pass.is_unlimited is unlimited_only and member_pass.covers(
-            class_type, now
-        ):
-            return member_pass
-    return None
-
-
-def spend_credit(member, booking):
-    """Oldest-valid-first, unlimited before limited. Must run inside the
-    booking transaction (row locks serialize the last-credit race). Returns
-    the ledger row, or None for unlimited (nothing to deplete)."""
-    from booking.errors import CreditInsufficient
-
-    now = timezone.now()
-    class_type = booking.scheduled_class.class_type
-    candidates = (
-        MemberPass.objects.select_for_update()
-        .filter(
-            member=member,
-            status=MemberPass.Status.ACTIVE,
-            valid_from__lte=now,
-            valid_until__gte=now,
-        )
-        .select_related("product")
-        .order_by("valid_from")
-    )
-    if _first_valid(candidates, class_type, now, True) is not None:
-        return None
-    limited = _first_valid(candidates, class_type, now, False)
-    if limited is None:
-        raise CreditInsufficient("No valid pass covers this class.")
-    return _spend_from(limited, booking)
-
-
-def refund_credit(booking, note=""):
-    """Return the spent credit; unlimited bookings spent nothing."""
-    if booking.credit_tx is None:
-        return None
-    with transaction.atomic():
-        member_pass = MemberPass.objects.select_for_update().get(
-            pk=booking.credit_tx.member_pass_id
-        )
-        CreditLedger.objects.create(
-            member_pass=member_pass,
-            booking=booking,
-            delta=1,
-            reason=CreditLedger.Reason.REFUND,
-            note=note,
-        )
-        member_pass.credits_used = max(0, member_pass.credits_used - 1)
-        if member_pass.status == MemberPass.Status.DEPLETED:
-            member_pass.status = MemberPass.Status.ACTIVE
-        member_pass.save(update_fields=["credits_used", "status"])
-    return member_pass
-
-
 def adjust_credit(member_pass, delta, reason, staff):
     """Staff correction. Reason required; delta != 0 enforced at the DB."""
     if not reason:
@@ -142,3 +70,30 @@ def expire_passes(now=None):
             locked.save(update_fields=["status"])
             expired += 1
     return expired
+
+
+def spend_for_booking(membership, amount, booking):
+    """Debit a plan membership for one booking; write the BOOKING ledger row.
+
+    Zero spends nothing and writes nothing (monthly plans, comped seats).
+    Runs inside the caller's transaction: CreditInsufficient rolls back the
+    booking too, so nothing is ever half-written.
+    """
+    from booking.errors import CreditInsufficient
+    from passes.models import Membership
+
+    if amount <= 0:
+        return None
+    with transaction.atomic():
+        locked = Membership.objects.select_for_update().get(pk=membership.pk)
+        if locked.credits_remaining < amount:
+            raise CreditInsufficient("No valid membership covers this booking.")
+        CreditLedger.objects.create(
+            membership=locked,
+            booking=booking,
+            delta=-amount,
+            reason=CreditLedger.Reason.BOOKING,
+        )
+        locked.credits_remaining -= amount
+        locked.save(update_fields=["credits_remaining"])
+    return locked

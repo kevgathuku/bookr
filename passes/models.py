@@ -1,6 +1,7 @@
 from typing import ClassVar
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from organizations.tenancy import VenueScopedQuerySet
@@ -10,7 +11,7 @@ class PlanType(models.TextChoices):
     MONTHLY = "monthly", "Monthly"
     CREDIT_PACK = "credit_pack", "Credit pack"
     DROP_IN = "drop_in", "Drop-in"
-    COMP = "comp", "Comp"
+    COMPLIMENTARY = "complimentary", "Complimentary"
 
 
 class PassProduct(models.Model):
@@ -172,7 +173,19 @@ class Membership(models.Model):
     )
     credits_remaining = models.PositiveIntegerField(default=0)
     starts_on = models.DateField()
-    ends_on = models.DateField(null=True, blank=True)
+    # Every membership has a known end: packs expire per plan validity,
+    # monthlies at the billing period end. No open-ended memberships.
+    ends_on = models.DateField()
+
+    def clean(self):
+        super().clean()
+        if (
+            self.starts_on is not None
+            and self.ends_on is not None
+            and self.ends_on < self.starts_on
+        ):
+            raise ValidationError("ends_on is before starts_on.")
+
     payment_ref = models.CharField(max_length=100, blank=True)
 
     def __str__(self):
