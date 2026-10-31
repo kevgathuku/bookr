@@ -5,7 +5,7 @@ per-venue row scoping. Membership roles are the single source of truth
 from django.contrib import admin
 from django.db.models import Q
 
-from organizations.models import Membership, Venue
+from organizations.models import Membership, OrgRole, Venue
 
 BACK_OFFICE_ROLES = ("owner", "manager", "frontdesk")
 MANAGE_ROLES = ("owner", "manager")
@@ -19,9 +19,13 @@ class BookrAdminSite(admin.AdminSite):
             return False
         if request.user.is_superuser:
             return True
+        if not request.user.is_active:
+            return False
         return (
-            request.user.is_active
-            and Membership.objects.filter(
+            Membership.objects.filter(
+                user=request.user, role__in=BACK_OFFICE_ROLES
+            ).exists()
+            or OrgRole.objects.filter(
                 user=request.user, role__in=BACK_OFFICE_ROLES
             ).exists()
         )
@@ -44,10 +48,25 @@ def _memberships(request):
     return cached
 
 
+def _org_roles(request):
+    """New-domain roles, once per request (mirrors _memberships)."""
+    cached = getattr(request, "org_role_rows", None)
+    if cached is None:
+        cached = list(
+            OrgRole.objects.filter(user=request.user).select_related(
+                "venue", "organization"
+            )
+        )
+        request.org_role_rows = cached
+    return cached
+
+
 def staff_roles(request):
     if request.user.is_superuser:
         return set(MANAGE_ROLES)
-    return {mem.role for mem in _memberships(request)}
+    return {mem.role for mem in _memberships(request)} | {
+        row.role for row in _org_roles(request)
+    }
 
 
 def scoped_venues(request):
@@ -55,6 +74,9 @@ def scoped_venues(request):
     memberships = _memberships(request)
     pinned = [mem.venue_id for mem in memberships if mem.venue_id is not None]
     orgs = {mem.organization_id for mem in memberships if mem.venue_id is None}
+    roles = _org_roles(request)
+    pinned.extend(row.venue_id for row in roles if row.venue_id is not None)
+    orgs.update(row.organization_id for row in roles if row.venue_id is None)
     return Venue.objects.filter(Q(pk__in=pinned) | Q(organization__in=orgs))
 
 

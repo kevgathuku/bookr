@@ -17,10 +17,12 @@ class VenueMiddleware:
         request.venue = None
         request.organization = None
         request.memberships = []
+        request.org_roles = []
         user = getattr(request, "user", None)
         if user is not None and user.is_authenticated:
             resolved = resolve_venue(user, request.headers.get(VENUE_HEADER))
             request.venue = resolved[0]
             request.organization = resolved[1]
             request.memberships = resolved[2]
+            request.org_roles = resolved[3]
         return self.get_response(request)

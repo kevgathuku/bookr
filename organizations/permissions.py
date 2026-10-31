@@ -3,15 +3,32 @@
 from rest_framework import permissions
 from rest_framework.exceptions import NotFound, PermissionDenied
 
+from organizations.capabilities import can_operate_desk
 from organizations.tenancy import STAFF_ROLES, _covers, _ensure_venue
 
 
-def staff_covering(request, venue):
-    """True when the user holds a staff role covering the venue."""
+def _legacy_staff(request, venue):
+    """Old-model branch: teaching counts as staff there (kept until contract)."""
     return any(
-        membership.role in STAFF_ROLES and _covers(membership, venue)
-        for membership in getattr(request, "memberships", ())
+        mem.role in STAFF_ROLES and _covers(mem, venue)
+        for mem in getattr(request, "memberships", ())
     )
+
+
+def staff_covering(request, venue):
+    """True when the user holds a staff role covering the venue.
+
+    Checks both role stores during the expand transition: legacy membership
+    rows use the old STAFF_ROLES set (teaching counts as staff there); new
+    OrgRole rows go through the desk capability (teaching alone does not).
+    The contract ticket drops the legacy branch with the old model.
+    """
+    if _legacy_staff(request, venue):
+        return True
+    covered = [
+        row.role for row in getattr(request, "org_roles", ()) if _covers(row, venue)
+    ]
+    return can_operate_desk(covered)
 
 
 class IsVenueMember(permissions.BasePermission):
@@ -23,8 +40,11 @@ class IsVenueMember(permissions.BasePermission):
         venue = _ensure_venue(request)
         if venue is None or not request.user.is_authenticated:
             raise NotFound(self.message)
-        for membership in getattr(request, "memberships", ()):
-            if _covers(membership, venue):
+        rows = list(getattr(request, "memberships", ())) + list(
+            getattr(request, "org_roles", ())
+        )
+        for row in rows:
+            if _covers(row, venue):
                 return True
         raise NotFound(self.message)
 

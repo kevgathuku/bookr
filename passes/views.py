@@ -7,8 +7,12 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from organizations.permissions import IsStaff, IsStaffOrReadOnly, IsVenueMember
-from organizations.tenancy import STAFF_ROLES, _covers
+from organizations.permissions import (
+    IsStaff,
+    IsStaffOrReadOnly,
+    IsVenueMember,
+    staff_covering,
+)
 from passes.models import CreditLedger, MemberPass
 from passes.services import adjust_credit
 
@@ -108,10 +112,7 @@ class LedgerView(generics.ListAPIView):
         return entries.filter(member_pass__member=self.request.user)
 
     def _is_staff(self):
-        return any(
-            membership.role in STAFF_ROLES and _covers(membership, self.request.venue)
-            for membership in getattr(self.request, "memberships", ())
-        )
+        return staff_covering(self.request, self.request.venue)
 
 
 class AdjustView(APIView):

@@ -48,8 +48,8 @@ def _default_venue(memberships):
 
 
 def resolve_venue(user, slug):
-    """Return (venue, organization, memberships) for an authenticated user."""
-    from organizations.models import Membership
+    """Return (venue, organization, memberships, org_roles)."""
+    from organizations.models import Membership, OrgRole
 
     memberships = list(
         Membership.objects.filter(user=user).select_related(
@@ -58,13 +58,21 @@ def resolve_venue(user, slug):
             "organization",
         ),
     )
+    org_roles = list(
+        OrgRole.objects.filter(user=user).select_related(
+            "venue",
+            "venue__organization",
+            "organization",
+        ),
+    )
+    coverage = memberships + org_roles
     if slug:
-        venue, organization = _match_pinned(memberships, slug)
+        venue, organization = _match_pinned(coverage, slug)
         if venue is None:
-            venue, organization = _match_spanning(memberships, slug)
-        return venue, organization, memberships
-    venue, organization = _default_venue(memberships)
-    return venue, organization, memberships
+            venue, organization = _match_spanning(coverage, slug)
+        return venue, organization, memberships, org_roles
+    venue, organization = _default_venue(coverage)
+    return venue, organization, memberships, org_roles
 
 
 def _ensure_venue(request):
@@ -75,6 +83,7 @@ def _ensure_venue(request):
         request.venue = resolved[0]
         request.organization = resolved[1]
         request.memberships = resolved[2]
+        request.org_roles = resolved[3]
         venue = resolved[0]
     return venue
 
