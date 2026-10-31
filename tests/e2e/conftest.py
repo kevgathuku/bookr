@@ -7,7 +7,7 @@
   smoke run). Full §5 sequence (compose, worker/beat, redis, mailpit,
   frontend preview) activates as those tickets land; absent services skip,
   never fail.
-- Determinism: seed_demo --e2e builds the fixed `e2e-run` org (fresh DB per
+- Determinism: seed_e2e builds the fixed `e2e-run` org (fresh DB per
   CI run via down -v makes it per-run). Time boundaries stay at unit level
   (freezegun); live specs use comfortably-inside windows.
 """
