@@ -2,6 +2,7 @@ import logging
 from typing import ClassVar
 
 from drf_spectacular.utils import extend_schema
+from rest_framework import generics
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -9,8 +10,13 @@ from rest_framework.views import APIView
 
 from access.auth import ControllerAuthentication
 from access.models import AccessEvent, AccessPoint
-from access.serializers import CheckResultSerializer, CheckSerializer
+from access.serializers import (
+    AccessEventSerializer,
+    CheckResultSerializer,
+    CheckSerializer,
+)
 from access.services import decide, grants_total
+from organizations.permissions import IsStaff, IsVenueMember
 
 logger = logging.getLogger(__name__)
 
@@ -62,3 +68,23 @@ class CheckView(APIView):
             )
         except Exception:  # log best-effort; deny stands
             logger.warning("access event log failed", exc_info=True)
+
+
+class RecentEventsView(generics.ListAPIView):
+    """Frontdesk reads the venue's recent attempts, newest first."""
+
+    serializer_class = AccessEventSerializer
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+        IsStaff,
+    ]
+
+    def get_queryset(self):
+        events = AccessEvent.objects.filter(
+            access_point__venue=self.request.venue
+        ).select_related("access_point", "member", "booking")
+        point_id = self.request.query_params.get("access_point")
+        if point_id is not None:
+            events = events.filter(access_point_id=point_id)
+        return events[:100]

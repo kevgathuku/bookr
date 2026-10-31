@@ -4,13 +4,7 @@ import contextlib
 
 from rest_framework.exceptions import APIException
 
-from booking.errors import (
-    AllotmentExhausted,
-    CreditInsufficient,
-    DuplicateBooking,
-    SeatFull,
-    TeacherUnavailable,
-)
+from booking.errors import BookingError, CreditInsufficient
 
 
 class Conflict(APIException):
@@ -27,12 +21,14 @@ class PaymentRequired(APIException):
 
 @contextlib.contextmanager
 def mapped_errors():
-    """Raise service errors as their HTTP equivalents."""
+    """Raise service errors as their HTTP equivalents.
+
+    State conflicts (full, duplicate, closed, started) are 409; only
+    the empty wallet is 402.
+    """
     try:
         yield
-    except (SeatFull, DuplicateBooking, TeacherUnavailable) as error:
-        raise Conflict(str(error))
-    except AllotmentExhausted as error:
-        raise Conflict(str(error))
     except CreditInsufficient as error:
         raise PaymentRequired(str(error))
+    except BookingError as error:
+        raise Conflict(str(error))

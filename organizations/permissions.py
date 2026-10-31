@@ -3,28 +3,35 @@
 from rest_framework import permissions
 from rest_framework.exceptions import NotFound, PermissionDenied
 
-from organizations.tenancy import STAFF_ROLES, _covers, _ensure_venue
+from organizations.capabilities import can_operate_desk
+from organizations.models import OrgRole
+from organizations.tenancy import covers, ensure_venue
 
 
 def staff_covering(request, venue):
-    """True when the user holds a staff role covering the venue."""
+    """True when the user holds a staff role covering the venue.
+
+    OrgRole rows are the single source: any non-member role counts as
+    staff here; desk-only gates use can_operate_desk directly.
+    """
     return any(
-        membership.role in STAFF_ROLES and _covers(membership, venue)
-        for membership in getattr(request, "memberships", ())
+        row.role != OrgRole.Role.MEMBER and covers(row, venue)
+        for row in getattr(request, "org_roles", ())
     )
 
 
 class IsVenueMember(permissions.BasePermission):
-    """Filter-then-404: membership covering request.venue, else NotFound."""
+    """Filter-then-404: role covering request.venue, else NotFound."""
 
     message = "No such venue."
 
     def has_permission(self, request, view):
-        venue = _ensure_venue(request)
+        venue = ensure_venue(request)
         if venue is None or not request.user.is_authenticated:
             raise NotFound(self.message)
-        for membership in getattr(request, "memberships", ()):
-            if _covers(membership, venue):
+        rows = list(getattr(request, "org_roles", ()))
+        for row in rows:
+            if covers(row, venue):
                 return True
         raise NotFound(self.message)
 
@@ -37,7 +44,7 @@ class IsStaffOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
-        venue = _ensure_venue(request)
+        venue = ensure_venue(request)
         if venue is None or not request.user.is_authenticated:
             raise NotFound("No such venue.")
         return staff_covering(request, venue)
@@ -49,9 +56,31 @@ class IsStaff(permissions.BasePermission):
     message = "Staff only."
 
     def has_permission(self, request, view):
-        venue = _ensure_venue(request)
+        venue = ensure_venue(request)
         if venue is None or not request.user.is_authenticated:
             raise NotFound("No such venue.")
         if not staff_covering(request, venue):
+            raise PermissionDenied(self.message)
+        return True
+
+
+def _capability_covering(request, venue, capable):
+    """OrgRole rows go through the capability predicate."""
+    covered = [
+        row.role for row in getattr(request, "org_roles", ()) if covers(row, venue)
+    ]
+    return capable(covered)
+
+
+class IsDesk(permissions.BasePermission):
+    """Front-desk operations: operate-desk capability covering the venue."""
+
+    message = "Front desk only."
+
+    def has_permission(self, request, view):
+        venue = ensure_venue(request)
+        if venue is None or not request.user.is_authenticated:
+            raise NotFound("No such venue.")
+        if not _capability_covering(request, venue, can_operate_desk):
             raise PermissionDenied(self.message)
         return True

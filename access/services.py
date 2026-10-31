@@ -7,20 +7,19 @@ passback replays excepted. Any DB failure denies (fail-closed).
 from datetime import timedelta
 
 from django.core.cache import cache
-from django.db.models import F, Q
+from django.db.models import Q
 from django.utils import timezone
 from prometheus_client import Counter
 
 from access.models import AccessEvent
 from booking.models import ACTIVE_STATUSES, Booking
-from organizations.models import Membership
-from passes.models import MemberPass
+from organizations.capabilities import can_staff_door, roles_for
+from passes.models import Membership, PlanType
 
 grants_total = Counter("door_grants_total", "Granted door checks", ["venue_id"])
 
 CACHE_TTL_SECONDS = 60
 ENTRY_WINDOW_MINUTES = 15
-STAFF_ROLES = ("owner", "manager", "teacher", "frontdesk")
 
 
 def decide(access_point, member):
@@ -74,50 +73,54 @@ def _passback(access_point, member):
 def _evaluate(access_point, member):
     venue = access_point.venue
     now = timezone.now()
-    if (
-        MemberPass.objects.filter(
-            member=member,
-            status=MemberPass.Status.ACTIVE,
-            valid_from__lte=now,
-            valid_until__gte=now,
-        )
-        .exclude(credits_total__isnull=False, credits_used__gte=F("credits_total"))
-        .exists()
-    ):
+    if _has_valid_plan_membership(member, venue, now):
         return True, "active_pass", None
     booking = _live_booking(member, venue, now)
     if booking is not None:
         return True, "live_booking", booking
-    if Membership.objects.filter(
-        Q(venue__isnull=True, organization=venue.organization) | Q(venue=venue),
-        user=member,
-        role__in=STAFF_ROLES,
-    ).exists():
+    if _is_staff(member, venue):
         return True, "staff", None
     return False, "no_access", None
 
 
+def _has_valid_plan_membership(member, venue, now):
+    """Monthly valid within dates, or credit balance remaining within dates."""
+    today = now.date()
+    return (
+        Membership.objects.filter(
+            user=member,
+            plan__organization=venue.organization,
+            starts_on__lte=today,
+        )
+        .filter(Q(ends_on__gte=today) | Q(ends_on__isnull=True))
+        .filter(Q(plan__plan_type=PlanType.MONTHLY) | Q(credits_remaining__gt=0))
+        .exists()
+    )
+
+
+def _is_staff(member, venue):
+    return can_staff_door(roles_for(member, venue))
+
+
 def _live_booking(member, venue, now):
-    for booking in _bookings(member, venue, True):
-        target = booking.scheduled_class
-        if _window_ok(target.starts_at, target.ends_at, now):
-            return booking
-    for booking in _bookings(member, venue, False):
-        target = booking.appointment
-        if _window_ok(target.starts_at, target.ends_at, now):
+    for booking in _bookings(member, venue):
+        start = booking.session.starts_at
+        end = start + timedelta(minutes=booking.session.offering.duration_minutes)
+        if _window_ok(start, end, now):
             return booking
     return None
 
 
-def _bookings(member, venue, classes):
-    found = Booking.objects.filter(
-        venue=venue, member=member, status__in=ACTIVE_STATUSES
-    )
-    if classes:
-        return found.filter(scheduled_class__isnull=False).select_related(
-            "scheduled_class"
+def _bookings(member, venue):
+    return (
+        Booking.objects.filter(
+            member=member,
+            session__offering__venue=venue,
+            status__in=ACTIVE_STATUSES,
         )
-    return found.filter(appointment__isnull=False).select_related("appointment")
+        .select_related("session", "session__offering")
+        .order_by("session__starts_at")
+    )
 
 
 def _window_ok(starts, ends, now):

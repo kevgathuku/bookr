@@ -1,84 +1,25 @@
 from datetime import timedelta
 from typing import ClassVar
 
-from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.response import Response
 
-from booking.http import Conflict
-from booking.models import ACTIVE_STATUSES, Booking
-from organizations.permissions import IsStaffOrReadOnly, IsVenueMember
-from scheduling.models import ClassType, Room, ScheduledClass, TeacherSubstitution
+from organizations.permissions import IsDesk, IsVenueMember
+from scheduling.catalogue import ClassOffering, ClassSession
 from scheduling.serializers import (
-    ClassTypeSerializer,
-    RoomSerializer,
-    ScheduledClassSerializer,
-    TeacherSubstitutionSerializer,
+    GenerateSessionsSerializer,
+    OfferingSerializer,
+    SessionCancelSerializer,
+    SessionSerializer,
 )
 
 MAX_WINDOW = timedelta(days=31)
-
-
-class CatalogViewSet(viewsets.ReadOnlyModelViewSet):
-    """Read-only room / class-type lists for staff forms."""
-
-    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
-    permission_classes: ClassVar[list] = [  # type: ignore[misc]
-        IsVenueMember,
-        IsStaffOrReadOnly,
-    ]
-
-    def get_queryset(self):
-        return self.queryset.filter(venue=self.request.venue).order_by("name")
-
-
-class RoomViewSet(CatalogViewSet):
-    queryset = Room.objects.all()
-    serializer_class = RoomSerializer
-
-
-class ClassTypeViewSet(CatalogViewSet):
-    queryset = ClassType.objects.all()
-    serializer_class = ClassTypeSerializer
-
-
-class TeacherSubstitutionViewSet(viewsets.ModelViewSet):
-    """History kept: list/retrieve/create, never update/delete."""
-
-    serializer_class = TeacherSubstitutionSerializer
-    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
-    permission_classes: ClassVar[list] = [  # type: ignore[misc]
-        IsVenueMember,
-        IsStaffOrReadOnly,
-    ]
-    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
-    http_method_names: ClassVar[list[str]] = [  # type: ignore[misc]
-        "get",
-        "post",
-        "head",
-        "options",
-    ]
-
-    def get_queryset(self):
-        return TeacherSubstitution.objects.filter(
-            scheduled_class__venue=self.request.venue
-        ).select_related("scheduled_class", "old_teacher", "new_teacher")
-
-    def perform_create(self, serializer):
-        from django.db import transaction
-
-        klass = serializer.validated_data["scheduled_class"]
-        if klass.venue != self.request.venue:
-            raise NotFound("No such venue.")
-        with transaction.atomic():
-            locked = ScheduledClass.objects.select_for_update().get(pk=klass.pk)
-            old_teacher = locked.teacher
-            locked.teacher = serializer.validated_data["new_teacher"]
-            locked.save()
-            serializer.save(old_teacher=old_teacher, created_by=self.request.user)
 
 
 def parse_window_bound(value, default):
@@ -95,12 +36,23 @@ def parse_window_bound(value, default):
     return parsed
 
 
-class ScheduledClassViewSet(viewsets.ModelViewSet):
-    serializer_class = ScheduledClassSerializer
+def _window(request):
+    """Shared bounded-window parsing for the new read endpoints."""
+    params = request.query_params
+    start = parse_window_bound(params.get("from"), timezone.now())
+    end = parse_window_bound(params.get("to"), start + MAX_WINDOW)
+    if end <= start or end - start > MAX_WINDOW:
+        raise serializers.ValidationError("Window must span 1s to 31d.")
+    return start, end
+
+
+class OfferingViewSet(viewsets.ReadOnlyModelViewSet):
+    """Venues' offerings. Creation lives in admin (contract owns the form)."""
+
+    serializer_class = OfferingSerializer
     # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
         IsVenueMember,
-        IsStaffOrReadOnly,
     ]
 
     def get_queryset(self):
@@ -108,59 +60,91 @@ class ScheduledClassViewSet(viewsets.ModelViewSet):
         param = self.request.query_params.get("venue")
         if param is not None and param != venue.slug:
             raise NotFound("No such venue.")
-        venue_classes = (
-            ScheduledClass.objects.for_venue(venue)
-            .select_related("class_type", "room", "teacher")
+        return (
+            ClassOffering.objects.filter(venue=venue)
+            .select_related("teacher")
+            .order_by("title")
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="sessions/generate",
+        permission_classes=[IsVenueMember, IsDesk],
+    )
+    def generate(self, request, pk=None):
+        """Expand an RFC recurrence rule into sessions, all or nothing."""
+        from scheduling.sessions import generate_sessions
+
+        serializer = GenerateSessionsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        offering = self.get_object()
+        if offering.venue_id != request.venue.pk:
+            raise NotFound("No such venue.")
+        sessions = generate_sessions(offering=offering, **serializer.validated_data)
+        return Response(SessionSerializer(sessions, many=True).data, status=201)
+
+
+class SessionViewSet(viewsets.ReadOnlyModelViewSet):
+    """Bookable sessions with derived ends; cancelled ones never listed."""
+
+    serializer_class = SessionSerializer
+    # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
+    filter_backends: ClassVar[list] = [DjangoFilterBackend]  # type: ignore[misc]
+    filterset_fields: ClassVar[list[str]] = ["offering__category"]
+
+    def get_queryset(self):
+        venue = self.request.venue
+        param = self.request.query_params.get("venue")
+        if param is not None and param != venue.slug:
+            raise NotFound("No such venue.")
+        start, end = _window(self.request)
+        sessions = ClassSession.objects.for_venue(venue).live()
+        return (
+            sessions.in_window(start, end)
+            .select_related("offering", "offering__teacher")
             .annotate(
-                booked=Count(
-                    "bookings",
-                    filter=Q(bookings__status=Booking.Status.CONFIRMED),
-                ),
+                booked=Count("bookings", filter=Q(bookings__status="booked")),
             )
             .order_by("starts_at")
         )
-        start, end = self._window()
-        return venue_classes.filter(starts_at__lt=end, ends_at__gt=start)
 
-    def create(self, request, *args, **kwargs):
-        try:
-            created = super().create(request, *args, **kwargs)
-        except IntegrityError:
-            # Exclusion constraint (room/teacher overlap) refused at the DB.
-            raise serializers.ValidationError(
-                "Overlaps an existing class for this room or teacher.",
-            )
-        return created
-
-    def destroy(self, request, *args, **kwargs):
-        klass = self.get_object()
-        if Booking.objects.filter(
-            scheduled_class=klass, status__in=ACTIVE_STATUSES
-        ).exists():
-            raise Conflict("Class has active bookings.")
-        return super().destroy(request, *args, **kwargs)
-
-    def perform_create(self, serializer):
-        # A crafted venue id in the payload must not escape the request venue.
-        payload_venue = serializer.validated_data["venue"]
-        if payload_venue != self.request.venue:
+    def get_object(self):
+        # Cancel acts on one session regardless of the list window.
+        venue = self.request.venue
+        session = (
+            ClassSession.objects.for_venue(venue)
+            .select_related("offering")
+            .filter(pk=self.kwargs["pk"])
+            .first()
+        )
+        if session is None:
             raise NotFound("No such venue.")
-        serializer.save()
+        return session
 
-    def perform_update(self, serializer):
-        # Growing seats (override or room swap) may free waitlist places.
-        watched = {"capacity_override", "room"}
-        changed = watched.intersection(serializer.validated_data)
-        super().perform_update(serializer)
-        if changed:
-            from booking.tasks import promote_waitlist
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="cancel",
+        permission_classes=[IsVenueMember],
+    )
+    def cancel(self, request, pk=None):
+        """Provider-side cancel. The service decides who may: desk any
+        session, teachers their own; everyone refunds, none penalized."""
+        from booking.cancellations import cancel_session
+        from booking.http import mapped_errors
+        from booking.serializers import RecordSerializer
 
-            promote_waitlist.delay(class_id=serializer.instance.pk)
-
-    def _window(self):
-        params = self.request.query_params
-        start = parse_window_bound(params.get("from"), timezone.now())
-        end = parse_window_bound(params.get("to"), start + MAX_WINDOW)
-        if end <= start or end - start > MAX_WINDOW:
-            raise serializers.ValidationError("Window must span 1s to 31d.")
-        return start, end
+        data = SessionCancelSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        session = self.get_object()
+        with mapped_errors():
+            records = cancel_session(
+                session_id=session.pk,
+                actor=request.user,
+                reason=data.validated_data["reason"],
+            )
+        return Response(RecordSerializer(records, many=True).data)

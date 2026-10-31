@@ -11,19 +11,17 @@ from rest_framework.views import APIView
 
 from aggregators.auth import AggregatorAuthentication, AggregatorThrottle
 from aggregators.models import Aggregator, AggregatorBooking, AggregatorEventLog
-from aggregators.serializers import PartnerClassSerializer
+from aggregators.serializers import PartnerSessionSerializer
 from aggregators.services import book_partner_seat, cancel_partner_booking
 from aggregators.webhooks import send_webhook
 from booking.http import mapped_errors
 from booking.serializers import BookingSerializer
-from scheduling.models import ScheduledClass
+from scheduling.catalogue import ClassSession
 from scheduling.views import MAX_WINDOW, parse_window_bound
 
 
 class PartnerBookSerializer(serializers.Serializer):
-    scheduled_class = serializers.PrimaryKeyRelatedField(
-        queryset=ScheduledClass.objects.all()
-    )
+    session = serializers.PrimaryKeyRelatedField(queryset=ClassSession.objects.all())
     external_id = serializers.CharField(max_length=128)
 
 
@@ -58,7 +56,7 @@ class PartnerBookingsView(APIView):
         data = form.validated_data
         with mapped_errors():
             booking, created = book_partner_seat(
-                partner, data["scheduled_class"], data["external_id"]
+                partner, data["session"], data["external_id"]
             )
         _log(partner, request, 201 if created else 200)
         if created and partner.webhook_url:
@@ -85,9 +83,7 @@ class PartnerCancelView(APIView):
     def post(self, request, slug, external_id):
         partner = _partner(request)
         link = (
-            AggregatorBooking.objects.select_related(
-                "booking", "booking__scheduled_class"
-            )
+            AggregatorBooking.objects.select_related("booking", "booking__session")
             .filter(aggregator=partner, external_id=external_id)
             .first()
         )
@@ -115,7 +111,7 @@ class PartnerScheduleView(APIView):
     throttle_classes: ClassVar[list] = [AggregatorThrottle]  # type: ignore[misc]
 
     @extend_schema(
-        responses=PartnerClassSerializer(many=True),
+        responses=PartnerSessionSerializer(many=True),
         parameters=[
             OpenApiParameter("from", str, required=False),
             OpenApiParameter("to", str, required=False),
@@ -128,10 +124,11 @@ class PartnerScheduleView(APIView):
         end = parse_window_bound(params.get("to"), start + MAX_WINDOW)
         if end <= start or end - start > MAX_WINDOW:
             raise ValidationError("Window must be within 31 days.")
-        classes = (
-            ScheduledClass.objects.select_related("class_type", "room", "teacher")
-            .filter(starts_at__lt=end, ends_at__gt=start)
+        sessions = (
+            ClassSession.objects.live()
+            .in_window(start, end)
+            .select_related("offering", "offering__teacher")
             .order_by("starts_at")[:200]
         )
         _log(partner, request, 200)
-        return Response(PartnerClassSerializer(classes, many=True).data)
+        return Response(PartnerSessionSerializer(sessions, many=True).data)

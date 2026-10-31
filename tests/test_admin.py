@@ -8,9 +8,8 @@ from django.utils import timezone
 
 from access.models import AccessEvent, AccessPoint
 from organizations.admin_mixins import bookr_site
-from organizations.models import Membership, Organization, Venue
+from organizations.models import Organization, OrgRole, Venue
 from passes.models import CreditLedger
-from scheduling.models import ClassType, Room, ScheduledClass
 
 pytestmark = pytest.mark.django_db
 
@@ -40,22 +39,15 @@ def _venue(org, slug):
 
 
 def _membership(org, user, role, venue=None):
-    return Membership.objects.create(
-        organization=org, venue=venue, user=user, role=role
-    )
+    return OrgRole.objects.create(organization=org, venue=venue, user=user, role=role)
 
 
 def _class(venue, teacher):
-    start = timezone.now() + timedelta(days=1)
-    class_type = ClassType.objects.create(venue=venue, name="Spin", duration_min=45)
-    room = Room.objects.create(venue=venue, name="Studio", capacity=20)
-    return ScheduledClass.objects.create(
-        venue=venue,
-        class_type=class_type,
-        room=room,
-        teacher=teacher,
-        starts_at=start,
-        ends_at=start + timedelta(hours=1),
+    from tests.factories import ClassOfferingFactory, ClassSessionFactory
+
+    offering = ClassOfferingFactory(venue=venue, teacher=teacher)
+    return ClassSessionFactory(
+        offering=offering, starts_at=timezone.now() + timedelta(days=1)
     )
 
 
@@ -73,9 +65,9 @@ class TestVenueScoping:
         class_a = _class(venue_a, teacher)
         _class(venue_b, teacher)
         manager = _user("manager", staff=True)
-        _membership(org, manager, Membership.Role.MANAGER, venue_a)
+        _membership(org, manager, OrgRole.Role.MANAGER, venue_a)
 
-        response = _admin_client(manager).get("/admin/scheduling/scheduledclass/")
+        response = _admin_client(manager).get("/admin/scheduling/classsession/")
 
         assert response.status_code == 200
         assert response.context["cl"].result_count == 1
@@ -88,9 +80,9 @@ class TestVenueScoping:
         _class(venue_a, teacher)
         _class(venue_b, teacher)
         owner = _user("owner", staff=True)
-        _membership(org, owner, Membership.Role.OWNER)
+        _membership(org, owner, OrgRole.Role.OWNER)
 
-        response = _admin_client(owner).get("/admin/scheduling/scheduledclass/")
+        response = _admin_client(owner).get("/admin/scheduling/classsession/")
 
         assert response.status_code == 200
         assert response.context["cl"].result_count == 2
@@ -101,7 +93,7 @@ class TestRoleGate:
         org = _org("org")
         venue = _venue(org, "main")
         teacher = _user("teacher", staff=True)
-        _membership(org, teacher, Membership.Role.TEACHER, venue)
+        _membership(org, teacher, OrgRole.Role.TEACHER, venue)
 
         response = _admin_client(teacher).get("/admin/")
 
@@ -113,9 +105,9 @@ class TestRoleGate:
         teacher = _user("teacher", staff=True)
         group, _ = Group.objects.get_or_create(name="managers")
         teacher.groups.add(group)
-        _membership(org, teacher, Membership.Role.TEACHER, venue)
+        _membership(org, teacher, OrgRole.Role.TEACHER, venue)
 
-        response = _admin_client(teacher).get("/admin/scheduling/scheduledclass/")
+        response = _admin_client(teacher).get("/admin/scheduling/classsession/")
 
         assert response.status_code in (302, 403)
 
@@ -123,7 +115,7 @@ class TestRoleGate:
         org = _org("org")
         venue = _venue(org, "main")
         desk = _user("desk", staff=True)
-        _membership(org, desk, Membership.Role.FRONTDESK, venue)
+        _membership(org, desk, OrgRole.Role.FRONTDESK, venue)
 
         response = _admin_client(desk).get("/admin/")
 
@@ -133,39 +125,11 @@ class TestRoleGate:
         org = _org("org")
         venue = _venue(org, "main")
         member = _user("member", staff=True)
-        _membership(org, member, Membership.Role.MEMBER, venue)
+        _membership(org, member, OrgRole.Role.MEMBER, venue)
 
         response = _admin_client(member).get("/admin/")
 
         assert response.status_code in (302, 403)
-
-    def test_add_form_ignores_forged_history(self):
-        from scheduling.models import TeacherSubstitution
-
-        org = _org("org")
-        venue = _venue(org, "main")
-        old = _user("old-teacher")
-        klass = _class(venue, old)
-        manager = _user("manager", staff=True)
-        _membership(org, manager, Membership.Role.MANAGER, venue)
-        impostor = _user("impostor")
-        new_teacher = _user("new-teacher")
-
-        response = _admin_client(manager).post(
-            "/admin/scheduling/teachersubstitution/add/",
-            {
-                "scheduled_class": klass.pk,
-                "old_teacher": impostor.pk,
-                "new_teacher": new_teacher.pk,
-                "created_by": impostor.pk,
-                "reason": "forged",
-            },
-        )
-
-        assert response.status_code == 302
-        row = TeacherSubstitution.objects.get(scheduled_class=klass)
-        assert row.old_teacher == old
-        assert row.created_by == manager
 
 
 class TestReadOnlyAudit:
@@ -173,7 +137,7 @@ class TestReadOnlyAudit:
         org = _org("org")
         venue = _venue(org, "main")
         manager = _user("manager", staff=True)
-        _membership(org, manager, Membership.Role.MANAGER, venue)
+        _membership(org, manager, OrgRole.Role.MANAGER, venue)
         model_admin = bookr_site._registry[CreditLedger]
         request = _request(manager)
 
@@ -186,7 +150,7 @@ class TestReadOnlyAudit:
         org = _org("org")
         venue = _venue(org, "main")
         manager = _user("manager", staff=True)
-        _membership(org, manager, Membership.Role.MANAGER, venue)
+        _membership(org, manager, OrgRole.Role.MANAGER, venue)
         model_admin = bookr_site._registry[AccessEvent]
         request = _request(manager)
 
@@ -197,7 +161,7 @@ class TestReadOnlyAudit:
         org = _org("org")
         venue = _venue(org, "main")
         manager = _user("manager", staff=True)
-        _membership(org, manager, Membership.Role.MANAGER, venue)
+        _membership(org, manager, OrgRole.Role.MANAGER, venue)
 
         response = _admin_client(manager).get("/admin/passes/creditledger/add/")
 
@@ -209,7 +173,7 @@ class TestTokenHash:
         org = _org("org")
         venue = _venue(org, "main")
         manager = _user("manager", staff=True)
-        _membership(org, manager, Membership.Role.MANAGER, venue)
+        _membership(org, manager, OrgRole.Role.MANAGER, venue)
         point = AccessPoint.objects.create(venue=venue, name="Door", controller_id="d1")
         model_admin = bookr_site._registry[AccessPoint]
 
@@ -233,3 +197,50 @@ def _request(user):
     request.session = {}
     request._messages = FallbackStorage(request)
     return request
+
+
+class TestCoverageMatrix:
+    def _staff_client(self, org):
+        from organizations.models import OrgRole
+        from tests.factories import OrgRoleFactory
+
+        user = _user("matrix-staff", staff=True)
+        OrgRoleFactory(
+            organization=org, venue=None, user=user, role=OrgRole.Role.MANAGER
+        )
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def test_matrix_shows_winner_and_free(self):
+        from booking.models import CancellationPolicy
+        from tests.factories import VenueFactory
+
+        venue = VenueFactory(slug="matrix")
+        org = venue.organization
+        CancellationPolicy.objects.create(
+            organization=org,
+            venue=venue,
+            late_cancel_hours=12,
+            enforcement=CancellationPolicy.Enforcement.STRIKE,
+        )
+
+        response = self._staff_client(org).get(
+            "/admin/booking/cancellationpolicy/coverage/"
+        )
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert "strike" in body
+        assert "free by design" in body
+
+    def test_member_cannot_see_matrix(self):
+        from tests.factories import VenueFactory
+
+        VenueFactory(slug="matrix-member")
+        client = Client()
+        client.force_login(_user("matrix-member"))
+
+        response = client.get("/admin/booking/cancellationpolicy/coverage/")
+
+        assert response.status_code in (302, 403)

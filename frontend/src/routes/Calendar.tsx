@@ -153,7 +153,8 @@ export default function Calendar() {
 						const found = (events.data ?? []).find(
 							(event) => event.id === Number(info.event.id),
 						);
-						if (found?.kind === "class") {
+						// Sessions are selectable; booking them wires up in .3.
+						if (found?.kind === "session") {
 							setSelectedId(found.id);
 							setError(null);
 						}

@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_extensions",
+    "django_filters",
     "rest_framework",
     "drf_spectacular",
 ]
@@ -57,19 +58,10 @@ CACHES = {
 # CELERY_EAGER=0 and runs worker/beat (services owned by docker ticket 4cs).
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_EAGER", "1") == "1"
-CELERY_BEAT_SCHEDULE = {
-    "sweep-hold-expiry": {
-        "task": "booking.sweep_expired_holds",
-        "schedule": 300.0,
-    },
-    "expire-passes": {
-        "task": "passes.expire_passes",
-        "schedule": 86400.0,
-    },
-}
+CELERY_BEAT_SCHEDULE: dict = {}
 
-# Mail: MAILERS rule here (console in dev, SMTP in prod via EMAIL_HOST*
-# env). Templates live in booking/notify.py (cancelled/promoted/late-cancel).
+# Mail: console backend in dev/test; SMTP in prod via EMAIL_HOST* env.
+# Member notices live in booking/notifications.py (post-commit sends).
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "bookr@example.com")
 
 REST_FRAMEWORK = {
@@ -80,6 +72,7 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "config.exceptions.exception_handler",
 }
 
 SPECTACULAR_SETTINGS = {

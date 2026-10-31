@@ -1,146 +1,16 @@
-import contextlib
-
-from django.contrib.auth import get_user_model
+# Demo cast: fixed usernames (password "password" for all), so the README
+# can name every login and each one works straight after seeding.
+# Re-runnable via get_or_create throughout.
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
-from organizations.models import Membership, Organization, Venue, VenuePolicy
-
-# Demo cast: fixed usernames (password "password" for all), so the README
-# can name every login and each one works straight after seeding.
-# Re-runnable via get_or_create throughout; exact-start classes never dup.
-
-
-def _demo_user(username):
-    User = get_user_model()
-    user, created = User.objects.get_or_create(
-        username=username,
-        defaults={"email": f"{username}@example.com"},
-    )
-    if created:
-        user.set_password("password")  # dev seed only — never in prod
-        user.save()
-    return user
-
-
-def _membership(org, user, role, venue=None):
-    Membership.objects.get_or_create(
-        organization=org, venue=venue, user=user, defaults={"role": role}
-    )
-
-
-def _room(venue, name, capacity):
-    from scheduling.models import Room
-
-    room, _ = Room.objects.get_or_create(
-        venue=venue, name=name, defaults={"capacity": capacity}
-    )
-    if room.capacity != capacity:
-        room.capacity = capacity
-        room.save(update_fields=["capacity"])
-    return room
-
-
-def _schedule(venue, teacher, class_name, room_name, capacity=20):
-    from datetime import timedelta
-
-    from django.utils import timezone
-
-    from scheduling.models import ClassType, ScheduledClass
-
-    VenuePolicy.objects.get_or_create(venue=venue, valid_until=None)
-    class_type = ClassType.objects.get_or_create(
-        venue=venue,
-        name=class_name,
-        defaults={"duration_min": 45},
-    )[0]
-    room = _room(venue, room_name, capacity)
-    start = timezone.now() + timedelta(days=1)
-    # Re-runnable: drop this room's stale classes, keep one fresh slot.
-    ScheduledClass.objects.filter(
-        venue=venue, room=room, starts_at__lte=timezone.now()
-    ).delete()
-    fresh = ScheduledClass.objects.filter(
-        venue=venue, room=room, starts_at__gt=timezone.now()
-    ).first()
-    if fresh is not None:
-        return fresh
-    return ScheduledClass.objects.get_or_create(
-        venue=venue,
-        room=room,
-        teacher=teacher,
-        starts_at=start,
-        defaults={"class_type": class_type, "ends_at": start + timedelta(hours=1)},
-    )[0]
-
-
-def _next_weekday(now, weekday, hour, minute=0):
-    from datetime import timedelta
-
-    start = (now + timedelta(days=(weekday - now.weekday()) % 7)).replace(
-        hour=hour, minute=minute, second=0, microsecond=0
-    )
-    if start <= now:
-        start += timedelta(days=7)
-    return start
-
-
-def _weekly(venue, teacher, class_name, room_name, weekdays, hour, capacity=20):
-    """One class on each listed weekday (0=Monday), next occurrence onward."""
-    from datetime import timedelta
-
-    from django.utils import timezone
-
-    from scheduling.models import ClassType, ScheduledClass
-
-    VenuePolicy.objects.get_or_create(venue=venue, valid_until=None)
-    class_type = ClassType.objects.get_or_create(
-        venue=venue,
-        name=class_name,
-        defaults={"duration_min": 60},
-    )[0]
-    room = _room(venue, room_name, capacity)
-    ScheduledClass.objects.filter(
-        venue=venue, room=room, starts_at__lte=timezone.now()
-    ).delete()
-    made = []
-    for weekday in weekdays:
-        start = _next_weekday(timezone.now(), weekday, hour)
-        klass, _ = ScheduledClass.objects.get_or_create(
-            venue=venue,
-            room=room,
-            teacher=teacher,
-            starts_at=start,
-            defaults={
-                "class_type": class_type,
-                "ends_at": start + timedelta(hours=1),
-            },
-        )
-        made.append(klass)
-    return made
-
-
-def _passes(product_venue, name, credits, members):
-    from passes.models import PassProduct
-    from passes.services import issue_pass
-
-    product, _ = PassProduct.objects.get_or_create(
-        venue=product_venue,
-        name=name,
-        defaults={"credits_total": credits, "validity_days": 30},
-    )
-    for member in members:
-        if not member.passes.exists():
-            issue_pass(member, product)
-    return product
-
-
-def _book(member, klass, key):
-    from booking.errors import DuplicateBooking, SeatFull
-    from booking.services import book_seat
-
-    with contextlib.suppress(DuplicateBooking, SeatFull):
-        book_seat(member, klass, idempotency_key=key)
+from organizations.management.seed_helpers import (
+    create_user,
+    ensure_org_role,
+    seed_sessions,
+)
+from organizations.models import Organization, OrgRole, Venue
+from scheduling.catalogue import ClassCategory
 
 
 def _spanning_org():
@@ -152,30 +22,27 @@ def _spanning_org():
         slug="main",
         defaults={"name": "Main Studio", "time_zone": "America/New_York"},
     )
-    annex, _ = Venue.objects.get_or_create(
+    Venue.objects.get_or_create(
         organization=org,
         slug="annex",
         defaults={"name": "Annex", "time_zone": "America/New_York"},
     )
+    # Annex stays session-free in the demo; it exists for the venue switcher.
     cast = {
-        "owner": Membership.Role.OWNER,
-        "manager": Membership.Role.MANAGER,
-        "teacher": Membership.Role.TEACHER,
-        "frontdesk": Membership.Role.FRONTDESK,
-        "member": Membership.Role.MEMBER,
-        "member2": Membership.Role.MEMBER,
+        "owner": OrgRole.Role.OWNER,
+        "manager": OrgRole.Role.MANAGER,
+        "teacher": OrgRole.Role.TEACHER,
+        "frontdesk": OrgRole.Role.FRONTDESK,
+        "member": OrgRole.Role.MEMBER,
+        "member2": OrgRole.Role.MEMBER,
     }
     users = {}
     for key, role in cast.items():
-        user = _demo_user(f"demo-{key}")
-        _membership(org, user, role)
+        user = create_user(f"demo-{key}")
+        ensure_org_role(org, user, role)
         users[key] = user
-    spin = _weekly(main, users["teacher"], "Spin", "Main Room", [0, 2, 4], 7)
-    _weekly(main, users["teacher"], "Yoga", "Studio", [1, 3], 18)
-    tiny = _schedule(annex, users["teacher"], "Tiny", "Closet", capacity=1)
-    _passes(main, "Dance 10-Class Pack", 10, [users["member"], users["member2"]])
-    _book(users["member2"], tiny, "demo-seed-tiny")
-    _book(users["member"], spin[0], "demo-seed-spin")
+    seed_sessions(main, users["teacher"], "Spin", ClassCategory.GROUP, [0, 2, 4], 7)
+    seed_sessions(main, users["teacher"], "Yoga", ClassCategory.GROUP, [1, 3], 18)
 
 
 def _per_venue_org():
@@ -183,7 +50,6 @@ def _per_venue_org():
         slug="uptown-box",
         defaults={
             "name": "Uptown Box",
-            "membership_scope": Organization.Scope.PER_VENUE,
         },
     )
     box, _ = Venue.objects.get_or_create(
@@ -196,14 +62,117 @@ def _per_venue_org():
         slug="annex",
         defaults={"name": "Annex Box", "time_zone": "America/Chicago"},
     )
-    pinned = _demo_user("demo-pinned")
-    _membership(org, pinned, Membership.Role.MEMBER, box)
-    coach = _demo_user("demo-coach")
-    _membership(org, coach, Membership.Role.TEACHER, annex)
-    klass = _schedule(box, coach, "Box", "The Floor")
-    _schedule(annex, coach, "Box", "The Floor")
-    _passes(box, "Box 5-Class Pack", 5, [pinned])
-    _book(pinned, klass, "demo-seed-box")
+    pinned = create_user("demo-pinned")
+    ensure_org_role(org, pinned, OrgRole.Role.MEMBER, box)
+    coach = create_user("demo-coach")
+    ensure_org_role(org, coach, OrgRole.Role.TEACHER, annex)
+    seed_sessions(box, coach, "Box", ClassCategory.GROUP, [0, 2, 4], 7, capacity=20)
+    seed_sessions(annex, coach, "Box", ClassCategory.GROUP, [1, 3], 18)
+
+
+def _remodel_graph():
+    """New-domain rows for the demo orgs. Re-runnable via get_or_create."""
+    _remodel_spot(
+        org_slug="downtown-dance",
+        venue_slug="main",
+        teacher_username="demo-teacher",
+        plan_name="Dance 10-Class Pack",
+        roster={"demo-member": 10, "demo-member2": 10},
+        book_all=True,
+    )
+    _remodel_spot(
+        org_slug="uptown-box",
+        venue_slug="box",
+        teacher_username="demo-coach",
+        plan_name="Box 5-Class Pack",
+        roster={"demo-pinned": 5},
+        book_all=True,
+    )
+
+
+def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, book_all):
+    """New-domain rows for one demo venue: plan, memberships, offering, session."""
+    from contextlib import suppress
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from booking.errors import DuplicateBooking, SeatFull
+    from booking.models import CancellationPolicy
+    from booking.services import book_session
+    from organizations.models import OrgRole
+    from passes.models import CreditLedger, Plan, PlanType
+    from passes.models import Membership as PlanMembership
+    from scheduling.catalogue import ClassCategory, ClassOffering, ClassSession
+
+    org = Organization.objects.get(slug=org_slug)
+    venue = Venue.objects.get(organization=org, slug=venue_slug)
+    teacher = create_user(teacher_username)
+    OrgRole.objects.get_or_create(
+        organization=org,
+        venue=venue,
+        user=teacher,
+        role=OrgRole.Role.TEACHER,
+    )
+
+    CancellationPolicy.objects.get_or_create(
+        organization=org,
+        venue=None,
+        class_category=None,
+        plan_type=None,
+        defaults={
+            "late_cancel_hours": 12,
+            "enforcement": CancellationPolicy.Enforcement.NONE,
+        },
+    )
+    plan, _ = Plan.objects.get_or_create(
+        organization=org,
+        name=plan_name,
+        defaults={"plan_type": PlanType.CREDIT_PACK, "validity_days": 30},
+    )
+    users = {}
+    today = timezone.now().date()
+    for username, credits in roster.items():
+        user = create_user(username)
+        users[username] = user
+        membership, created = PlanMembership.objects.get_or_create(
+            user=user,
+            plan=plan,
+            defaults={
+                "credits_remaining": credits,
+                "starts_on": today,
+                # Every membership has a known window: packs expire per plan
+                # validity, monthlies at the billing period end.
+                "ends_on": today + timedelta(days=plan.validity_days),
+            },
+        )
+        if created:
+            CreditLedger.objects.create(
+                membership=membership,
+                delta=credits,
+                reason=CreditLedger.Reason.PURCHASE,
+            )
+    offering, _ = ClassOffering.objects.get_or_create(
+        venue=venue,
+        teacher=teacher,
+        title="Spin",
+        category=ClassCategory.GROUP,
+        defaults={"duration_minutes": 60, "credit_cost": 1},
+    )
+    ClassSession.objects.filter(
+        offering=offering, starts_at__lte=timezone.now()
+    ).delete()
+    session = ClassSession.objects.filter(
+        offering=offering, starts_at__gt=timezone.now()
+    ).first()
+    if session is None:
+        session = ClassSession.objects.create(
+            offering=offering, starts_at=timezone.now() + timedelta(days=1)
+        )
+    if book_all:
+        for user in users.values():
+            with suppress(DuplicateBooking, SeatFull):
+                book_session(member=user, session=session)
 
 
 class Command(BaseCommand):
@@ -227,6 +196,7 @@ class Command(BaseCommand):
             return
         _spanning_org()
         _per_venue_org()
+        _remodel_graph()
         self.stdout.write(
             self.style.SUCCESS(
                 "Seeded downtown-dance + uptown-box: demo-owner, "

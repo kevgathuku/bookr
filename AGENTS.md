@@ -48,12 +48,14 @@ no API key, $0).
   from the contracts, not the tutorials.)
 - Code: `config/` (project, settings package `base/dev/prod`, strict env),
   `organizations/` (tenancy: Organization → Venue → VenuePolicy versions +
-  Membership spanning/per-venue), `tests/` (pytest-django, factories in
-  lesson 3), `docker/postgres/` + `docker-compose.yml` (db on host :5433).
+  Membership spanning/per-venue), per-app unit tests in `<app>/tests/` with
+  shared factories + cross-app journeys in `tests/`, `docker/postgres/` +
+  `docker-compose.yml` (db on host :5433).
 - Quality gates: `uv run ruff check .`, `uv run ruff format --check .`,
   `DATABASE_URL=... SECRET_KEY=... uv run mypy .`,
   `uv run flake8 <touched files>` (wemake, config in `.flake8`),
-  `DATABASE_URL=... uv run pytest tests/ -q` (+ CI in `.github/`).
+  `uv run pytest -q` (+ CI in `.github/`). Parallel unit run (live-server
+  smoke/e2e stay serial): `uv run pytest -q -n auto -m "not e2e and not smoke"`.
 - Conventions: explicit names with units (`class_late_cancel_hours`, not
   `_h`); `condition=` (Django 6.1, never `check=`); `ClassVar` on Meta
   constraint lists (RUF012); no code before its lesson.

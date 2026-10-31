@@ -11,6 +11,7 @@ If the user passes a ticket reference, fetch it from the issue tracker and state
 Explore the codebase with graft first (`ask --source`, `skeleton`, `callers`, `grep`) — prefer it over raw grep or reading whole files; open source only at exact spans graft returns.
 
 Call the Skill tool with "tdd" where possible, at pre-agreed seams.
+The tdd skill lives at `.agents/skills/tdd/`.
 Where no Skill/subagent tool exists in the environment, run the
 referenced skill inline (read its SKILL.md, follow its loop, report in
 its format) and say so in one line.
@@ -32,6 +33,8 @@ mutable constants, dead test locals). If a rule fights a framework-mandated
 pattern, prefer a small documented ignore over contorting the code.
 
 Once done, call the Skill tool with "code-review" to review the work.
+The code-review skill lives at `.agents/skills/code-review/` — read its
+SKILL.md when running the review inline.
 
 Then always close out the ticket, every time, in this order:
 

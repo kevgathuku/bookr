@@ -1,0 +1,379 @@
+from datetime import timedelta
+from unittest import mock
+
+import pytest
+from django.db import OperationalError
+from django.utils import timezone
+from rest_framework.test import APIClient
+
+from access.models import AccessEvent, AccessPoint
+from access.services import decide
+from booking.models import Booking
+from booking.services import book_session
+from organizations.models import OrgRole
+from passes.models import PlanType
+from tests.factories import (  # noqa: WPS235 — access tests build every domain object via factories
+    ClassOfferingFactory,
+    ClassSessionFactory,
+    OrganizationFactory,
+    OrgRoleFactory,
+    PlanFactory,
+    PlanMembershipFactory,
+    UserFactory,
+    VenueFactory,
+    user_with_role,
+)
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
+#  Door check seam: POST /api/access/check with per-controller token.
+#  - Grant iff active pass OR live booking window OR staff; else deny.
+#  - Every identified attempt logs an AccessEvent with reason...
+#  - ...except 60s passback replays, which return the prior decision rowless.
+#  - DB outage denies (fail-closed drill) — cache is latency only.
+#  - door_grants_total increments per grant; frontdesk reads recent events.
+
+
+def _user(username):
+    return UserFactory(username=username)
+
+
+def _venue(slug="downtown"):
+    org = OrganizationFactory(slug=f"org-{slug}", name=f"Org {slug}")
+    venue = VenueFactory(organization=org, slug=slug, name=slug.title())
+    return venue
+
+
+def _point(venue):
+    point = AccessPoint.objects.create(
+        venue=venue, name="Front Door", controller_id="door-1"
+    )
+    token = point.set_token()
+    point.save()
+    return point, token
+
+
+def _session(venue, teacher=None, minutes_from_now=10):
+    offering = ClassOfferingFactory(
+        venue=venue,
+        teacher=teacher or UserFactory(username=f"teacher-{venue.slug}"),
+        title="Spin",
+    )
+    return ClassSessionFactory(
+        offering=offering,
+        starts_at=timezone.now() + timedelta(minutes=minutes_from_now),
+    )
+
+
+def _member_with_plan(venue, username, credits=5):
+    member = _user(username)
+    OrgRoleFactory(
+        organization=venue.organization,
+        venue=None,
+        user=member,
+        role=OrgRole.Role.MEMBER,
+    )
+    plan = PlanFactory(organization=venue.organization, name=f"{username}-pack")
+    PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
+    return member
+
+
+def _check(token, member_pk, point_pk):
+    client = APIClient()
+    client.defaults["HTTP_AUTHORIZATION"] = f"Token {token}"
+    return client.post(
+        "/api/access/check/",
+        {"access_point": point_pk, "member": member_pk},
+        format="json",
+    )
+
+
+class TestGrantDeny:
+    def test_active_pass_grants_and_logs(self):
+        venue = _venue()
+        point, token = _point(venue)
+        member = _member_with_plan(venue, "member")
+
+        response = _check(token, member.pk, point.pk)
+
+        assert response.status_code == 200
+        assert response.data["granted"] is True
+        event = AccessEvent.objects.get(access_point=point, member=member)
+        assert (event.granted, event.reason) == (True, "active_pass")
+
+    def test_live_booking_window_grants(self):
+        venue = _venue()
+        point, token = _point(venue)
+        member = _member_with_plan(venue, "dropin")
+        session = _session(venue, minutes_from_now=10)
+        book_session(member=member, session=session)
+        # Expire the plan after booking: the live booking alone must grant.
+        membership = member.plan_memberships.get()
+        membership.ends_on = timezone.now().date() - timedelta(days=1)
+        membership.save(update_fields=["ends_on"])
+
+        response = _check(token, member.pk, point.pk)
+
+        assert response.data["granted"] is True
+        assert AccessEvent.objects.get(member=member).reason == "live_booking"
+
+    def test_staff_grants_without_pass_or_booking(self):
+        venue = _venue()
+        point, token = _point(venue)
+        staff = user_with_role(venue, OrgRole.Role.MANAGER, username="manager")
+
+        response = _check(token, staff.pk, point.pk)
+
+        assert response.data["granted"] is True
+        assert AccessEvent.objects.get(member=staff).reason == "staff"
+
+    def test_stranger_denies_and_logs(self):
+        venue = _venue()
+        point, token = _point(venue)
+        stranger = user_with_role(venue, OrgRole.Role.MEMBER, username="stranger")
+
+        response = _check(token, stranger.pk, point.pk)
+
+        assert response.data["granted"] is False
+        assert AccessEvent.objects.get(member=stranger).reason == "no_access"
+
+    def test_bad_token_401(self):
+        venue = _venue()
+        point, _ = _point(venue)
+        member = _member_with_plan(venue, "member")
+
+        response = _check("wrong-token", member.pk, point.pk)
+
+        assert response.status_code == 401
+
+    def test_metric_counts_grants(self):
+        from django.test import Client
+
+        venue = _venue()
+        point, token = _point(venue)
+        member = _member_with_plan(venue, "member")
+        before = Client().get("/metrics/").content.decode().count("door_grants_total")
+
+        _check(token, member.pk, point.pk)
+
+        after = Client().get("/metrics/").content.decode().count("door_grants_total")
+        assert after > before
+
+
+class TestPassback:
+    def test_replay_within_60s_returns_prior_without_new_event(self):
+        venue = _venue()
+        point, token = _point(venue)
+        member = _member_with_plan(venue, "member")
+
+        first = _check(token, member.pk, point.pk)
+        second = _check(token, member.pk, point.pk)
+
+        assert (first.data["granted"], second.data["granted"]) == (True, True)
+        assert second.data["reason"] == "passback_replay"
+        assert AccessEvent.objects.filter(member=member).count() == 1
+
+
+class TestFailClosed:
+    def test_db_outage_denies(self):
+        venue = _venue()
+        point, token = _point(venue)
+        member = _member_with_plan(venue, "member")
+
+        with mock.patch("access.views.decide", side_effect=OperationalError("db gone")):
+            response = _check(token, member.pk, point.pk)
+
+        assert response.status_code == 200
+        assert response.data["granted"] is False
+
+
+class TestRecentEvents:
+    def test_frontdesk_reads_member_cannot(self):
+        venue = _venue()
+        point, token = _point(venue)
+        member = _member_with_plan(venue, "member")
+        staff = user_with_role(venue, OrgRole.Role.FRONTDESK, username="frontdesk")
+        _check(token, member.pk, point.pk)
+
+        client = APIClient()
+        client.force_authenticate(user=staff)
+        client.defaults["HTTP_X_VENUE_SLUG"] = "downtown"
+        staff_view = client.get("/api/v1/access/events/")
+        client.force_authenticate(user=member)
+        member_view = client.get("/api/v1/access/events/")
+
+        assert staff_view.status_code == 200
+        assert len(staff_view.data) == 1
+        assert member_view.status_code == 403
+
+    def test_latency_budget(self):
+        import time
+
+        venue = _venue()
+        point, token = _point(venue)
+        member = _member_with_plan(venue, "member")
+        _check(token, member.pk, point.pk)  # warm cache
+        elapsed = []
+        for _ in range(20):
+            started = time.perf_counter()
+            _check(token, member.pk, point.pk)
+            elapsed.append(time.perf_counter() - started)
+        elapsed.sort()
+
+        assert elapsed[18] < 1  # p95 proxy; seed-scale must stay far under
+
+
+class TestStaleGrant:
+    def test_cancel_inside_ttl_denies_on_recheck(self):
+        # Cancel action itself returns in .4; here the status transition is
+        # applied directly to test the decision layer, not the action.
+        from access.services import decide
+
+        venue = _venue("stale-door")
+        point, _token = _point(venue)
+        member = _member_with_plan(venue, "stale-member", credits=1)
+        session = _session(venue)
+        booking = book_session(member=member, session=session)
+
+        granted, _reason, _booking = decide(point, member)
+        assert granted is True
+        booking.status = Booking.Status.CANCELLED
+        booking.save(update_fields=["status"])
+
+        granted, _stale_reason, _stale_recheck = decide(point, member)
+
+        assert granted is False
+
+
+class TestRoleBasedAccess:
+    """OrgRole rows grant access: pinned to one venue, org-wide to all."""
+
+    def _client(self, user, venue):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
+        return client
+
+    def test_org_role_member_reads_schedule(self):
+        venue = VenueFactory()
+        user = _user("rolemember")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=user,
+            role=OrgRole.Role.MEMBER,
+        )
+
+        response = self._client(user, venue).get("/api/v1/sessions/")
+
+        assert response.status_code == 200
+
+    def test_org_role_does_not_cross_venues(self):
+        org = OrganizationFactory()
+        first = VenueFactory(organization=org)
+        second = VenueFactory(organization=org)
+        user = _user("pinned")
+        OrgRoleFactory(
+            organization=org, venue=first, user=user, role=OrgRole.Role.MEMBER
+        )
+
+        response = self._client(user, second).get("/api/v1/sessions/")
+
+        assert response.status_code == 404
+
+    def test_org_wide_role_covers_all_org_venues(self):
+        org = OrganizationFactory()
+        first = VenueFactory(organization=org)
+        second = VenueFactory(organization=org)
+        user = _user("spanning")
+        OrgRoleFactory(
+            organization=org, venue=None, user=user, role=OrgRole.Role.MEMBER
+        )
+
+        assert self._client(user, first).get("/api/v1/sessions/").status_code == 200
+        assert self._client(user, second).get("/api/v1/sessions/").status_code == 200
+
+
+class TestDoorPlanMemberships:
+    """Door grants on plan validity: monthly by dates, packs by balance."""
+
+    def _check_decide(self, venue, member):
+
+        point, _token = _point(venue)
+        return decide(point, member)
+
+    def test_monthly_plan_grants_without_balance(self):
+        venue = _venue()
+        member = _user("monthly")
+        plan = PlanFactory(organization=venue.organization, plan_type=PlanType.MONTHLY)
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=0)
+
+        granted, reason, _booking = self._check_decide(venue, member)
+
+        assert (granted, reason) == (True, "active_pass")
+
+    def test_pack_with_balance_grants(self):
+        venue = _venue()
+        member = _user("packholder")
+        plan = PlanFactory(
+            organization=venue.organization, plan_type=PlanType.CREDIT_PACK
+        )
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=3)
+
+        granted, _reason, _booking = self._check_decide(venue, member)
+
+        assert granted is True
+
+    def test_depleted_pack_denies(self):
+        venue = _venue()
+        member = _user("depleted")
+        plan = PlanFactory(
+            organization=venue.organization, plan_type=PlanType.CREDIT_PACK
+        )
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=0)
+
+        granted, _reason, _booking = self._check_decide(venue, member)
+
+        assert granted is False
+
+    def test_org_role_teacher_opens_staff_door(self):
+
+        venue = _venue()
+        point, _token = _point(venue)
+        teacher = _user("door-teacher")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=teacher,
+            role=OrgRole.Role.TEACHER,
+        )
+
+        granted, reason, _booking = decide(point, teacher)
+
+        assert (granted, reason) == (True, "staff")
+
+    def test_org_role_plain_member_door_denied(self):
+
+        venue = _venue()
+        point, _token = _point(venue)
+        member = _user("doormember")
+        OrgRoleFactory(
+            organization=venue.organization,
+            venue=venue,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+
+        granted, _reason, _booking = decide(point, member)
+
+        assert granted is False
