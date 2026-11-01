@@ -1,6 +1,6 @@
 package bookr
 
-import java.time.Instant
+import java.time.{Instant, LocalDate}
 
 import Types.*
 
@@ -81,3 +81,41 @@ object Stamp:
 enum Entitlement:
   case Unlimited
   case Credits(balance: CreditBalance)
+
+// A membership pins a user to a plan for a date window. The constructor
+// enforces the entitlement must match the plan kind — monthly
+// never spends, credit packs and gratis complimentary plans both spend
+// down a balance.
+// Booking on an expired plan is unbuildable upstream of every spend path.
+final case class Membership private (
+    id: MembershipId,
+    user: UserId,
+    plan: PlanKind,
+    startsOn: LocalDate,
+    endsOn: LocalDate,
+    entitlement: Entitlement
+):
+  // Inclusive both ends, mirroring _validate_membership and the door query.
+  def isActiveOn(today: LocalDate): Boolean =
+    !today.isBefore(startsOn) && !today.isAfter(endsOn)
+
+object Membership:
+  def of(
+      id: MembershipId,
+      user: UserId,
+      plan: PlanKind,
+      startsOn: LocalDate,
+      endsOn: LocalDate,
+      entitlement: Entitlement
+  ): Either[String, Membership] =
+    if endsOn.isBefore(startsOn) then Left("end date is before start date")
+    else
+      (plan, entitlement) match
+        case (PlanKind.Monthly, Entitlement.Unlimited) =>
+          Right(new Membership(id, user, plan, startsOn, endsOn, entitlement))
+        case (
+              PlanKind.CreditPack | PlanKind.Complimentary,
+              Entitlement.Credits(_)
+            ) =>
+          Right(new Membership(id, user, plan, startsOn, endsOn, entitlement))
+        case _ => Left("plan and entitlement disagree")

@@ -26,10 +26,13 @@ largest invalid-state machinery in the domain is unmodeled.
    repeats idempotently; provider cancel composes over live bookings for
    full refunds; `canCancelSession` is desk-or-own-teacher. Covered by
    `SessionSuite` (8 munit tests), not just the demo.
-5. **Membership validity window + third plan type** — booking on an
-   expired plan is a real invalid state (`_validate_membership` guards);
-   `PlanType` is `MONTHLY / CREDIT_PACK / COMPLIMENTARY`, prototype has
-   two cases and no dates.
+5. **Membership validity window + third plan type** — ✅ Resolved
+   (2026-11-01). `Membership` pins user, `PlanKind` (all three types),
+   a date window, and an entitlement: `of` rejects ends-before-starts
+   and plan↔entitlement mismatches (monthly ⟺ `Unlimited`, packs and
+   gratis complimentary plans ⟺ `Credits`); `isActiveOn` is inclusive
+   both ends, mirroring the guards. Covered by `MembershipSuite` (6
+   munit tests: coherence matrix, inclusive boundaries, expired plan).
 
 ## What holds up
 
