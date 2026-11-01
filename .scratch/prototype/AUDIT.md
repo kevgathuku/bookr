@@ -7,10 +7,11 @@ largest invalid-state machinery in the domain is unmodeled.
 
 ## Inaccuracies (prototype contradicts the code)
 
-1. **`Enforcement.Fee` does not exist.**
-   `booking/models.py:78` — `Enforcement` is `NONE / STRIKE / LOSE_CREDIT`
-   only; `fee_amount` appears nowhere in the codebase. Section 3,
-   `lateFee`, and the fee demo model a removed-or-never-built feature.
+1. **`Enforcement.Fee` does not exist.** ✅ Resolved (2026-11-01) — Fee
+   kept as the deferred `bookr-55d` sketch, now fenced: `Policy.of` refuses
+   Fee on group sessions (fee ⇔ private late cancels only, per the recorded
+   scope decision), and the constructor notes the path is deferred behind
+   a payments provider that does not exist yet.
 
 2. **`CancelWindow` positivity contradicts the baseline.**
    `late_cancel_hours` is a `PositiveIntegerField` (i.e. `>= 0`), and
