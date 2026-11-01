@@ -37,5 +37,5 @@ object Types:
   opaque type Reason = String
   object Reason:
     def of(s: String): Either[String, Reason] =
-      if s.trim.isEmpty then Left("waiver requires a reason") else Right(s)
+      if s.trim.isEmpty then Left("reason is required") else Right(s)
   extension (r: Reason) def text: String = r

@@ -20,8 +20,12 @@ largest invalid-state machinery in the domain is unmodeled.
    over active statuses), membership↔user↔org match in `clean()`,
    validity window, `CreditInsufficient → 402`, natural-key idempotent
    retries (`DuplicateBooking`).
-4. **Session lifecycle** — `cancelled_at` sessions unbookable
-   (`_ensure_open`); provider-cancel refunds all + idempotent repeats.
+4. **Session lifecycle** — ✅ Resolved (2026-11-01). `Session` carries
+   `teacher`, derived `endsAt`, and `cancelledAt`; `requireOpen` refuses
+   cancelled *and* started sessions; `closeSession` stamps once and
+   repeats idempotently; provider cancel composes over live bookings for
+   full refunds; `canCancelSession` is desk-or-own-teacher. Covered by
+   `SessionSuite` (8 munit tests), not just the demo.
 5. **Membership validity window + third plan type** — booking on an
    expired plan is a real invalid state (`_validate_membership` guards);
    `PlanType` is `MONTHLY / CREDIT_PACK / COMPLIMENTARY`, prototype has

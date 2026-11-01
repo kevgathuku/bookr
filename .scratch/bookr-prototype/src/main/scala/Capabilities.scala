@@ -85,6 +85,20 @@ def isDutyStaff(
 ): Boolean =
   can(assignments, user, venue, Capability.EnterFree)
 
+def canCancelSession(
+    assignments: List[RoleAssignment],
+    user: UserId,
+    venue: VenueId,
+    session: Session
+): Boolean =
+  // Desk cancels any session; teachers cancel only the ones they teach.
+  can(
+    assignments,
+    user,
+    venue,
+    Capability.OperateDesk
+  ) || session.teacher == user
+
 // ---------------------------------------------------------------------------
 // 8. Authority as a value, not a prayer.
 //    Waivers demand a Grant, and the only way to mint one is authorize,
