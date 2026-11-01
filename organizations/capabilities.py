@@ -46,5 +46,13 @@ def can_waive(roles) -> bool:
 
 
 def can_staff_door(roles) -> bool:
-    """Any duty role opens doors; plain members enter on pass or booking."""
+    """Operate the door: check members in, mark no-shows. Acting on other
+    people's bookings, not entering on your own."""
+    return bool(set(roles) & DOOR_STAFF_ROLES)
+
+
+def is_duty_staff(roles) -> bool:
+    """Enter free: duty staff pass the door with no pass or booking.
+    Today identical to door operation; kept separate so entry privilege
+    and operator authority can diverge without touching gates."""
     return bool(set(roles) & DOOR_STAFF_ROLES)

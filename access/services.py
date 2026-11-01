@@ -13,7 +13,7 @@ from prometheus_client import Counter
 
 from access.models import AccessEvent
 from booking.models import ACTIVE_STATUSES, Booking
-from organizations.capabilities import can_staff_door, roles_for
+from organizations.capabilities import is_duty_staff, roles_for
 from passes.models import Membership, PlanType
 
 grants_total = Counter("door_grants_total", "Granted door checks", ["venue_id"])
@@ -99,7 +99,7 @@ def _has_valid_plan_membership(member, venue, now):
 
 
 def _is_staff(member, venue):
-    return can_staff_door(roles_for(member, venue))
+    return is_duty_staff(roles_for(member, venue))
 
 
 def _live_booking(member, venue, now):

@@ -1,6 +1,6 @@
 import pytest
 
-from organizations.capabilities import (
+from organizations.capabilities import (  # noqa: WPS235 — capability matrix tests import every predicate plus the rank sets
     DOOR_STAFF_ROLES,
     MANAGE_ROLES,
     OPERATE_DESK_ROLES,
@@ -8,6 +8,7 @@ from organizations.capabilities import (
     can_operate_desk,
     can_staff_door,
     can_waive,
+    is_duty_staff,
     roles_for,
 )
 from organizations.models import OrgRole
@@ -118,6 +119,20 @@ class TestCapabilities:
         assert can_staff_door({role}) is allowed
         assert not can_staff_door(set())
 
+    @pytest.mark.parametrize(
+        ("role", "allowed"),
+        [
+            ("teacher", True),
+            ("manager", True),
+            ("owner", True),
+            ("frontdesk", True),
+            ("member", False),
+        ],
+    )
+    def test_duty_staff_enters_free(self, role, allowed):
+        assert is_duty_staff({role}) is allowed
+        assert not is_duty_staff(set())
+
     def test_rank_sets_nest(self):
         assert MANAGE_ROLES <= OPERATE_DESK_ROLES <= DOOR_STAFF_ROLES
 
@@ -134,3 +149,7 @@ class TestCapabilities:
     @pytest.mark.parametrize("role", OrgRole.Role.values)
     def test_waive_matches_desk_for_every_role(self, role):
         assert can_waive({role}) == can_operate_desk({role})
+
+    @pytest.mark.parametrize("role", OrgRole.Role.values)
+    def test_duty_staff_matches_door_operators_for_every_role(self, role):
+        assert is_duty_staff({role}) == can_staff_door({role})
