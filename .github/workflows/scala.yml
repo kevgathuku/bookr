@@ -1,0 +1,36 @@
+name: Scala Prototype
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".scratch/bookr-prototype/**"
+      - ".github/workflows/scala.yml"
+  pull_request:
+    paths:
+      - ".scratch/bookr-prototype/**"
+      - ".github/workflows/scala.yml"
+
+defaults:
+  run:
+    working-directory: .scratch/bookr-prototype
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: sbt/setup-sbt@v1
+
+      - name: Format check
+        run: sbt -batch scalafmtCheckAll
+
+      - name: Test
+        run: sbt -batch test
