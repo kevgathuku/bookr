@@ -150,13 +150,18 @@ def lateFee(c: Cancellation): Option[Money] = c match
   case Cancellation.LatePenalised(_, Enforcement.Fee(amount)) => Some(amount)
   case _                                                      => None
 
-def refundsCredit(c: Cancellation): Boolean = c match
-  case Cancellation.LatePenalised(_, Enforcement.LoseCredit) => false
-  case _                                                     => true
+// Booking debits this many credits at booking time (the offering's
+// credit_cost, possibly > 1). Refunds return exactly the stamp — never a
+// hardcoded 1 — and LoseCredit forfeits it.
+final case class Stamp(credits: Int)
 
-def refund(e: Entitlement): Entitlement = e match
-  case Entitlement.Unlimited       => Entitlement.Unlimited
-  case Entitlement.Credits(n)      => Entitlement.Credits(n + 1)
+def refundAmount(c: Cancellation, spent: Stamp): Int = c match
+  case Cancellation.LatePenalised(_, Enforcement.LoseCredit) => 0
+  case _                                                      => spent.credits
+
+def refund(e: Entitlement, amount: Int): Entitlement = (e, amount) match
+  case (Entitlement.Unlimited, _)  => Entitlement.Unlimited
+  case (Entitlement.Credits(n), a) => Entitlement.Credits(n + a)
 
 // ---------------------------------------------------------------------------
 @main def demo(): Unit =
@@ -165,16 +170,23 @@ def refund(e: Entitlement): Entitlement = e match
   val start  = Instant.parse("2026-11-02T18:00:00Z")
 
   val late = decide(policy, start, Instant.parse("2026-11-02T10:00:00Z"), waivedBy = None)
-  println(late)                 // LatePenalised(..., Fee(Money(1500)))
-  println(lateFee(late))        // Some(Money(1500))
-  println(refundsCredit(late))  // true: a fee does not take the credit
+  println(s"late cancel under fee policy -> $late")
+  println(s"fee owed on that cancellation -> ${lateFee(late)}")
+  val spent = Stamp(credits = 2) // credit_cost > 1: the stamp flows back
+  val back = refundAmount(late, spent)
+  println(s"booking spent ${spent.credits} credits, refunded $back" +
+    " (a fee does not take the credits)")
+  println(s"balance Credits(3) + $back refunded = " +
+    refund(Entitlement.Credits(3), back))
 
   val waived = decide(policy, start, Instant.parse("2026-11-02T10:00:00Z"), Some(UserId(7)))
-  println(waived)               // LateWaived(..., UserId(7))
-  println(lateFee(waived))      // None
+  println(s"same cancel, waived by staff -> $waived")
+  println(s"fee owed after waiver -> ${lateFee(waived)}")
 
-  println(CancelWindow.of(Duration.ZERO)) // Left(cancel window must be positive)
+  println(s"zero-length window rejected -> ${CancelWindow.of(Duration.ZERO)}")
 
   val assignments = List(RoleAssignment(UserId(7), Role.Frontdesk, Scope.AtVenue(VenueId(2))))
-  println(can(assignments, UserId(7), OrgId(1), VenueId(2), Capability.WaiveLateFee)) // true
-  println(can(assignments, UserId(7), OrgId(1), VenueId(3), Capability.WaiveLateFee)) // false
+  println(s"frontdesk of venue 2 waives at venue 2 -> " +
+    can(assignments, UserId(7), OrgId(1), VenueId(2), Capability.WaiveLateFee))
+  println(s"frontdesk of venue 2 waives at venue 3 -> " +
+    can(assignments, UserId(7), OrgId(1), VenueId(3), Capability.WaiveLateFee))
