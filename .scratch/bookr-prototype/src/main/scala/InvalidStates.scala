@@ -1,6 +1,4 @@
-//> using scala 3.3.4
-//
-// Run with scala-cli:   scala-cli run InvalidStates.scala
+// Run with sbt:   sbt run
 //
 // Standard library only. Each section replaces a nullable column, a string,
 // or a validation check with a type the compiler enforces.
@@ -16,6 +14,9 @@ import java.time.{Duration, Instant}
 final case class OrgId(value: Long) extends AnyVal
 final case class VenueId(org: OrgId, value: Long) // a venue always knows its org
 final case class UserId(value: Long) extends AnyVal
+final case class BookingId(value: Long) extends AnyVal
+final case class SessionId(value: Long) extends AnyVal
+final case class MembershipId(value: Long) extends AnyVal
 
 def venueTimezone(venue: VenueId): String = "Europe/Madrid" // stub
 
@@ -133,6 +134,19 @@ enum BookingStatus:
   case LateCancelled(how: LateOnly)
   case Attended
   case NoShow
+
+// The booking itself: member, session, and membership are IDs (their
+// entities land in phase 2, and startsAt still arrives loose with them).
+// Status and the spent stamp live here, which lets cancel paths return the
+// flipped booking alongside its record.
+final case class Booking(
+  id: BookingId,
+  member: UserId,
+  session: SessionId,
+  membership: MembershipId,
+  status: BookingStatus,
+  spent: Stamp
+)
 
 // ---------------------------------------------------------------------------
 // 6. Entitlements: credits exist only for plans that use credits
@@ -281,11 +295,12 @@ enum Cause:
   case MemberCancel, StaffDecision, SessionCancelled, NoShow
 
 final case class CancellationRecord private (
-  cause: Cause, status: BookingStatus, refunded: Int, spent: Stamp
+  booking: BookingId, cause: Cause, status: BookingStatus, refunded: Int,
+  spent: Stamp
 )
 
 object CancellationRecord:
-  def of(cause: Cause, status: BookingStatus, refunded: Int,
+  def of(booking: BookingId, cause: Cause, status: BookingStatus, refunded: Int,
          spent: Stamp): Either[String, CancellationRecord] =
     val causeOk = (cause, status) match
       case (Cause.NoShow, BookingStatus.NoShow) => true
@@ -297,41 +312,51 @@ object CancellationRecord:
     if !causeOk then Left("record cause and status disagree")
     else if refunded < 0 || refunded > spent.credits then
       Left("refund exceeds stamp")
-    else Right(new CancellationRecord(cause, status, refunded, spent))
+    else Right(new CancellationRecord(booking, cause, status, refunded, spent))
 
 // The only ways to make a CancellationRecord. Member cancels derive status from the
 // decision; staff and provider cancels never penalise (full stamp refund,
 // status CANCELLED even when late — the cause, not the policy, explains
 // why); no-shows keep the stamp spent.
+// Cancel paths return the flipped booking with its record: the status flip
+// and the record write are one atomic pair, the way the transaction does it.
 def cancelMember(policy: Policy, venue: VenueId, start: Instant, now: Instant,
-                 spent: Stamp, waiver: Option[Waiver]): CancellationRecord =
+                 booking: Booking, waiver: Option[Waiver]): (Booking, CancellationRecord) =
   val cancellation = decide(policy, start, now, venue, waiver)
   val status = cancellation match
     case o: Cancellation.OnTime         => BookingStatus.Cancelled(o)
     case l: Cancellation.LateAllowed   => BookingStatus.LateCancelled(l)
     case l: Cancellation.LatePenalised => BookingStatus.LateCancelled(l)
     case l: Cancellation.LateWaived    => BookingStatus.LateCancelled(l)
-  CancellationRecord.of(Cause.MemberCancel, status, refundAmount(cancellation, spent), spent)
+  val record = CancellationRecord
+    .of(booking.id, Cause.MemberCancel, status,
+        refundAmount(cancellation, booking.spent), booking.spent)
     .toOption.get
+  (booking.copy(status = status), record)
 
 def cancelUnpenalised(cause: Cause, policy: Policy, venue: VenueId,
-                      start: Instant, now: Instant, spent: Stamp): CancellationRecord =
+                      start: Instant, now: Instant,
+                      booking: Booking): (Booking, CancellationRecord) =
   val cutoff = start.minus(policy.window.duration)
   val status =
     if !now.isAfter(cutoff) then BookingStatus.Cancelled(Cancellation.OnTime(now))
     else BookingStatus.Cancelled(Cancellation.LateAllowed(now))
-  CancellationRecord.of(cause, status, spent.credits, spent).toOption.get
+  val record = CancellationRecord.of(booking.id, cause, status, booking.spent.credits, booking.spent)
+    .toOption.get
+  (booking.copy(status = status), record)
 
 def cancelStaff(policy: Policy, venue: VenueId, start: Instant, now: Instant,
-                spent: Stamp): CancellationRecord =
-  cancelUnpenalised(Cause.StaffDecision, policy, venue, start, now, spent)
+                booking: Booking): (Booking, CancellationRecord) =
+  cancelUnpenalised(Cause.StaffDecision, policy, venue, start, now, booking)
 
 def cancelSession(policy: Policy, venue: VenueId, start: Instant, now: Instant,
-                  spent: Stamp): CancellationRecord =
-  cancelUnpenalised(Cause.SessionCancelled, policy, venue, start, now, spent)
+                  booking: Booking): (Booking, CancellationRecord) =
+  cancelUnpenalised(Cause.SessionCancelled, policy, venue, start, now, booking)
 
-def markNoShow(spent: Stamp): CancellationRecord =
-  CancellationRecord.of(Cause.NoShow, BookingStatus.NoShow, 0, spent).toOption.get
+def markNoShow(booking: Booking): (Booking, CancellationRecord) =
+  val record = CancellationRecord.of(booking.id, Cause.NoShow, BookingStatus.NoShow, 0, booking.spent)
+    .toOption.get
+  (booking.copy(status = BookingStatus.NoShow), record)
 
 // Retroactive waiver: compensates a standing LOSE_CREDIT forfeit, nothing
 // else. The grant is re-verified against the venue here, the way the write
@@ -339,12 +364,12 @@ def markNoShow(spent: Stamp): CancellationRecord =
 def reassess(record: CancellationRecord, venue: VenueId, waiver: Waiver): Either[String, Int] =
   if !appliesAt(waiver.grant.scope, venue) then Left("waiver grant covers another scope")
   else record match
-    case CancellationRecord(Cause.MemberCancel,
+    case CancellationRecord(_, Cause.MemberCancel,
                 BookingStatus.LateCancelled(
                   Cancellation.LatePenalised(_, Enforcement.LoseCredit)),
                 0, spent) if spent.credits > 0 =>
       Right(spent.credits)
-    case CancellationRecord(Cause.MemberCancel,
+    case CancellationRecord(_, Cause.MemberCancel,
                 BookingStatus.LateCancelled(
                   Cancellation.LatePenalised(_, Enforcement.LoseCredit)),
                 _, _) =>
@@ -403,11 +428,14 @@ def reassess(record: CancellationRecord, venue: VenueId, waiver: Waiver): Either
   println(s"org-wide manager enters free at foreign venue -> " +
     isDutyStaff(wide, UserId(7), VenueId(OrgId(9), 3))) // false: venue owns its org
   val lateAt = Instant.parse("2026-11-02T10:00:00Z")
-  val memberRecord = cancelMember(policy, home, start, lateAt, spent, None)
-  println(s"member late cancel writes one record -> $memberRecord")
+  val booking = Booking(BookingId(1), UserId(3), SessionId(5), MembershipId(7),
+                          BookingStatus.Booked, spent)
+  val (flipped, memberRecord) = cancelMember(policy, home, start, lateAt, booking, None)
+  println(s"member late cancel flips booking and writes one record -> $flipped / $memberRecord")
   println(s"retroactive waiver of fee record -> ${reassess(memberRecord, home, waiver.get)}")
   val losePolicy = Policy.of(SessionKind.Group, window, Enforcement.LoseCredit).toOption.get
-  val forfeit = cancelMember(losePolicy, home, start, lateAt, spent, None)
+  val forfeitBooking = booking.copy(id = BookingId(2))
+  val (_, forfeit) = cancelMember(losePolicy, home, start, lateAt, forfeitBooking, None)
   println(s"member late lose-credit cancel -> $forfeit")
   println(s"retroactive waiver of forfeit -> ${reassess(forfeit, home, waiver.get)}")
-  println(s"staff cancel writes one record -> ${cancelStaff(policy, home, start, lateAt, spent)}")
+  println(s"staff cancel flips booking and writes one record -> ${cancelStaff(policy, home, start, lateAt, booking)}")
