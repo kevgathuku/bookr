@@ -5,64 +5,6 @@ domain. Verdict: sections 1, 4 (partly), 5 (partly), 7 capture real
 weaknesses — but section 3 models a feature that does not exist, and the
 largest invalid-state machinery in the domain is unmodeled.
 
-## Inaccuracies (prototype contradicts the code)
-
-1. **`Enforcement.Fee` does not exist.** ✅ Resolved (2026-11-01) — Fee
-   kept as the deferred `bookr-55d` sketch, now fenced: `Policy.of` refuses
-   Fee on group sessions (fee ⇔ private late cancels only, per the recorded
-   scope decision), and the constructor notes the path is deferred behind
-   a payments provider that does not exist yet.
-
-2. **`CancelWindow` positivity contradicts the baseline.** ✅ Resolved
-   (2026-11-01) — the constructor now refuses only negatives (bound
-   `>= 0`, matching the field); the baseline's zero window builds fine
-   and the demo asserts both directions.
-
-3. **`decide` invents a waive path the domain forbids.** ✅ Resolved
-   (2026-11-01) — the waiver is now `Waiver(grant, reason)` with `Reason`
-   refusing blanks, so a reason-less waiver is unbuildable (compiler:
-   bare `Grant` rejected where `Waiver` is required). On-time cancels
-   ignore the waiver; late + waiver forgives to `LateWaived` for any
-enforcement, matching `_member_outcome`. Standing is now modeled with
-   the record: staff/provider cancels never penalise by construction, and
-   `reassess` compensates only standing LOSE_CREDIT forfeits, mirroring
-   `InvalidWaiver` (see finding 6).
-
-4. **Refund of exactly 1 is wrong.** ✅ Resolved (2026-11-01)
-   The prototype now carries `Stamp(credits)` (the debited `credits_spent`):
-   `refundAmount` returns the stamp, `0` under `LoseCredit`, and `refund`
-   adds that amount.
-
-5. **Capabilities don't match `organizations/capabilities.py` (ADR-0007).**
-   ✅ Resolved (2026-11-01) — the enum now mirrors the real predicates
-   (`OperateDesk / ManageStaff / WaivePenalty / OperateDoor / EnterFree`,
-   including the entry/operator split), Teacher holds both door
-   capabilities, and the invented billing/policy/cancel-any names are gone.
-   Policy edits stay admin-side behind staff gates: no named capability
-   there, none here.
-
-6. **Records are mandatory, not optional.** ✅ Resolved (2026-11-01) —
-   cancel paths are constructor functions returning exactly one
-   `CancellationRecord`
-   (`cancelMember/cancelStaff/cancelSession/markNoShow`); `Record.of`
-   enforces cause↔status agreement and refund-≤-stamp, and the private
-   constructor rejects hand-built rows (`object Record does not take
-   parameters`). `LateAllowed`-under-`Cancelled` is paired with its
-   staff/provider cause by the function, never the member path.
-
-7. **`BookingStatus` is missing 2 of 6 states.** ✅ Resolved (2026-11-01)
-   `Waitlisted` added (no seat, zero spend); the late split is now
-   type-enforced — `LateCancelled` takes only `LateOnly` (Allowed /
-   Penalised / Waived), `Cancelled` only `OnTime`. Compiler-verified:
-   `LateCancelled(OnTime(...))` fails with `Required: LateOnly`.
-
-8. **Own medicine not taken.** ✅ Resolved (2026-11-01) — `CreditBalance`,
-   `Money`, and `Stamp` are opaque with refusing `of` constructors
-   (negatives unbuildable; verified `Credits(3)` fails with
-   `Required: CreditBalance`); `VenueId` carries its `org`, so `appliesAt`
-   reads the venue's own org and a foreign venue never matches (demo:
-   org-wide manager refused at org 9's venue).
-
 ## Missing (ranked)
 
 1. **Policy resolution** — nullable `venue / class_category / plan_type` +
