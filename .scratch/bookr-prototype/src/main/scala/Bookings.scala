@@ -18,9 +18,12 @@ final case class Waiver(grant: WaiverAuthority.Grant, reason: Reason)
 
 enum Cancellation:
   case OnTime(at: Instant)
-  case LateAllowed(at: Instant)                         // policy permits it
+  case LateAllowed(at: Instant) // policy permits it
   case LatePenalised(at: Instant, how: Enforcement)
-  case LateWaived(at: Instant, waiver: Waiver) // reason rides with the grant: no reason, no waiver
+  case LateWaived(
+      at: Instant,
+      waiver: Waiver
+  ) // reason rides with the grant: no reason, no waiver
 
 // ---------------------------------------------------------------------------
 // 5. Booking status that carries its own cancellation data
@@ -31,7 +34,8 @@ enum Cancellation:
 // promotion, never on join — so Waitlisted carries no money. The late split
 // mirrors was_late: LateCancelled always carries a late outcome, so a
 // "late" status holding an on-time cancellation cannot be built.
-type LateOnly = Cancellation.LateAllowed | Cancellation.LatePenalised | Cancellation.LateWaived
+type LateOnly = Cancellation.LateAllowed | Cancellation.LatePenalised |
+  Cancellation.LateWaived
 
 enum BookingStatus:
   case Booked
@@ -50,12 +54,12 @@ enum BookingStatus:
 // Status and the spent stamp live here, which lets cancel paths return the
 // flipped booking alongside its record.
 final case class Booking(
-  id: BookingId,
-  member: UserId,
-  session: SessionId,
-  membership: MembershipId,
-  status: BookingStatus,
-  spent: Stamp
+    id: BookingId,
+    member: UserId,
+    session: SessionId,
+    membership: MembershipId,
+    status: BookingStatus,
+    spent: Stamp
 )
 
 // Booking debits this many credits at booking time (the offering's

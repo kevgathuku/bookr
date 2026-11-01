@@ -33,31 +33,56 @@ def appliesAt(scope: Scope, venue: VenueId): Boolean = scope match
 // capabilities.
 def capabilities(role: Role): Set[Capability] = role match
   case Role.Owner =>
-    Set(Capability.OperateDesk, Capability.ManageStaff, Capability.WaivePenalty,
-        Capability.OperateDoor, Capability.EnterFree)
+    Set(
+      Capability.OperateDesk,
+      Capability.ManageStaff,
+      Capability.WaivePenalty,
+      Capability.OperateDoor,
+      Capability.EnterFree
+    )
   case Role.Manager =>
-    Set(Capability.OperateDesk, Capability.ManageStaff, Capability.WaivePenalty,
-        Capability.OperateDoor, Capability.EnterFree)
+    Set(
+      Capability.OperateDesk,
+      Capability.ManageStaff,
+      Capability.WaivePenalty,
+      Capability.OperateDoor,
+      Capability.EnterFree
+    )
   case Role.Frontdesk =>
-    Set(Capability.OperateDesk, Capability.WaivePenalty,
-        Capability.OperateDoor, Capability.EnterFree)
+    Set(
+      Capability.OperateDesk,
+      Capability.WaivePenalty,
+      Capability.OperateDoor,
+      Capability.EnterFree
+    )
   case Role.Teacher => Set(Capability.OperateDoor, Capability.EnterFree)
   case Role.Member  => Set.empty
 
-def can(assignments: List[RoleAssignment], user: UserId, venue: VenueId,
-        cap: Capability): Boolean =
+def can(
+    assignments: List[RoleAssignment],
+    user: UserId,
+    venue: VenueId,
+    cap: Capability
+): Boolean =
   assignments.exists { a =>
-    a.user == user && appliesAt(a.scope, venue) && capabilities(a.role).contains(cap)
+    a.user == user && appliesAt(a.scope, venue) && capabilities(a.role)
+      .contains(cap)
   }
 
 // Entry privilege vs operator authority: identical today, separate so they
 // can diverge without touching gates.
-def canOperateDoor(assignments: List[RoleAssignment], user: UserId,
-                   venue: VenueId): Boolean =
+def canOperateDoor(
+    assignments: List[RoleAssignment],
+    user: UserId,
+    venue: VenueId
+): Boolean =
   can(assignments, user, venue, Capability.OperateDoor)
 
-def isDutyStaff(assignments: List[RoleAssignment], user: UserId,
-                venue: VenueId): Boolean =
+def isDutyStaff(
+    assignments: List[RoleAssignment],
+    user: UserId,
+    venue: VenueId
+): Boolean =
   can(assignments, user, venue, Capability.EnterFree)
 
 // ---------------------------------------------------------------------------
@@ -72,8 +97,11 @@ def isDutyStaff(assignments: List[RoleAssignment], user: UserId,
 object WaiverAuthority:
   opaque type Grant = (UserId, Scope)
 
-  def authorize(user: UserId, assignments: List[RoleAssignment],
-                venue: VenueId): Option[Grant] =
+  def authorize(
+      user: UserId,
+      assignments: List[RoleAssignment],
+      venue: VenueId
+  ): Option[Grant] =
     if can(assignments, user, venue, Capability.WaivePenalty) then
       Some((user, Scope.AtVenue(venue)))
     else None

@@ -1,4 +1,5 @@
 ThisBuild / scalaVersion := "3.3.4"
+ThisBuild / scalafmtOnCompile := true
 
 lazy val root = (project in file("."))
   .settings(
