@@ -22,15 +22,16 @@ def venueTimezone(venue: VenueId): String = "Europe/Madrid" // stub
 
 // ---------------------------------------------------------------------------
 // 2. A value that can only be built valid (smart constructor)
-//    A raw duration admits 0 or negatives unless every use site checks.
-//    Here there is no way to hold a bad one.
+//    A raw duration admits negatives unless every use site checks, while
+//    the baseline's zero window must stay buildable. Here negatives are
+//    refused and zero passes — the bound is >= 0, matching the field.
 // ---------------------------------------------------------------------------
 object Types:
   opaque type CancelWindow = Duration
 
   object CancelWindow:
     def of(d: Duration): Either[String, CancelWindow] =
-      if d.isNegative || d.isZero then Left("cancel window must be positive")
+      if d.isNegative then Left("cancel window must not be negative")
       else Right(d)
 
   extension (w: CancelWindow) def duration: Duration = w
@@ -258,7 +259,8 @@ def refund(e: Entitlement, amount: Int): Entitlement = (e, amount) match
   println(s"same cancel, waived by staff -> $waived")
   println(s"fee owed after waiver -> ${lateFee(waived)}")
 
-  println(s"zero-length window rejected -> ${CancelWindow.of(Duration.ZERO)}")
+  println(s"zero window (baseline) accepted -> ${CancelWindow.of(Duration.ZERO)}")
+  println(s"negative window rejected -> ${CancelWindow.of(Duration.ofHours(-1))}")
 
   println(s"frontdesk of venue 2 waives at venue 2 -> " +
     can(assignments, UserId(7), OrgId(1), VenueId(2), Capability.WaivePenalty))

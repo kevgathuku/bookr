@@ -13,13 +13,10 @@ largest invalid-state machinery in the domain is unmodeled.
    scope decision), and the constructor notes the path is deferred behind
    a payments provider that does not exist yet.
 
-2. **`CancelWindow` positivity contradicts the baseline.**
-   `late_cancel_hours` is a `PositiveIntegerField` (i.e. `>= 0`), and
-   `booking/policies.py` auto-creates the baseline with
-   `late_cancel_hours=0, enforcement=NONE`. Zero is legal by design ("no
-   late window"); only negatives are blocked, by field type, not
-   `clean()`. The smart constructor as specified rejects the domain's own
-   default policy.
+2. **`CancelWindow` positivity contradicts the baseline.** ✅ Resolved
+   (2026-11-01) — the constructor now refuses only negatives (bound
+   `>= 0`, matching the field); the baseline's zero window builds fine
+   and the demo asserts both directions.
 
 3. **`decide` invents a waive path the domain forbids.**
    `(Some(who), _)` → `LateWaived` even under `NoPenalty`, with no reason.
