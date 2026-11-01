@@ -74,9 +74,17 @@ enum Cancellation:
 //    exist (a "cancelled" booking with no record, or a "booked" one with a
 //    record). Here a cancellation exists exactly when the status is Cancelled.
 // ---------------------------------------------------------------------------
+// WAITLISTED rows queue with no seat and zero spend; spend happens on
+// promotion, never on join — so Waitlisted carries no money. The late split
+// mirrors was_late: LateCancelled always carries a late outcome, so a
+// "late" status holding an on-time cancellation cannot be built.
+type LateOnly = Cancellation.LateAllowed | Cancellation.LatePenalised | Cancellation.LateWaived
+
 enum BookingStatus:
   case Booked
-  case Cancelled(how: Cancellation)
+  case Waitlisted
+  case Cancelled(how: Cancellation.OnTime)
+  case LateCancelled(how: LateOnly)
   case Attended
   case NoShow
 

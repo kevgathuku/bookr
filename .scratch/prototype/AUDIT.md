@@ -50,11 +50,11 @@ largest invalid-state machinery in the domain is unmodeled.
    (`MEMBER_CANCEL / STAFF_DECISION / SESSION_CANCELLED / NO_SHOW`),
    including the staff-on-behalf path (full refund, status `CANCELLED`).
 
-7. **`BookingStatus` is missing 2 of 6 states.**
-   Actual (`booking/models.py:15`): `BOOKED / WAITLISTED / CANCELLED /
-   LATE_CANCELLED / NO_SHOW / ATTENDED`. Missing `WAITLISTED`
-   (zero-spend rows, no seat) and the `CANCELLED` vs `LATE_CANCELLED`
-   split.
+7. **`BookingStatus` is missing 2 of 6 states.** ✅ Resolved (2026-11-01)
+   `Waitlisted` added (no seat, zero spend); the late split is now
+   type-enforced — `LateCancelled` takes only `LateOnly` (Allowed /
+   Penalised / Waived), `Cancelled` only `OnTime`. Compiler-verified:
+   `LateCancelled(OnTime(...))` fails with `Required: LateOnly`.
 
 8. **Own medicine not taken.**
    `Credits(remaining: Int)` and `Money(cents: Long)` admit negatives.
