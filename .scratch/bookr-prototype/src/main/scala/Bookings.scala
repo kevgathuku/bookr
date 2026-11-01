@@ -59,7 +59,11 @@ final case class Booking(
     session: SessionId,
     membership: MembershipId,
     status: BookingStatus,
-    spent: Stamp
+    spent: Stamp,
+    // Holds ride on BOOKED rows only: set by promotion, cleared by the
+    // sweep. Check-in flips to ATTENDED without touching it — the sweep
+    // only ever matches BOOKED, so a stale hold there is inert.
+    holdUntil: Option[Instant] = None
 )
 
 def isActive(status: BookingStatus): Boolean = status match
