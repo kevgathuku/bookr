@@ -14,7 +14,7 @@ from booking.models import ACTIVE_STATUSES, Booking
 from booking.notifications import notify_hold_expired, notify_promoted
 from passes.models import CreditLedger, Membership, PlanType
 from passes.services import spend_for_booking
-from scheduling.catalogue import ClassCategory, ClassSession
+from scheduling.models import ClassCategory, ClassSession
 
 # Promotion reserves the seat this long; the sweep releases lapsed holds.
 # No VenuePolicy model exists yet (SPEC §3.2 foresaw per-venue config),

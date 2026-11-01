@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from passes.models import PlanType
-from scheduling.catalogue import ClassCategory
+from scheduling.models import ClassCategory
 
 ACTIVE_STATUSES = ("booked", "waitlisted")
 

@@ -28,7 +28,7 @@ from booking.services import (
 )
 from organizations.models import OrgRole
 from passes.models import CreditLedger, Membership, PlanType
-from scheduling.catalogue import ClassCategory, ClassSession
+from scheduling.models import ClassCategory, ClassSession
 from tests.factories import (
     CancellationPolicyFactory,
     ClassOfferingFactory,

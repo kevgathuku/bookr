@@ -16,7 +16,7 @@ from django.utils import timezone
 from booking.cancellations import cancel_booking, cancel_session
 from booking.models import CancellationPolicy
 from booking.services import book_session
-from scheduling.catalogue import ClassCategory
+from scheduling.models import ClassCategory
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,

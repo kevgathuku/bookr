@@ -17,7 +17,6 @@ class TestGenerateSessions:
         return ClassOfferingFactory(venue=venue, duration_minutes=60)
 
     def test_weekly_rule_expands_in_window(self):
-
         venue = VenueFactory(slug="gen")
         offering = self._offering(venue)
         start = timezone.now() + timedelta(days=1)
@@ -34,7 +33,6 @@ class TestGenerateSessions:
         assert sessions[1].starts_at - sessions[0].starts_at == timedelta(weeks=1)
 
     def test_out_of_window_occurrences_skipped(self):
-
         venue = VenueFactory(slug="gen-skip")
         offering = self._offering(venue)
         start = timezone.now() + timedelta(days=1)
@@ -51,7 +49,6 @@ class TestGenerateSessions:
         assert len(sessions) == 3
 
     def test_clash_aborts_the_whole_batch(self):
-
         venue = VenueFactory(slug="gen-clash")
         offering = self._offering(venue)
         start = timezone.now() + timedelta(days=1)
@@ -69,7 +66,6 @@ class TestGenerateSessions:
         assert offering.sessions.count() == 1
 
     def test_garbage_rule_rejected(self):
-
         venue = VenueFactory(slug="gen-bad")
         offering = self._offering(venue)
 

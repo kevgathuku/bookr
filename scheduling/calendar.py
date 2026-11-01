@@ -3,7 +3,7 @@ from typing import ClassVar
 from rest_framework import generics, serializers
 
 from organizations.permissions import IsVenueMember
-from scheduling.catalogue import ClassSession
+from scheduling.models import ClassSession
 from scheduling.views import MAX_WINDOW, parse_window_bound
 
 

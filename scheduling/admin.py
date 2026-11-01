@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from organizations.admin_mixins import VenueScopedAdmin, bookr_site
-from scheduling.catalogue import ClassSession
+from scheduling.models import ClassSession
 
 
 @admin.register(ClassSession, site=bookr_site)

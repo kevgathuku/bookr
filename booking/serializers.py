@@ -3,7 +3,7 @@ from typing import ClassVar
 from rest_framework import serializers
 
 from booking.models import Booking, CancellationPolicy, CancellationRecord
-from scheduling.catalogue import ClassSession
+from scheduling.models import ClassSession
 
 
 class BookingSerializer(serializers.ModelSerializer):

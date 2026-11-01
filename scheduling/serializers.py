@@ -2,7 +2,7 @@ from typing import ClassVar
 
 from rest_framework import serializers
 
-from scheduling.catalogue import ClassOffering, ClassSession
+from scheduling.models import ClassOffering, ClassSession
 
 
 class GenerateSessionsSerializer(serializers.Serializer):

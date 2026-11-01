@@ -25,7 +25,7 @@ from booking.models import Booking, CancellationPolicy, CancellationRecord
 from booking.services import book_session
 from organizations.models import OrgRole
 from passes.models import CreditLedger, PlanType
-from scheduling.catalogue import ClassCategory
+from scheduling.models import ClassCategory
 from tests.factories import (
     CancellationPolicyFactory,
     ClassOfferingFactory,

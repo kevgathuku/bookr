@@ -53,7 +53,7 @@ def next_weekday(now, weekday, hour, minute=0):
 
 def seed_sessions(venue, teacher, title, category, weekdays, hour, capacity=20):
     """One offering plus next occurrence per weekday, via the real service."""
-    from scheduling.catalogue import ClassOffering
+    from scheduling.models import ClassOffering
     from scheduling.sessions import schedule_session
 
     offering, _ = ClassOffering.objects.get_or_create(
@@ -87,7 +87,7 @@ def try_book(member, session):
 
 def seed_new_graph(venue, people):
     """New-catalogue rows the calendar serves: one offering + one session."""
-    from scheduling.catalogue import ClassCategory, ClassOffering, ClassSession
+    from scheduling.models import ClassCategory, ClassOffering, ClassSession
 
     offering, _ = ClassOffering.objects.get_or_create(
         venue=venue,

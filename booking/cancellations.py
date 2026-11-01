@@ -30,7 +30,7 @@ from organizations.capabilities import (
 )
 from organizations.models import OrgRole
 from passes.models import CreditLedger, Membership
-from scheduling.catalogue import ClassSession
+from scheduling.models import ClassSession
 
 
 @dataclasses.dataclass(frozen=True)

@@ -85,7 +85,7 @@ def _coverage_combos(org):
     import itertools
 
     from passes.models import PlanType
-    from scheduling.catalogue import ClassCategory
+    from scheduling.models import ClassCategory
 
     venues = [None, *sorted(org.venues.all(), key=lambda venue: venue.slug)]
     categories = [None, *ClassCategory.values]

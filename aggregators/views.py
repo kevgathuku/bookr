@@ -16,7 +16,7 @@ from aggregators.services import book_partner_seat, cancel_partner_booking
 from aggregators.webhooks import send_webhook
 from booking.http import mapped_errors
 from booking.serializers import BookingSerializer
-from scheduling.catalogue import ClassSession
+from scheduling.models import ClassSession
 from scheduling.views import MAX_WINDOW, parse_window_bound
 
 

@@ -10,7 +10,7 @@ from organizations.management.seed_helpers import (
     seed_sessions,
 )
 from organizations.models import Organization, OrgRole, Venue
-from scheduling.catalogue import ClassCategory
+from scheduling.models import ClassCategory
 
 
 def _spanning_org():
@@ -103,7 +103,7 @@ def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, boo
     from organizations.models import OrgRole
     from passes.models import CreditLedger, Plan, PlanType
     from passes.models import Membership as PlanMembership
-    from scheduling.catalogue import ClassCategory, ClassOffering, ClassSession
+    from scheduling.models import ClassCategory, ClassOffering, ClassSession
 
     org = Organization.objects.get(slug=org_slug)
     venue = Venue.objects.get(organization=org, slug=venue_slug)

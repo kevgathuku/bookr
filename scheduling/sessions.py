@@ -15,7 +15,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 
-from scheduling.catalogue import ClassOffering, ClassSession
+from scheduling.models import ClassOffering, ClassSession
 
 
 @transaction.atomic

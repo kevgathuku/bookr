@@ -95,7 +95,7 @@ def _seed_door(venue, people):
 
 
 def _seed_annex_session(annex, people):
-    from scheduling.catalogue import ClassCategory, ClassOffering
+    from scheduling.models import ClassCategory, ClassOffering
 
     offering, _ = ClassOffering.objects.get_or_create(
         venue=annex,

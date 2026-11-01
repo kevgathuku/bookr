@@ -4,7 +4,7 @@ from typing import ClassVar
 
 from rest_framework import serializers
 
-from scheduling.catalogue import ClassSession
+from scheduling.models import ClassSession
 
 
 class PartnerSessionSerializer(serializers.ModelSerializer):

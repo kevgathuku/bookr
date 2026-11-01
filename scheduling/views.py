@@ -11,7 +11,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
 from organizations.permissions import IsDesk, IsVenueMember
-from scheduling.catalogue import ClassOffering, ClassSession
+from scheduling.models import ClassOffering, ClassSession
 from scheduling.serializers import (
     GenerateSessionsSerializer,
     OfferingSerializer,

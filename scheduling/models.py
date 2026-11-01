@@ -68,8 +68,6 @@ class ClassSession(models.Model):
 
     @property
     def ends_at(self):
-        from datetime import timedelta
-
         return self.starts_at + timedelta(minutes=self.offering.duration_minutes)
 
     def __str__(self):

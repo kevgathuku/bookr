@@ -19,7 +19,7 @@ from passes.models import (
 from passes.models import (
     Membership as PlanMembership,
 )
-from scheduling.catalogue import ClassCategory, ClassOffering, ClassSession
+from scheduling.models import ClassCategory, ClassOffering, ClassSession
 
 fake = Faker()
 

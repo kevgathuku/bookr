@@ -185,7 +185,7 @@ def _partner_client(base_url, slug="e2e-partner", allotment=1):
 
     from aggregators.models import Aggregator
     from aggregators.tokens import new_token
-    from scheduling.catalogue import ClassSession
+    from scheduling.models import ClassSession
 
     api = f"{base_url}/api/v1"
     service_user = get_user_model().objects.create_user(username=f"svc-{slug}")

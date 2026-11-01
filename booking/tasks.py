@@ -16,7 +16,7 @@ from celery import shared_task
 )
 def promote_waitlist(session_id):
     from booking.services import promote_next
-    from scheduling.catalogue import ClassSession
+    from scheduling.models import ClassSession
 
     try:
         session = ClassSession.objects.get(pk=session_id)
