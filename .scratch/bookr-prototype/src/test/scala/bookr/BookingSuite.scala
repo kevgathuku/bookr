@@ -205,12 +205,12 @@ class BookingSuite extends munit.FunSuite:
     "duplicate active booking refuses; cancelled prior booking frees the key"
   ):
     val first = book(
-      BookingId(1),
-      session(2),
-      pack(5),
-      alice,
-      Nil,
-      before
+      id = BookingId(1),
+      session = session(2),
+      membership = pack(5),
+      member = alice,
+      existing = Nil,
+      now = before
     ).toOption.get._1
     assertEquals(
       book(
@@ -235,6 +235,73 @@ class BookingSuite extends munit.FunSuite:
         now = before
       ).isRight
     )
+
+  test("late cancel refunds the stamp back to the balance"):
+    val (booked1, debited) =
+      book(
+        id = BookingId(1),
+        session = session(2),
+        membership = pack(5),
+        member = alice,
+        existing = Nil,
+        now = before
+      ).toOption.get
+    assertEquals(debited.entitlement, credits(3))
+    val freePolicy =
+      Policy
+        .of(
+          window = CancelWindow.of(Duration.ofHours(12)).toOption.get,
+          enforcement = Enforcement.NoPenalty
+        )
+        .toOption
+        .get
+    val (_, record) =
+      cancelMember(
+        policy = freePolicy,
+        venue = venue,
+        start = start,
+        now = before,
+        booking = booked1,
+        waiver = None
+      )
+    assertEquals(record.refunded, 2)
+    assertEquals(refund(debited.entitlement, record.refunded), credits(5))
+
+  test("a strike refunds in full while still penalising"):
+    val (booked1, debited) =
+      book(
+        id = BookingId(1),
+        session = session(2),
+        membership = pack(5),
+        member = alice,
+        existing = Nil,
+        now = before
+      ).toOption.get
+    val strikePolicy =
+      Policy
+        .of(
+          window = CancelWindow.of(Duration.ofHours(12)).toOption.get,
+          enforcement = Enforcement.Strike
+        )
+        .toOption
+        .get
+    val (_, record) =
+      cancelMember(
+        policy = strikePolicy,
+        venue = venue,
+        start = start,
+        now = before,
+        booking = booked1,
+        waiver = None
+      )
+    assertEquals(record.refunded, 2)
+    assertEquals(
+      record.status,
+      BookingStatus.LateCancelled(
+        Cancellation.LatePenalised(before, Enforcement.Strike)
+      )
+    )
+    assertEquals(refund(debited.entitlement, record.refunded), credits(5))
 
   def credits(n: Int): Entitlement =
     Entitlement.Credits(CreditBalance.of(n).toOption.get)

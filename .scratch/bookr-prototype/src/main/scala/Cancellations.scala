@@ -56,7 +56,7 @@ def refund(e: Entitlement, amount: Int): Entitlement = (e, amount) match
 //    forfeit; everything else names its refusal, mirroring InvalidWaiver.
 // ---------------------------------------------------------------------------
 enum Cause:
-  case MemberCancel, StaffDecision, SessionCancelled, NoShow
+  case MemberCancel, StaffDecision, SessionCancelled, NoShow, Unclaimed
 
 final case class CancellationRecord private (
     booking: BookingId,
@@ -98,23 +98,31 @@ def cancelMember(
     booking: Booking,
     waiver: Option[Waiver]
 ): (Booking, CancellationRecord) =
-  val cancellation = decide(policy, start, now, venue, waiver)
-  val status = cancellation match
-    case o: Cancellation.OnTime        => BookingStatus.Cancelled(o)
-    case l: Cancellation.LateAllowed   => BookingStatus.LateCancelled(l)
-    case l: Cancellation.LatePenalised => BookingStatus.LateCancelled(l)
-    case l: Cancellation.LateWaived    => BookingStatus.LateCancelled(l)
-  val record = CancellationRecord
-    .of(
-      booking.id,
-      Cause.MemberCancel,
-      status,
-      refundAmount(cancellation, booking.spent),
-      booking.spent
-    )
-    .toOption
-    .get
-  (booking.copy(status = status), record)
+  // A held-but-unconfirmed booking is not a booking yet: never charged, so
+  // nothing to penalise, refund, or waive — release as unclaimed regardless
+  // of lateness or waiver. The decided path stays nested so no other caller
+  // can reach it with a held booking.
+  def decided(): (Booking, CancellationRecord) =
+    val cancellation = decide(policy, start, now, venue, waiver)
+    val status = cancellation match
+      case o: Cancellation.OnTime        => BookingStatus.Cancelled(o)
+      case l: Cancellation.LateAllowed   => BookingStatus.LateCancelled(l)
+      case l: Cancellation.LatePenalised => BookingStatus.LateCancelled(l)
+      case l: Cancellation.LateWaived    => BookingStatus.LateCancelled(l)
+    val record = CancellationRecord
+      .of(
+        booking.id,
+        Cause.MemberCancel,
+        status,
+        refundAmount(cancellation, booking.spent),
+        booking.spent
+      )
+      .toOption
+      .get
+    (booking.copy(status = status), record)
+  booking.status match
+    case BookingStatus.Held(_) => releaseHold(booking, now)
+    case _                     => decided()
 
 def cancelUnpenalised(
     cause: Cause,
@@ -133,6 +141,7 @@ def cancelUnpenalised(
     .of(booking.id, cause, status, booking.spent.credits, booking.spent)
     .toOption
     .get
+  // Terminal transitions clear holds: no hold outside an unconfirmed BOOKED row.
   (booking.copy(status = status), record)
 
 def cancelStaff(
@@ -158,6 +167,7 @@ def markNoShow(booking: Booking): (Booking, CancellationRecord) =
     .of(booking.id, Cause.NoShow, BookingStatus.NoShow, 0, booking.spent)
     .toOption
     .get
+  // Terminal transitions clear holds: no hold outside an unconfirmed BOOKED row.
   (booking.copy(status = BookingStatus.NoShow), record)
 
 // Retroactive waiver: compensates a standing LOSE_CREDIT forfeit, nothing

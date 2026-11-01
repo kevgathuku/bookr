@@ -40,6 +40,10 @@ type LateOnly = Cancellation.LateAllowed | Cancellation.LatePenalised |
 enum BookingStatus:
   case Booked
   case Waitlisted
+  // Promoted but unconfirmed: the seat is reserved, nothing is spent, and
+  // a deadline applies. Distinct from Booked: an unclaimed seat is not a
+  // claimed one (notably at the door, which must now decide explicitly).
+  case Held(until: Instant)
   // Cancelled pairs with a non-penalised outcome. Member cancels land here
   // only when on-time; a late-but-unpenalised cancel (staff decision,
   // provider session-cancel) carries LateAllowed with the cause explaining
@@ -59,16 +63,14 @@ final case class Booking(
     session: SessionId,
     membership: MembershipId,
     status: BookingStatus,
-    spent: Stamp,
-    // Holds ride on BOOKED rows only: set by promotion, cleared by the
-    // sweep. Check-in flips to ATTENDED without touching it — the sweep
-    // only ever matches BOOKED, so a stale hold there is inert.
-    holdUntil: Option[Instant] = None
+    spent: Stamp
 )
 
 def isActive(status: BookingStatus): Boolean = status match
-  case BookingStatus.Booked | BookingStatus.Waitlisted => true
-  case _                                               => false
+  case BookingStatus.Booked | BookingStatus.Waitlisted |
+      BookingStatus.Held(_) =>
+    true
+  case _ => false
 
 // Booking creation: the spend site. Monthly never spends; packs and comped
 // balances spend exactly the session's credit cost, failing when short —
