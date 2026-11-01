@@ -105,8 +105,9 @@ enum Scope:
 enum Role:
   case Owner, Manager, Frontdesk, Teacher, Member
 
+// desk operation, staff management, waiver, door operation, free entry. 
 enum Capability:
-  case ManageBilling, ManageStaff, EditPolicies, WaiveLateFee, CancelAnyBooking
+  case OperateDesk, ManageStaff, WaivePenalty, OperateDoor, EnterFree
 
 final case class RoleAssignment(user: UserId, role: Role, scope: Scope)
 
@@ -121,14 +122,15 @@ def appliesAt(scope: Scope, org: OrgId, venue: VenueId): Boolean = scope match
 // capabilities.
 def capabilities(role: Role): Set[Capability] = role match
   case Role.Owner =>
-    Set(Capability.ManageBilling, Capability.ManageStaff, Capability.EditPolicies,
-        Capability.WaiveLateFee, Capability.CancelAnyBooking)
+    Set(Capability.OperateDesk, Capability.ManageStaff, Capability.WaivePenalty,
+        Capability.OperateDoor, Capability.EnterFree)
   case Role.Manager =>
-    Set(Capability.ManageStaff, Capability.EditPolicies,
-        Capability.WaiveLateFee, Capability.CancelAnyBooking)
+    Set(Capability.OperateDesk, Capability.ManageStaff, Capability.WaivePenalty,
+        Capability.OperateDoor, Capability.EnterFree)
   case Role.Frontdesk =>
-    Set(Capability.WaiveLateFee, Capability.CancelAnyBooking)
-  case Role.Teacher => Set.empty
+    Set(Capability.OperateDesk, Capability.WaivePenalty,
+        Capability.OperateDoor, Capability.EnterFree)
+  case Role.Teacher => Set(Capability.OperateDoor, Capability.EnterFree)
   case Role.Member  => Set.empty
 
 def can(assignments: List[RoleAssignment], user: UserId, org: OrgId, venue: VenueId,
@@ -137,10 +139,19 @@ def can(assignments: List[RoleAssignment], user: UserId, org: OrgId, venue: Venu
     a.user == user && appliesAt(a.scope, org, venue) && capabilities(a.role).contains(cap)
   }
 
+// Entry privilege vs operator authority: identical today, separate so they
+// can diverge without touching gates.
+def canOperateDoor(assignments: List[RoleAssignment], user: UserId, org: OrgId,
+                   venue: VenueId): Boolean =
+  can(assignments, user, org, venue, Capability.OperateDoor)
+
+def isDutyStaff(assignments: List[RoleAssignment], user: UserId, org: OrgId,
+                venue: VenueId): Boolean =
+  can(assignments, user, org, venue, Capability.EnterFree)
+
 // ---------------------------------------------------------------------------
 // 8. Authority as a value, not a prayer.
-//    LateWaived used to take any UserId — a plain member compiled fine. Now
-//    it demands a Grant, and the only way to mint one is authorizeWaiver,
+//    LateWaived demands a Grant, and the only way to mint one is authorize,
 //    which runs the capability check. The grant carries the scope it was
 //    checked against, and decide re-verifies it: a grant is proof of a
 //    check, not a substitute for one. (Residual TOCTOU — rights revoked
@@ -152,7 +163,7 @@ object WaiverAuthority:
 
   def authorize(user: UserId, assignments: List[RoleAssignment],
                 org: OrgId, venue: VenueId): Option[Grant] =
-    if can(assignments, user, org, venue, Capability.WaiveLateFee) then
+    if can(assignments, user, org, venue, Capability.WaivePenalty) then
       Some((user, Scope.AtVenue(venue)))
     else None
 
@@ -231,6 +242,10 @@ def refund(e: Entitlement, amount: Int): Entitlement = (e, amount) match
   println(s"zero-length window rejected -> ${CancelWindow.of(Duration.ZERO)}")
 
   println(s"frontdesk of venue 2 waives at venue 2 -> " +
-    can(assignments, UserId(7), OrgId(1), VenueId(2), Capability.WaiveLateFee))
+    can(assignments, UserId(7), OrgId(1), VenueId(2), Capability.WaivePenalty))
   println(s"frontdesk of venue 2 waives at venue 3 -> " +
-    can(assignments, UserId(7), OrgId(1), VenueId(3), Capability.WaiveLateFee))
+    can(assignments, UserId(7), OrgId(1), VenueId(3), Capability.WaivePenalty))
+  println(s"frontdesk enters free at venue 2 -> " +
+    isDutyStaff(assignments, UserId(7), OrgId(1), VenueId(2)))
+  println(s"frontdesk operates door at venue 2 -> " +
+    canOperateDoor(assignments, UserId(7), OrgId(1), VenueId(2)))

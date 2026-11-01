@@ -35,12 +35,12 @@ largest invalid-state machinery in the domain is unmodeled.
    adds that amount.
 
 5. **Capabilities don't match `organizations/capabilities.py` (ADR-0007).**
-   Real predicates: `can_operate_desk` (Owner/Manager/Frontdesk),
-   `can_manage_staff` (Owner/Manager), `can_staff_door`
-   (Owner/Manager/**Teacher**/Frontdesk), `can_waive` (= desk set).
-   The prototype invents `ManageBilling` / `EditPolicies` /
-   `CancelAnyBooking` (none exist) and gives Teacher an empty set — but
-   teachers staff doors.
+   ✅ Resolved (2026-11-01) — the enum now mirrors the real predicates
+   (`OperateDesk / ManageStaff / WaivePenalty / OperateDoor / EnterFree`,
+   including the entry/operator split), Teacher holds both door
+   capabilities, and the invented billing/policy/cancel-any names are gone.
+   Policy edits stay admin-side behind staff gates: no named capability
+   there, none here.
 
 6. **Records are mandatory, not optional.**
    Section 5 claims a cancelled booking "may or may not" have a record.
