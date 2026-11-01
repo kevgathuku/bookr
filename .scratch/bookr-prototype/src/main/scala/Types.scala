@@ -27,6 +27,8 @@ object Types:
   extension (b: CreditBalance)
     def remaining: Int = b
     def add(n: Int): CreditBalance = b + n
+    def spend(n: Int): Either[String, CreditBalance] =
+      if n > b then Left("insufficient credits") else Right(b - n)
 
   opaque type Money = Long
   object Money:

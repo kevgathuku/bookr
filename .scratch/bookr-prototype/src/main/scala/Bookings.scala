@@ -1,6 +1,6 @@
 package bookr
 
-import java.time.{Instant, LocalDate}
+import java.time.{Instant, LocalDate, ZoneOffset}
 
 import Types.*
 
@@ -62,6 +62,58 @@ final case class Booking(
     spent: Stamp
 )
 
+def isActive(status: BookingStatus): Boolean = status match
+  case BookingStatus.Booked | BookingStatus.Waitlisted => true
+  case _                                               => false
+
+// Booking creation: the spend site. Monthly never spends; packs and comped
+// balances spend exactly the session's credit cost, failing when short —
+// the Either carries no membership on failure, so a refused booking cannot
+// half-spend. Duplicates are refused over active statuses only, mirroring
+// the partial unique key (a cancelled prior booking frees the natural key,
+// which is what makes retries idempotent instead of double bookings).
+def book(
+    id: BookingId,
+    session: Session,
+    membership: Membership,
+    member: UserId,
+    existing: List[Booking],
+    now: Instant
+): Either[String, (Booking, Membership)] =
+  for
+    open <- requireOpen(session, now)
+    _ <- Either.cond(
+      membership.user == member,
+      (),
+      "membership belongs to another user"
+    )
+    _ <- Either.cond(
+      !existing.exists(b =>
+        b.session == session.id && b.member == member && isActive(b.status)
+      ),
+      (),
+      "duplicate booking"
+    )
+    _ <- Either.cond(
+      membership.isActiveOn(LocalDate.ofInstant(now, ZoneOffset.UTC)),
+      (),
+      "membership is not currently valid"
+    )
+    paid <- membership.debit(session.creditCost)
+  yield paid match
+    case (stamp, debited) =>
+      (
+        Booking(
+          id,
+          member,
+          session.id,
+          membership.id,
+          BookingStatus.Booked,
+          stamp
+        ),
+        debited
+      )
+
 // Booking debits this many credits at booking time (the offering's
 // credit_cost, possibly > 1). Refunds return exactly the stamp — never a
 // hardcoded 1 — and LoseCredit forfeits it.
@@ -98,6 +150,16 @@ final case class Membership private (
   // Inclusive both ends, mirroring _validate_membership and the door query.
   def isActiveOn(today: LocalDate): Boolean =
     !today.isBefore(startsOn) && !today.isAfter(endsOn)
+
+  // Spend the session's cost: monthly never debits, balances fail when
+  // short. Lives here (not in book) so copy stays private everywhere.
+  def debit(n: Int): Either[String, (Stamp, Membership)] = entitlement match
+    case Entitlement.Unlimited => Stamp.of(0).map(s => (s, this))
+    case Entitlement.Credits(balance) =>
+      for
+        rest <- balance.spend(n)
+        stamp <- Stamp.of(n)
+      yield (stamp, copy(entitlement = Entitlement.Credits(rest)))
 
 object Membership:
   def of(

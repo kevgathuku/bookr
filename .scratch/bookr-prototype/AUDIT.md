@@ -16,10 +16,13 @@ largest invalid-state machinery in the domain is unmodeled.
 2. **Waitlist / promotion / hold lifecycle** — `hold_expires_at` non-null
    exactly while a promotion hold is live is the section-3 pattern in the
    wild; freed seats passing to the queue head on every cancel unmodeled.
-3. **Booking invariants** — `one_active_session_booking` (partial unique
-   over active statuses), membership↔user↔org match in `clean()`,
-   validity window, `CreditInsufficient → 402`, natural-key idempotent
-   retries (`DuplicateBooking`).
+3. **Booking invariants** — ✅ Resolved (2026-11-01). `book()` enforces
+   the modelable half: open session, user match, active-only duplicate
+   refusal (cancelled priors free the key — the idempotent-retry shape),
+   validity window, and exact-cost spend with short-balance refusal that
+   cannot half-spend. Covered by `BookingSuite` (9 tests). Carve-outs:
+   plan↔venue *org* match needs an org on the plan (unmodeled), and
+   `CreditInsufficient → 402` is an HTTP mapping above the domain.
 4. **Session lifecycle** — ✅ Resolved (2026-11-01). `Session` carries
    `teacher`, derived `endsAt`, and `cancelledAt`; `requireOpen` refuses
    cancelled *and* started sessions; `closeSession` stamps once and

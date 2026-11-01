@@ -15,7 +15,9 @@ final case class Session(
     startsAt: Instant,
     durationMinutes: Int,
     capacity: Int,
-    cancelledAt: Option[Instant]
+    cancelledAt: Option[Instant],
+    // Django keeps this on the offering; it rides here until offerings land.
+    creditCost: Int = 1
 ):
   // End derives from start plus duration — never stored, so the two agree
   // the way ends_at agrees with the derived_end annotation.
