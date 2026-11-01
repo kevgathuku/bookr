@@ -51,6 +51,12 @@ object Types:
       if cents < 0 then Left("money must not be negative") else Right(cents)
   extension (m: Money) def cents: Long = m
 
+  opaque type Reason = String
+  object Reason:
+    def of(s: String): Either[String, Reason] =
+      if s.trim.isEmpty then Left("waiver requires a reason") else Right(s)
+  extension (r: Reason) def text: String = r
+
 import Types.*
 
 // ---------------------------------------------------------------------------
@@ -93,11 +99,17 @@ object Policy:
 //    for what was applied: contradictory combinations are possible, such as waived=True with waived_by=NULL. Here each case holds exactly
 //    the data it needs, and no more.
 // ---------------------------------------------------------------------------
+// A waiver is authority plus justification, inseparable: reason-less waivers
+// are rejected, so the constructor demands both. (Standing — waiving a
+// staff-decision cancel, where no penalty exists, raises InvalidWaiver —
+// needs the booking record, which this sketch doesn't model.)
+final case class Waiver(grant: WaiverAuthority.Grant, reason: Reason)
+
 enum Cancellation:
   case OnTime(at: Instant)
   case LateAllowed(at: Instant)                         // policy permits it
   case LatePenalised(at: Instant, how: Enforcement)
-  case LateWaived(at: Instant, grant: WaiverAuthority.Grant) // grant always present, and only issuable via authorizeWaiver
+  case LateWaived(at: Instant, waiver: Waiver) // reason rides with the grant: no reason, no waiver
 
 // ---------------------------------------------------------------------------
 // 5. Booking status that carries its own cancellation data
@@ -187,7 +199,7 @@ def isDutyStaff(assignments: List[RoleAssignment], user: UserId,
 
 // ---------------------------------------------------------------------------
 // 8. Authority as a value, not a prayer.
-//    LateWaived demands a Grant, and the only way to mint one is authorize,
+//    Waivers demand a Grant, and the only way to mint one is authorize,
 //    which runs the capability check. The grant carries the scope it was
 //    checked against, and decide re-verifies it: a grant is proof of a
 //    check, not a substitute for one. (Residual TOCTOU — rights revoked
@@ -216,14 +228,14 @@ object WaiverAuthority:
 // stays the outer layer's job; with no grant, venue goes unused.
 def decide(policy: Policy, classStart: Instant, now: Instant,
            venue: VenueId,
-           grant: Option[WaiverAuthority.Grant]): Cancellation =
+           waiver: Option[Waiver]): Cancellation =
   val cutoff = classStart.minus(policy.window.duration)
   if !now.isAfter(cutoff) then Cancellation.OnTime(now)
-  else grant match
+  else waiver match
     // A grant minted for another scope is not a waiver here: fail closed
     // toward the policy outcome: deny by default.
-    case Some(g) if appliesAt(g.scope, venue) =>
-      Cancellation.LateWaived(now, g)
+    case Some(w) if appliesAt(w.grant.scope, venue) =>
+      Cancellation.LateWaived(now, w)
     case _ => policy.enforcement match
       case Enforcement.NoPenalty => Cancellation.LateAllowed(now)
       case other                 => Cancellation.LatePenalised(now, other)
@@ -275,10 +287,14 @@ def refund(e: Entitlement, amount: Int): Entitlement = (e, amount) match
 
   val grant = WaiverAuthority.authorize(UserId(7), assignments, home)
   println(s"waiver grant for frontdesk -> $grant")
+  val waiver = for
+    g <- grant
+    r <- Reason.of("teacher double-booked the room").toOption
+  yield Waiver(g, r)
   val memberGrant = WaiverAuthority.authorize(UserId(9), assignments, home)
   println(s"waiver grant for plain member -> $memberGrant") // None: no waive rights
 
-  val waived = decide(policy, start, Instant.parse("2026-11-02T10:00:00Z"), home, grant)
+  val waived = decide(policy, start, Instant.parse("2026-11-02T10:00:00Z"), home, waiver)
   println(s"same cancel, waived by staff -> $waived")
   println(s"fee owed after waiver -> ${lateFee(waived)}")
 

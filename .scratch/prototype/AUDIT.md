@@ -18,14 +18,14 @@ largest invalid-state machinery in the domain is unmodeled.
    `>= 0`, matching the field); the baseline's zero window builds fine
    and the demo asserts both directions.
 
-3. **`decide` invents a waive path the domain forbids.**
-   `(Some(who), _)` → `LateWaived` even under `NoPenalty`, with no reason.
-   Actual (`booking/cancellations.py`): waiving needs a capability check
-   *and* a mandatory reason; waiving with nothing to waive raises
-   `InvalidWaiver`; retroactive `waive_record` compensates **only**
-   `LOSE_CREDIT` forfeits (strikes forgive inline, fees/monthly/comped
-   seats have nothing to compensate). The uniform `LateWaived` erases the
-   distinctions `InvalidWaiver` enforces.
+3. **`decide` invents a waive path the domain forbids.** ✅ Resolved
+   (2026-11-01) — the waiver is now `Waiver(grant, reason)` with `Reason`
+   refusing blanks, so a reason-less waiver is unbuildable (compiler:
+   bare `Grant` rejected where `Waiver` is required). On-time cancels
+   ignore the waiver; late + waiver forgives to `LateWaived` for any
+enforcement, matching `_member_outcome`. Standing (staff-decision /
+   settled-record waivers → `InvalidWaiver`) needs the booking record
+   and stays unmodeled — see the constructor comment.
 
 4. **Refund of exactly 1 is wrong.** ✅ Resolved (2026-11-01)
    The prototype now carries `Stamp(credits)` (the debited `credits_spent`):
