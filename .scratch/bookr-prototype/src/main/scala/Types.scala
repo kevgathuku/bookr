@@ -16,6 +16,8 @@ object Types:
       if d.isNegative then Left("cancel window must not be negative")
       else Right(d)
 
+    def zero: CancelWindow = Duration.ZERO
+
   extension (w: CancelWindow) def duration: Duration = w
 
   opaque type CreditBalance = Int

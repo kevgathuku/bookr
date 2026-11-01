@@ -7,10 +7,12 @@ largest invalid-state machinery in the domain is unmodeled.
 
 ## Missing (ranked)
 
-1. **Policy resolution** — nullable `venue / class_category / plan_type` +
-   `priority` + auto-baseline makes `resolve_policy` *total*. The
-   codebase's best make-invalid-states-unrepresentable example,
-   unmodeled.
+1. **Policy resolution** — ✅ Resolved (2026-11-01). `Policy` carries
+   optional `venue/category/plan` scopes plus `priority`; `rank` is
+   `(specificity, priority)` and `resolve` prepends the all-null baseline
+   (priority `-1`, window 0) so `maxBy` cannot fail — total by the same
+   construction as `_ensure_baseline`. Fee now requires a
+   `Some(Private)` category scope, encoding the `bookr-55d` decision.
 2. **Waitlist / promotion / hold lifecycle** — `hold_expires_at` non-null
    exactly while a promotion hold is live is the section-3 pattern in the
    wild; freed seats passing to the queue head on every cancel unmodeled.
