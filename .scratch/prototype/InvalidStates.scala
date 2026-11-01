@@ -11,9 +11,10 @@ import java.time.{Duration, Instant}
 // 1. Separate ID types
 //    With plain integer IDs, passing a venue id where an org id is
 //    expected is a runtime bug. Here it is a compile error.
+//    Venues carry their org, so scope checks read it instead of trusting the caller.
 // ---------------------------------------------------------------------------
 final case class OrgId(value: Long) extends AnyVal
-final case class VenueId(value: Long) extends AnyVal
+final case class VenueId(org: OrgId, value: Long) // a venue always knows its org
 final case class UserId(value: Long) extends AnyVal
 
 def venueTimezone(venue: VenueId): String = "Europe/Madrid" // stub
@@ -36,6 +37,20 @@ object Types:
 
   extension (w: CancelWindow) def duration: Duration = w
 
+  opaque type CreditBalance = Int
+  object CreditBalance:
+    def of(n: Int): Either[String, CreditBalance] =
+      if n < 0 then Left("credits must not be negative") else Right(n)
+  extension (b: CreditBalance)
+    def remaining: Int = b
+    def add(n: Int): CreditBalance = b + n
+
+  opaque type Money = Long
+  object Money:
+    def of(cents: Long): Either[String, Money] =
+      if cents < 0 then Left("money must not be negative") else Right(cents)
+  extension (m: Money) def cents: Long = m
+
 import Types.*
 
 // ---------------------------------------------------------------------------
@@ -43,9 +58,8 @@ import Types.*
 //    A nullable amount plus a "required when enforcement is 'fee'" rule can
 //    disagree — and a fee on a backfillable group seat misprices the loss.
 //    Here only Fee carries an amount, and only a private policy can carry Fee.
+//    Amounts below zero are unbuildable: Money.of refuses them.
 // ---------------------------------------------------------------------------
-final case class Money(cents: Long)
-
 enum Enforcement:
   case NoPenalty            // lateness allowed (still logged)
   case Strike
@@ -108,10 +122,11 @@ enum BookingStatus:
 // 6. Entitlements: credits exist only for plans that use credits
 //    A credits counter on every membership, with "unlimited" plans just
 //    ignoring it. Here only credit plans carry a balance.
+//    Balances below zero are unbuildable: CreditBalance.of refuses them.
 // ---------------------------------------------------------------------------
 enum Entitlement:
   case Unlimited
-  case Credits(remaining: Int)
+  case Credits(balance: CreditBalance)
 
 // ---------------------------------------------------------------------------
 // 7. Role scope instead of a nullable venue
@@ -130,9 +145,11 @@ enum Capability:
 
 final case class RoleAssignment(user: UserId, role: Role, scope: Scope)
 
-def appliesAt(scope: Scope, org: OrgId, venue: VenueId): Boolean = scope match
-  case Scope.OrgWide(o)    => o == org
-  case Scope.AtVenue(v)    => v == venue
+// The venue carries its org, so "org-wide" is checkable: the scope's org
+// must equal the venue's own org. A venue from another org never matches.
+def appliesAt(scope: Scope, venue: VenueId): Boolean = scope match
+  case Scope.OrgWide(o) => o == venue.org
+  case Scope.AtVenue(v) => v == venue
 
 // This match has no catch-all case. If you add a Role (say, Assistant) and
 // forget it here, the compiler warns about a non-exhaustive match. Make
@@ -152,21 +169,21 @@ def capabilities(role: Role): Set[Capability] = role match
   case Role.Teacher => Set(Capability.OperateDoor, Capability.EnterFree)
   case Role.Member  => Set.empty
 
-def can(assignments: List[RoleAssignment], user: UserId, org: OrgId, venue: VenueId,
+def can(assignments: List[RoleAssignment], user: UserId, venue: VenueId,
         cap: Capability): Boolean =
   assignments.exists { a =>
-    a.user == user && appliesAt(a.scope, org, venue) && capabilities(a.role).contains(cap)
+    a.user == user && appliesAt(a.scope, venue) && capabilities(a.role).contains(cap)
   }
 
 // Entry privilege vs operator authority: identical today, separate so they
 // can diverge without touching gates.
-def canOperateDoor(assignments: List[RoleAssignment], user: UserId, org: OrgId,
+def canOperateDoor(assignments: List[RoleAssignment], user: UserId,
                    venue: VenueId): Boolean =
-  can(assignments, user, org, venue, Capability.OperateDoor)
+  can(assignments, user, venue, Capability.OperateDoor)
 
-def isDutyStaff(assignments: List[RoleAssignment], user: UserId, org: OrgId,
+def isDutyStaff(assignments: List[RoleAssignment], user: UserId,
                 venue: VenueId): Boolean =
-  can(assignments, user, org, venue, Capability.EnterFree)
+  can(assignments, user, venue, Capability.EnterFree)
 
 // ---------------------------------------------------------------------------
 // 8. Authority as a value, not a prayer.
@@ -181,8 +198,8 @@ object WaiverAuthority:
   opaque type Grant = (UserId, Scope)
 
   def authorize(user: UserId, assignments: List[RoleAssignment],
-                org: OrgId, venue: VenueId): Option[Grant] =
-    if can(assignments, user, org, venue, Capability.WaivePenalty) then
+                venue: VenueId): Option[Grant] =
+    if can(assignments, user, venue, Capability.WaivePenalty) then
       Some((user, Scope.AtVenue(venue)))
     else None
 
@@ -193,20 +210,19 @@ object WaiverAuthority:
 // ---------------------------------------------------------------------------
 // The decision itself: a pure function, no database, no clock, no side effects.
 // ---------------------------------------------------------------------------
-// Callers pass IDs, not existence proofs: OrgId(1) builds with no row
-// behind it, and nothing in here validates it. Existence is the outer
-// layer's job (the outer layer rejects unknown IDs before decide ever runs);
-// in here IDs are only compared for scope match. With no grant, org/venue go
-// unused — the pure core assumes the boundary already proved them.
+// Callers pass IDs, not existence proofs: a VenueId builds with no row
+// behind it. What it always carries is its org, so scope checks read the
+// venue's org off the ID instead of trusting the caller's word. Existence
+// stays the outer layer's job; with no grant, venue goes unused.
 def decide(policy: Policy, classStart: Instant, now: Instant,
-           org: OrgId, venue: VenueId,
+           venue: VenueId,
            grant: Option[WaiverAuthority.Grant]): Cancellation =
   val cutoff = classStart.minus(policy.window.duration)
   if !now.isAfter(cutoff) then Cancellation.OnTime(now)
   else grant match
     // A grant minted for another scope is not a waiver here: fail closed
     // toward the policy outcome: deny by default.
-    case Some(g) if appliesAt(g.scope, org, venue) =>
+    case Some(g) if appliesAt(g.scope, venue) =>
       Cancellation.LateWaived(now, g)
     case _ => policy.enforcement match
       case Enforcement.NoPenalty => Cancellation.LateAllowed(now)
@@ -221,7 +237,12 @@ def lateFee(c: Cancellation): Option[Money] = c match
 // Booking debits this many credits at booking time (the offering's
 // credit_cost, possibly > 1). Refunds return exactly the stamp — never a
 // hardcoded 1 — and LoseCredit forfeits it.
-final case class Stamp(credits: Int)
+final case class Stamp private (credits: Int)
+
+object Stamp:
+  def of(credits: Int): Either[String, Stamp] =
+    if credits < 0 then Left("stamp must not be negative")
+    else Right(new Stamp(credits))
 
 def refundAmount(c: Cancellation, spent: Stamp): Int = c match
   case Cancellation.LatePenalised(_, Enforcement.LoseCredit) => 0
@@ -229,33 +250,35 @@ def refundAmount(c: Cancellation, spent: Stamp): Int = c match
 
 def refund(e: Entitlement, amount: Int): Entitlement = (e, amount) match
   case (Entitlement.Unlimited, _)  => Entitlement.Unlimited
-  case (Entitlement.Credits(n), a) => Entitlement.Credits(n + a)
+  case (Entitlement.Credits(b), a) => Entitlement.Credits(b.add(a))
 
 // ---------------------------------------------------------------------------
 @main def demo(): Unit =
   val window = CancelWindow.of(Duration.ofHours(12)).toOption.get
-  val policy = Policy.of(SessionKind.Private, window, Enforcement.Fee(Money(1500))).toOption.get
-  println(Policy.of(SessionKind.Group, window, Enforcement.Fee(Money(1500)))) // Left: fee is private-only
+  val home = VenueId(OrgId(1), 2)
+  val fee = Enforcement.Fee(Money.of(1500).toOption.get)
+  val policy = Policy.of(SessionKind.Private, window, fee).toOption.get
+  println(Policy.of(SessionKind.Group, window, fee)) // Left: fee is private-only
   val start  = Instant.parse("2026-11-02T18:00:00Z")
 
-  val late = decide(policy, start, Instant.parse("2026-11-02T10:00:00Z"), OrgId(1), VenueId(2), None)
+  val late = decide(policy, start, Instant.parse("2026-11-02T10:00:00Z"), home, None)
   println(s"late cancel under fee policy -> $late")
   println(s"fee owed on that cancellation -> ${lateFee(late)}")
-  val spent = Stamp(credits = 2) // credit_cost > 1: the stamp flows back
+  val spent = Stamp.of(2).toOption.get // credit_cost > 1: the stamp flows back
   val back = refundAmount(late, spent)
   println(s"booking spent ${spent.credits} credits, refunded $back" +
     " (a fee does not take the credits)")
   println(s"balance Credits(3) + $back refunded = " +
-    refund(Entitlement.Credits(3), back))
+    refund(Entitlement.Credits(CreditBalance.of(3).toOption.get), back))
 
-  val assignments = List(RoleAssignment(UserId(7), Role.Frontdesk, Scope.AtVenue(VenueId(2))))
+  val assignments = List(RoleAssignment(UserId(7), Role.Frontdesk, Scope.AtVenue(home)))
 
-  val grant = WaiverAuthority.authorize(UserId(7), assignments, OrgId(1), VenueId(2))
+  val grant = WaiverAuthority.authorize(UserId(7), assignments, home)
   println(s"waiver grant for frontdesk -> $grant")
-  val memberGrant = WaiverAuthority.authorize(UserId(9), assignments, OrgId(1), VenueId(2))
+  val memberGrant = WaiverAuthority.authorize(UserId(9), assignments, home)
   println(s"waiver grant for plain member -> $memberGrant") // None: no waive rights
 
-  val waived = decide(policy, start, Instant.parse("2026-11-02T10:00:00Z"), OrgId(1), VenueId(2), grant)
+  val waived = decide(policy, start, Instant.parse("2026-11-02T10:00:00Z"), home, grant)
   println(s"same cancel, waived by staff -> $waived")
   println(s"fee owed after waiver -> ${lateFee(waived)}")
 
@@ -263,10 +286,15 @@ def refund(e: Entitlement, amount: Int): Entitlement = (e, amount) match
   println(s"negative window rejected -> ${CancelWindow.of(Duration.ofHours(-1))}")
 
   println(s"frontdesk of venue 2 waives at venue 2 -> " +
-    can(assignments, UserId(7), OrgId(1), VenueId(2), Capability.WaivePenalty))
+    can(assignments, UserId(7), home, Capability.WaivePenalty))
   println(s"frontdesk of venue 2 waives at venue 3 -> " +
-    can(assignments, UserId(7), OrgId(1), VenueId(3), Capability.WaivePenalty))
+    can(assignments, UserId(7), VenueId(OrgId(1), 3), Capability.WaivePenalty))
   println(s"frontdesk enters free at venue 2 -> " +
-    isDutyStaff(assignments, UserId(7), OrgId(1), VenueId(2)))
+    isDutyStaff(assignments, UserId(7), home))
   println(s"frontdesk operates door at venue 2 -> " +
-    canOperateDoor(assignments, UserId(7), OrgId(1), VenueId(2)))
+    canOperateDoor(assignments, UserId(7), home))
+  val wide = List(RoleAssignment(UserId(7), Role.Manager, Scope.OrgWide(OrgId(1))))
+  println(s"org-wide manager enters free at home venue -> " +
+    isDutyStaff(wide, UserId(7), home))
+  println(s"org-wide manager enters free at foreign venue -> " +
+    isDutyStaff(wide, UserId(7), VenueId(OrgId(9), 3))) // false: venue owns its org

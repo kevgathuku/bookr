@@ -54,9 +54,12 @@ largest invalid-state machinery in the domain is unmodeled.
    Penalised / Waived), `Cancelled` only `OnTime`. Compiler-verified:
    `LateCancelled(OnTime(...))` fails with `Required: LateOnly`.
 
-8. **Own medicine not taken.**
-   `Credits(remaining: Int)` and `Money(cents: Long)` admit negatives.
-   `Scope.OrgWide` never checks the venue belongs to the org.
+8. **Own medicine not taken.** ✅ Resolved (2026-11-01) — `CreditBalance`,
+   `Money`, and `Stamp` are opaque with refusing `of` constructors
+   (negatives unbuildable; verified `Credits(3)` fails with
+   `Required: CreditBalance`); `VenueId` carries its `org`, so `appliesAt`
+   reads the venue's own org and a foreign venue never matches (demo:
+   org-wide manager refused at org 9's venue).
 
 ## Missing (ranked)
 
