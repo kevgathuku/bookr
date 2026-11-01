@@ -1,0 +1,39 @@
+# Standard Scala .gitignore (sbt, Scala-IDE, Metals, IntelliJ, VS Code)
+
+### Scala / sbt ###
+*.class
+*.log
+.cache
+.history
+.lib/
+dist/*
+target/
+lib_managed/
+src_managed/
+project/boot/
+project/plugins/project/
+project/build.properties.dirty
+
+### Scala-IDE ###
+.scala_dependencies
+.worksheet
+
+### Metals / BSP ###
+.bsp/
+.metals/
+.scala-build/
+.bloop/
+
+### IntelliJ IDEA ###
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+### VS Code ###
+.vscode/
+
+### OS ###
+.DS_Store
+Thumbs.db
