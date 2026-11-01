@@ -29,6 +29,23 @@ def requireOpen(session: Session, now: Instant): Either[String, Session] =
     Left("session has already started")
   else Right(session)
 
+// The teacher must be added to the venue: a Teacher role covering it,
+// pinned or org-wide. Strict on purpose — identity alone (being named on
+// the session) is not membership, and nothing else checks this.
+def requireTeacherAtVenue(
+    session: Session,
+    assignments: List[RoleAssignment],
+    venue: VenueId
+): Either[String, Session] =
+  val covered = assignments.exists(a =>
+    a.user == session.teacher && a.role == Role.Teacher && appliesAt(
+      a.scope,
+      venue
+    )
+  )
+  if covered then Right(session)
+  else Left("teacher holds no teacher role at the venue")
+
 // Provider cancel: stamps cancelledAt once; repeats return the session
 // untouched, so retries never re-stamp (mirrors the early return on
 // already-cancelled sessions). Reason is required structurally but not

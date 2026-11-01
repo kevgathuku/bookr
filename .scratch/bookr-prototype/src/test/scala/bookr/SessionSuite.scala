@@ -76,3 +76,30 @@ class SessionSuite extends munit.FunSuite:
     assert(canCancelSession(Nil, teacher, venue, session))
     assert(!canCancelSession(Nil, teacher, venue, other))
     assert(!canCancelSession(Nil, UserId(3), venue, session))
+
+  test("teacher pinned at the venue passes"):
+    val roster =
+      List(RoleAssignment(teacher, Role.Teacher, Scope.AtVenue(venue)))
+    assertEquals(requireTeacherAtVenue(session, roster, venue), Right(session))
+
+  test("org-wide teacher covers every venue"):
+    val roster =
+      List(RoleAssignment(teacher, Role.Teacher, Scope.OrgWide(OrgId(1))))
+    assertEquals(requireTeacherAtVenue(session, roster, venue), Right(session))
+
+  test("member named as teacher is refused"):
+    val roster =
+      List(RoleAssignment(teacher, Role.Member, Scope.AtVenue(venue)))
+    assertEquals(
+      requireTeacherAtVenue(session, roster, venue),
+      Left("teacher holds no teacher role at the venue")
+    )
+
+  test("teacher role at another venue does not cover"):
+    val elsewhere = VenueId(OrgId(1), 9)
+    val roster =
+      List(RoleAssignment(teacher, Role.Teacher, Scope.AtVenue(elsewhere)))
+    assertEquals(
+      requireTeacherAtVenue(session, roster, venue),
+      Left("teacher holds no teacher role at the venue")
+    )
