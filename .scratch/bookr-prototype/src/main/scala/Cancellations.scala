@@ -175,9 +175,12 @@ def markNoShow(booking: Booking): (Booking, CancellationRecord) =
 // transaction re-checks — a stored record is no fresher than a passed ID.
 def reassess(
     record: CancellationRecord,
+    membership: Membership,
     venue: VenueId,
-    waiver: Waiver
-): Either[String, Int] =
+    waiver: Waiver,
+    now: Instant,
+    log: Ledger
+): Either[String, (Int, Ledger)] =
   if !appliesAt(waiver.grant.scope, venue) then
     Left("waiver grant covers another scope")
   else
@@ -191,7 +194,15 @@ def reassess(
             0,
             spent
           ) if spent.credits > 0 =>
-        Right(spent.credits)
+        val entry =
+          LedgerEntry(
+            record.booking,
+            membership.id,
+            spent.credits,
+            LedgerReason.Compensation,
+            now
+          )
+        Right((spent.credits, log.post(entry)))
       case CancellationRecord(
             _,
             Cause.MemberCancel,
@@ -204,3 +215,24 @@ def reassess(
         Left("no standing forfeit to waive")
       case _ =>
         Left("record carries no compensable forfeit")
+
+// Posts a computed refund to the ledger. Zero refunds post nothing:
+// zero-delta rows are forbidden, mirroring the ledger rule.
+def settle(
+    log: Ledger,
+    record: CancellationRecord,
+    membership: Membership,
+    now: Instant
+): (Ledger, Membership) =
+  if record.refunded <= 0 then (log, membership)
+  else
+    val credited = membership.credit(record.refunded)
+    val entry =
+      LedgerEntry(
+        record.booking,
+        membership.id,
+        record.refunded,
+        LedgerReason.Refund,
+        now
+      )
+    (log.post(entry), credited)

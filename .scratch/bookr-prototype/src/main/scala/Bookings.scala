@@ -84,8 +84,9 @@ def book(
     membership: Membership,
     member: UserId,
     existing: List[Booking],
-    now: Instant
-): Either[String, (Booking, Membership)] =
+    now: Instant,
+    log: Ledger
+): Either[String, (Booking, Membership, Ledger)] =
   for
     open <- requireOpen(session, now)
     _ <- Either.cond(
@@ -108,17 +109,26 @@ def book(
     paid <- membership.debit(session.creditCost)
   yield paid match
     case (stamp, debited) =>
-      (
-        Booking(
-          id,
-          member,
-          session.id,
-          membership.id,
-          BookingStatus.Booked,
-          stamp
-        ),
-        debited
+      val booked = Booking(
+        id,
+        member,
+        session.id,
+        membership.id,
+        BookingStatus.Booked,
+        stamp
       )
+      // No money moved, no row: zero-delta rows are forbidden.
+      if stamp.credits == 0 then (booked, debited, log)
+      else
+        val entry =
+          LedgerEntry(
+            id,
+            membership.id,
+            -stamp.credits,
+            LedgerReason.Spend,
+            now
+          )
+        (booked, debited, log.post(entry))
 
 // Booking debits this many credits at booking time (the offering's
 // credit_cost, possibly > 1). Refunds return exactly the stamp — never a
@@ -156,6 +166,12 @@ final case class Membership private (
   // Inclusive both ends, mirroring _validate_membership and the door query.
   def isActiveOn(today: LocalDate): Boolean =
     !today.isBefore(startsOn) && !today.isAfter(endsOn)
+
+  // Credits a refund back. Unlimited ignores it, mirroring debit.
+  def credit(amount: Int): Membership = entitlement match
+    case Entitlement.Unlimited => this
+    case Entitlement.Credits(balance) =>
+      copy(entitlement = Entitlement.Credits(balance.add(amount)))
 
   // Spend the session's cost: monthly never debits, balances fail when
   // short. Lives here (not in book) so copy stays private everywhere.

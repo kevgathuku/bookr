@@ -119,12 +119,13 @@ class WaitlistSuite extends munit.FunSuite:
     val queue = joinWaitlist(queue = Nil, booking = waiter(1))
     val (_, Some(head)) =
       promoteHead(queue = queue, now = before, openSeats = 1)
-    val (claimed, debited) =
+    val (claimed, debited, _) =
       confirmHold(
         booking = head,
         membership = membership(5),
         session = venueSession,
-        now = before
+        now = before,
+        log = Ledger.empty
       ).toOption.get
     assertEquals(claimed.status, BookingStatus.Booked)
     assertEquals(claimed.spent, Stamp.of(2).toOption.get)
@@ -136,7 +137,8 @@ class WaitlistSuite extends munit.FunSuite:
         booking = waiter(1),
         membership = membership(5),
         session = venueSession,
-        now = before
+        now = before,
+        log = Ledger.empty
       ),
       Left("no hold to confirm")
     )
@@ -150,7 +152,8 @@ class WaitlistSuite extends munit.FunSuite:
         booking = head,
         membership = membership(1),
         session = venueSession,
-        now = before
+        now = before,
+        log = Ledger.empty
       ),
       Left("insufficient credits")
     )
@@ -175,7 +178,8 @@ class WaitlistSuite extends munit.FunSuite:
         booking = head,
         membership = old,
         session = venueSession,
-        now = before
+        now = before,
+        log = Ledger.empty
       ),
       Left("membership is not currently valid")
     )
@@ -191,7 +195,8 @@ class WaitlistSuite extends munit.FunSuite:
         booking = head,
         membership = membership(5),
         session = closed,
-        now = before
+        now = before,
+        log = Ledger.empty
       ),
       Left("session is cancelled")
     )
@@ -204,7 +209,8 @@ class WaitlistSuite extends munit.FunSuite:
         booking = spent,
         membership = membership(5),
         session = venueSession,
-        now = before
+        now = before,
+        log = Ledger.empty
       ),
       Left("hold is already spent")
     )

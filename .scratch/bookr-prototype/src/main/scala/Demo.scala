@@ -3,7 +3,7 @@ package bookr
 // Standard library only. Each section replaces a nullable column, a string,
 // or a validation check with a type the compiler enforces.
 
-import java.time.{Duration, Instant}
+import java.time.{Duration, Instant, LocalDate}
 
 import Types.*
 
@@ -122,13 +122,25 @@ import Types.*
     BookingStatus.Booked,
     spent
   )
+  val demoMembership =
+    Membership
+      .of(
+        id = MembershipId(7),
+        user = UserId(3),
+        plan = PlanKind.CreditPack,
+        startsOn = LocalDate.of(2026, 1, 1),
+        endsOn = LocalDate.of(2026, 12, 31),
+        entitlement = Entitlement.Credits(CreditBalance.of(5).toOption.get)
+      )
+      .toOption
+      .get
   val (flipped, memberRecord) =
     cancelMember(policy, home, start, lateAt, booking, None)
   println(
     s"member late cancel flips booking and writes one record -> $flipped / $memberRecord"
   )
   println(
-    s"retroactive waiver of fee record -> ${reassess(memberRecord, home, waiver.get)}"
+    s"retroactive waiver of fee record -> ${reassess(memberRecord, demoMembership, home, waiver.get, lateAt, Ledger.empty)}"
   )
   val losePolicy = Policy
     .of(
@@ -143,7 +155,7 @@ import Types.*
     cancelMember(losePolicy, home, start, lateAt, forfeitBooking, None)
   println(s"member late lose-credit cancel -> $forfeit")
   println(
-    s"retroactive waiver of forfeit -> ${reassess(forfeit, home, waiver.get)}"
+    s"retroactive waiver of forfeit -> ${reassess(forfeit, demoMembership, home, waiver.get, lateAt, Ledger.empty)}"
   )
   println(
     s"staff cancel flips booking and writes one record -> ${cancelStaff(policy, home, start, lateAt, booking)}"

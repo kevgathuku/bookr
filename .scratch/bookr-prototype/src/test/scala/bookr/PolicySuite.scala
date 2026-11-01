@@ -1,6 +1,6 @@
 package bookr
 
-import java.time.{Duration, Instant}
+import java.time.{Duration, Instant, LocalDate}
 
 import Types.*
 
@@ -29,6 +29,19 @@ class PolicySuite extends munit.FunSuite:
     val grant = WaiverAuthority.authorize(UserId(7), assignments, venue).get
     val reason = Reason.of("teacher double-booked the room").toOption.get
     Waiver(grant, reason)
+
+  def membership: Membership =
+    Membership
+      .of(
+        id = MembershipId(7),
+        user = UserId(3),
+        plan = PlanKind.CreditPack,
+        startsOn = LocalDate.of(2026, 1, 1),
+        endsOn = LocalDate.of(2026, 12, 31),
+        entitlement = Entitlement.Credits(CreditBalance.of(5).toOption.get)
+      )
+      .toOption
+      .get
 
   test("fee requires a private category scope"):
     assert(
@@ -130,9 +143,23 @@ class PolicySuite extends munit.FunSuite:
         )
         .toOption
         .get
-    val (_, record) = cancelMember(policy, venue, start, lateAt, booking, None)
+    val (_, record) = cancelMember(
+      policy = policy,
+      venue = venue,
+      start = start,
+      now = lateAt,
+      booking = booking,
+      waiver = None
+    )
     assertEquals(
-      reassess(record, venue, waiver),
+      reassess(
+        record = record,
+        membership = membership,
+        venue = venue,
+        waiver = waiver,
+        now = lateAt,
+        log = Ledger.empty
+      ),
       Left("record carries no compensable forfeit")
     )
 

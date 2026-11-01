@@ -49,8 +49,9 @@ def confirmHold(
     booking: Booking,
     membership: Membership,
     session: Session,
-    now: Instant
-): Either[String, (Booking, Membership)] =
+    now: Instant,
+    log: Ledger
+): Either[String, (Booking, Membership, Ledger)] =
   booking.status match
     case BookingStatus.Held(_) =>
       for
@@ -73,7 +74,19 @@ def confirmHold(
         paid <- membership.debit(session.creditCost)
       yield paid match
         case (stamp, debited) =>
-          (booking.copy(status = BookingStatus.Booked, spent = stamp), debited)
+          val confirmed =
+            booking.copy(status = BookingStatus.Booked, spent = stamp)
+          if stamp.credits == 0 then (confirmed, debited, log)
+          else
+            val entry =
+              LedgerEntry(
+                booking.id,
+                membership.id,
+                -stamp.credits,
+                LedgerReason.Spend,
+                now
+              )
+            (confirmed, debited, log.post(entry))
     case _ => Left("no hold to confirm")
 
 // Shared exit for unconfirmed holds: never charged, so never penalised,
