@@ -23,9 +23,10 @@ largest invalid-state machinery in the domain is unmodeled.
    refusing blanks, so a reason-less waiver is unbuildable (compiler:
    bare `Grant` rejected where `Waiver` is required). On-time cancels
    ignore the waiver; late + waiver forgives to `LateWaived` for any
-enforcement, matching `_member_outcome`. Standing (staff-decision /
-   settled-record waivers → `InvalidWaiver`) needs the booking record
-   and stays unmodeled — see the constructor comment.
+enforcement, matching `_member_outcome`. Standing is now modeled with
+   the record: staff/provider cancels never penalise by construction, and
+   `reassess` compensates only standing LOSE_CREDIT forfeits, mirroring
+   `InvalidWaiver` (see finding 6).
 
 4. **Refund of exactly 1 is wrong.** ✅ Resolved (2026-11-01)
    The prototype now carries `Stamp(credits)` (the debited `credits_spent`):
@@ -40,13 +41,14 @@ enforcement, matching `_member_outcome`. Standing (staff-decision /
    Policy edits stay admin-side behind staff gates: no named capability
    there, none here.
 
-6. **Records are mandatory, not optional.**
-   Section 5 claims a cancelled booking "may or may not" have a record.
-   Every cancel path (member cancel, provider session-cancel, no-show)
-   writes exactly one `CancellationRecord`. The real invariant is
-   one-record-per-cancel-event plus the `Cause` enum
-   (`MEMBER_CANCEL / STAFF_DECISION / SESSION_CANCELLED / NO_SHOW`),
-   including the staff-on-behalf path (full refund, status `CANCELLED`).
+6. **Records are mandatory, not optional.** ✅ Resolved (2026-11-01) —
+   cancel paths are constructor functions returning exactly one
+   `CancellationRecord`
+   (`cancelMember/cancelStaff/cancelSession/markNoShow`); `Record.of`
+   enforces cause↔status agreement and refund-≤-stamp, and the private
+   constructor rejects hand-built rows (`object Record does not take
+   parameters`). `LateAllowed`-under-`Cancelled` is paired with its
+   staff/provider cause by the function, never the member path.
 
 7. **`BookingStatus` is missing 2 of 6 states.** ✅ Resolved (2026-11-01)
    `Waitlisted` added (no seat, zero spend); the late split is now

@@ -125,7 +125,11 @@ type LateOnly = Cancellation.LateAllowed | Cancellation.LatePenalised | Cancella
 enum BookingStatus:
   case Booked
   case Waitlisted
-  case Cancelled(how: Cancellation.OnTime)
+  // Cancelled pairs with a non-penalised outcome. Member cancels land here
+  // only when on-time; a late-but-unpenalised cancel (staff decision,
+  // provider session-cancel) carries LateAllowed with the cause explaining
+  // why — the constructor functions pair those two, never the member path.
+  case Cancelled(how: Cancellation.OnTime | Cancellation.LateAllowed)
   case LateCancelled(how: LateOnly)
   case Attended
   case NoShow
@@ -265,6 +269,90 @@ def refund(e: Entitlement, amount: Int): Entitlement = (e, amount) match
   case (Entitlement.Credits(b), a) => Entitlement.Credits(b.add(a))
 
 // ---------------------------------------------------------------------------
+// 9. Records are mandatory, not optional.
+//    Cancel paths return exactly one CancellationRecord — no cancelled booking without
+//    one. CancellationRecord.of refuses hand-built nonsense: cause must agree with
+//    status (NoShow with NoShow, terminal statuses otherwise; Booked and
+//    friends never carry records) and the refund cannot exceed the stamp.
+//    Retroactive waiver (reassess) compensates only a standing LOSE_CREDIT
+//    forfeit; everything else names its refusal, mirroring InvalidWaiver.
+// ---------------------------------------------------------------------------
+enum Cause:
+  case MemberCancel, StaffDecision, SessionCancelled, NoShow
+
+final case class CancellationRecord private (
+  cause: Cause, status: BookingStatus, refunded: Int, spent: Stamp
+)
+
+object CancellationRecord:
+  def of(cause: Cause, status: BookingStatus, refunded: Int,
+         spent: Stamp): Either[String, CancellationRecord] =
+    val causeOk = (cause, status) match
+      case (Cause.NoShow, BookingStatus.NoShow) => true
+      case (Cause.NoShow, _)                     => false
+      case (_, BookingStatus.NoShow)             => false
+      case (_, BookingStatus.Cancelled(_) | BookingStatus.LateCancelled(_)) =>
+        true
+      case _ => false
+    if !causeOk then Left("record cause and status disagree")
+    else if refunded < 0 || refunded > spent.credits then
+      Left("refund exceeds stamp")
+    else Right(new CancellationRecord(cause, status, refunded, spent))
+
+// The only ways to make a CancellationRecord. Member cancels derive status from the
+// decision; staff and provider cancels never penalise (full stamp refund,
+// status CANCELLED even when late — the cause, not the policy, explains
+// why); no-shows keep the stamp spent.
+def cancelMember(policy: Policy, venue: VenueId, start: Instant, now: Instant,
+                 spent: Stamp, waiver: Option[Waiver]): CancellationRecord =
+  val cancellation = decide(policy, start, now, venue, waiver)
+  val status = cancellation match
+    case o: Cancellation.OnTime         => BookingStatus.Cancelled(o)
+    case l: Cancellation.LateAllowed   => BookingStatus.LateCancelled(l)
+    case l: Cancellation.LatePenalised => BookingStatus.LateCancelled(l)
+    case l: Cancellation.LateWaived    => BookingStatus.LateCancelled(l)
+  CancellationRecord.of(Cause.MemberCancel, status, refundAmount(cancellation, spent), spent)
+    .toOption.get
+
+def cancelUnpenalised(cause: Cause, policy: Policy, venue: VenueId,
+                      start: Instant, now: Instant, spent: Stamp): CancellationRecord =
+  val cutoff = start.minus(policy.window.duration)
+  val status =
+    if !now.isAfter(cutoff) then BookingStatus.Cancelled(Cancellation.OnTime(now))
+    else BookingStatus.Cancelled(Cancellation.LateAllowed(now))
+  CancellationRecord.of(cause, status, spent.credits, spent).toOption.get
+
+def cancelStaff(policy: Policy, venue: VenueId, start: Instant, now: Instant,
+                spent: Stamp): CancellationRecord =
+  cancelUnpenalised(Cause.StaffDecision, policy, venue, start, now, spent)
+
+def cancelSession(policy: Policy, venue: VenueId, start: Instant, now: Instant,
+                  spent: Stamp): CancellationRecord =
+  cancelUnpenalised(Cause.SessionCancelled, policy, venue, start, now, spent)
+
+def markNoShow(spent: Stamp): CancellationRecord =
+  CancellationRecord.of(Cause.NoShow, BookingStatus.NoShow, 0, spent).toOption.get
+
+// Retroactive waiver: compensates a standing LOSE_CREDIT forfeit, nothing
+// else. The grant is re-verified against the venue here, the way the write
+// transaction re-checks — a stored record is no fresher than a passed ID.
+def reassess(record: CancellationRecord, venue: VenueId, waiver: Waiver): Either[String, Int] =
+  if !appliesAt(waiver.grant.scope, venue) then Left("waiver grant covers another scope")
+  else record match
+    case CancellationRecord(Cause.MemberCancel,
+                BookingStatus.LateCancelled(
+                  Cancellation.LatePenalised(_, Enforcement.LoseCredit)),
+                0, spent) if spent.credits > 0 =>
+      Right(spent.credits)
+    case CancellationRecord(Cause.MemberCancel,
+                BookingStatus.LateCancelled(
+                  Cancellation.LatePenalised(_, Enforcement.LoseCredit)),
+                _, _) =>
+      Left("no standing forfeit to waive")
+    case _ =>
+      Left("record carries no compensable forfeit")
+
+// ---------------------------------------------------------------------------
 @main def demo(): Unit =
   val window = CancelWindow.of(Duration.ofHours(12)).toOption.get
   val home = VenueId(OrgId(1), 2)
@@ -314,3 +402,12 @@ def refund(e: Entitlement, amount: Int): Entitlement = (e, amount) match
     isDutyStaff(wide, UserId(7), home))
   println(s"org-wide manager enters free at foreign venue -> " +
     isDutyStaff(wide, UserId(7), VenueId(OrgId(9), 3))) // false: venue owns its org
+  val lateAt = Instant.parse("2026-11-02T10:00:00Z")
+  val memberRecord = cancelMember(policy, home, start, lateAt, spent, None)
+  println(s"member late cancel writes one record -> $memberRecord")
+  println(s"retroactive waiver of fee record -> ${reassess(memberRecord, home, waiver.get)}")
+  val losePolicy = Policy.of(SessionKind.Group, window, Enforcement.LoseCredit).toOption.get
+  val forfeit = cancelMember(losePolicy, home, start, lateAt, spent, None)
+  println(s"member late lose-credit cancel -> $forfeit")
+  println(s"retroactive waiver of forfeit -> ${reassess(forfeit, home, waiver.get)}")
+  println(s"staff cancel writes one record -> ${cancelStaff(policy, home, start, lateAt, spent)}")
