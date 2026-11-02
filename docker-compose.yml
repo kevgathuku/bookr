@@ -1,3 +1,14 @@
+x-bookr-env: &bookr-env
+  DJANGO_SETTINGS_MODULE: config.settings.prod
+  DATABASE_URL: postgres://bookr:bookr@db:5432/bookr
+  SECRET_KEY: rehearsal-only-insecure-key # prod injects its own
+  ALLOWED_HOSTNAMES: localhost
+  CELERY_EAGER: "0"
+  CELERY_BROKER_URL: redis://redis:6379/0
+  EMAIL_HOST: mailpit
+  EMAIL_PORT: "1025"
+  EMAIL_USE_TLS: "False"
+
 services:
   db:
     build: ./docker/postgres
@@ -16,6 +27,101 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  redis:
+    # Task broker for the worker/beat pair (bookr-0sr.8). No volume:
+    # queued tasks are transient; a restart redelivers nothing.
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailpit:
+    # Member notices land here in the rehearsal (SMTP :1025, UI on host
+    # :8026 — :8025 routinely belongs to another local tool).
+    # No auth on the UI: localhost-bound like flower, prod keeps it private.
+    image: axllent/mailpit
+    ports:
+      - "127.0.0.1:8026:8025"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8025/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    # Dress-rehearsal prod image (Dockerfile). Migrates on boot so a fresh
+    # checkout serves with zero manual steps.
+    build: .
+    image: bookr-web
+    environment:
+      <<: *bookr-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn config.wsgi --bind 0.0.0.0:8000 --workers 3"
+
+  worker:
+    # Owns promote_waitlist + sweep_expired_holds off the eager path.
+    build: .
+    image: bookr-web
+    environment:
+      <<: *bookr-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "config.celery", "worker", "--loglevel=info"]
+
+  beat:
+    # Fires the CELERY_BEAT_SCHEDULE sweep every quarter hour. Schedule
+    # file lives in /tmp: the image runs as non-root without /app write.
+    build: .
+    image: bookr-web
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+      DATABASE_URL: postgres://bookr:bookr@db:5432/bookr
+      SECRET_KEY: rehearsal-only-insecure-key # prod injects its own
+      ALLOWED_HOSTNAMES: localhost
+      <<: *bookr-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: [
+      "celery", "-A", "config.celery", "beat",
+      "--loglevel=info",
+      "--schedule", "/tmp/celerybeat-schedule",
+    ]
+
+  flower:
+    # Task observability for worker/beat. Staff-only like the admin:
+    # basic-auth credentials arrive as environment (flower reads FLOWER_*
+    # natively, no shell quoting involved), and the port binds localhost
+    # — prod fronts it with the same proxy/auth as the admin.
+    build: .
+    image: bookr-web
+    environment:
+      <<: *bookr-env
+      FLOWER_BASIC_AUTH: ${FLOWER_BASIC_AUTH:-staff:rehearsal-only}
+    ports:
+      - "127.0.0.1:5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    command: ["celery", "-A", "config.celery", "flower", "--port=5555"]
 
 volumes:
   bookr-pgdata:

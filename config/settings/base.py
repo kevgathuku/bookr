@@ -2,6 +2,7 @@
 environment behavior live in dev.py / prod.py — never here."""
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
@@ -55,13 +56,21 @@ CACHES = {
 }
 
 # Celery: eager inline in dev/test (no broker needed); prod sets
-# CELERY_EAGER=0 and runs worker/beat (services owned by docker ticket 4cs).
+# CELERY_EAGER=0 and runs the compose worker/beat pair on the redis broker.
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_EAGER", "1") == "1"
-CELERY_BEAT_SCHEDULE: dict = {}
+# Holds lapse on an hour window; sweeping every quarter hour bounds
+# the wait between a lapse and its seat passing to the queue head.
+CELERY_BEAT_SCHEDULE: dict = {
+    "sweep-expired-holds": {
+        "task": "booking.sweep_expired_holds",
+        "schedule": timedelta(minutes=15),
+    },
+}
 
-# Mail: console backend in dev/test; SMTP in prod via EMAIL_HOST* env.
-# Member notices live in booking/notifications.py (post-commit sends).
+# Mail: member notices (booking/notifications.py) send through the Django
+# 6.1 MAILERS mapping (console in dev, SMTP in prod). Classic EMAIL_*
+# settings are deprecated and explode when combined with MAILERS.
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "bookr@example.com")
 
 REST_FRAMEWORK = {

@@ -11,6 +11,7 @@ SECRET_KEY = os.environ["SECRET_KEY"]
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
+# Console backend: member notices print instead of sending.
 MAILERS = {
     "default": {
         "BACKEND": "django.core.mail.backends.console.EmailBackend",

@@ -1,6 +1,6 @@
 # Spec: Scoped cancellation policies and plan memberships remodel
 
-Status: ready-for-agent
+Status: shipped — all ten child tickets (.1–.10) closed; verified by bookr-0sr.8
 
 ## Problem Statement
 
@@ -83,7 +83,7 @@ Platform:
 - Refunds return exactly the stamped spend. Session cancel loops locked booking rows, refunds each booking its own stamped amount (mixed receipts from mid-sale repricing refund correctly; unlimited-monthly members stamped zero refund zero), releases every booking, and writes one uniform record per released booking; repeats and member-vs-session races are safe by lock plus cancelled-at guard.
 - Cancelling returns the record; side effects fire only after commit; the clock is injectable. Statuses keep late-cancelled on waived and staff-decided outcomes (history honest) while penalties follow the decider: members pay for their own choice, never for a teacher's or staffer's. Desk flows carry an explicit on-behalf flag distinguishing "member requested, apply policy" from "our decision, no penalty"; contradictory waive-plus-no-penalty calls raise; staff-initiated cancels require a reason.
 - Retroactive waiver (after an enforced cancel) is a compensating ledger adjustment row linked to the record — never a history rewrite. Balances move at waiver time, never backdated; one waiver adjustment per record (idempotent); the original enforced record stands as what happened at cancel time.
-- No-show and check-in producers are carried over (status-only check-in; no-show writes a late record inside the post-start window derived from session end); waitlist and holds defer to a follow-up ticket, subscribing to the seat-freed event later.
+- No-show and check-in producers are carried over (status-only check-in; no-show writes a late record inside the post-start window derived from session end); waitlist and holds shipped in .9, subscribing to the seat-freed event (cancel/no-show promote, sweep releases lapsed holds).
 - Authoring-layer guardrails make uncovered-by-mistake rare and visible: auto-created org-wide `NONE` baseline rule on org creation, last-rule-deletion protection, and an admin coverage matrix (venue × category × plan type showing the winning rule or designed-free). Lookup stays total and honest.
 - Kept exactly as-is: organization and venue slugs with current uniqueness, venue time-zone field name with IANA validation and UTC default, slug-based routing/headers/seeds, and the typed-error-to-HTTP mapping (insufficient credits still surfaces as 402).
 - Migration mechanics for the dev phase (no production data): fresh initial migrations per touched app with no data migrations, backfills, or archives; seed tasks rewritten for the new graph (org, venue, plans with validity, offerings, sessions, users, roles, memberships, baseline `NONE` rule). Seeds include plans plus memberships for every demo user, since the services assume a paying membership is always present. Model-level defaults are ordinary field definitions.
@@ -101,10 +101,10 @@ Platform:
 
 ## Out of Scope
 
-Payment processing of any kind (no fee path exists to integrate; nothing is owed to a provider); native mobile apps; marketing CRM; automatic member bans (flag-only throttling carries over); waitlist and hold mechanics (deferred to a follow-up ticket, not dropped); the check-in timestamp (status-only check-in ships); aggregator allotments against the new catalogue; frontend changes for the new rules and plans vocabulary; data migration, backfills, and history archiving (dev phase; seeds recreate everything).
+Payment processing of any kind (no fee path exists to integrate; nothing is owed to a provider); native mobile apps; marketing CRM; automatic member bans (flag-only throttling carries over); the check-in timestamp (status-only check-in ships); data migration, backfills, and history archiving (dev phase; seeds recreate everything). Shipped during the remodel: waitlist and hold mechanics (.9), aggregator allotments against the new catalogue (.5), frontend changes for the new rules and plans vocabulary (bookr-9pt).
 
 ## Further Notes
 
-- The project glossary needs updating on implementation: `Membership` no longer means "a person's role" (that is now role/`OrgRole`) but "a plan a specific user bought"; versioned `Venue policy` is superseded by scoped cancellation rules; the separate `CreditLedger` is re-keyed onto plan memberships with the balance field as cache; `Strike` is now explicitly a non-waived `STRIKE`-enforcement late record; `Pass`/`PassProduct` become plan/`MembershipPlan`.
+- The project glossary was updated on implementation (GLOSSARY.md, remodel vocabulary): `Membership` no longer means "a person's role" (that is now role/`OrgRole`) but "a plan a specific user bought"; versioned `Venue policy` is superseded by scoped cancellation rules; the separate `CreditLedger` is re-keyed onto plan memberships with the balance field as cache; `Strike` is now explicitly a non-waived `STRIKE`-enforcement late record; `Pass`/`PassProduct` become plan/`MembershipPlan`.
 - All eleven grill decisions (plus sub-decisions: offering price and duration fields, initiator/on-behalf/reason-required semantics, re-keyed ledger with record link, plan validity duration, door-validity as monthly-valid-or-balance>0 within dates) resolved into the decisions above; the per-ticket decision pointers in the tracker now read as settled, with triggers noted where a future change reopens one (per-user waiver granularity, payments integration).
 - This spec mirrors the tracked epic for the remodel; the two should be kept in sync if anything reopens.

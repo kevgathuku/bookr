@@ -1,6 +1,6 @@
 # Bookr
 
-How venues sell and fill classes, appointments, and door access on one platform.
+How venues sell and fill classes and door access on one platform.
 
 > Reflects the approved scoped-policies + plan-memberships remodel
 > (`spec-remodel.md`). Entries marked **(remodelled)** changed meaning;
@@ -14,7 +14,7 @@ The business running venues on the platform.
 _Avoid_: tenant, account, company
 
 **Venue**:
-One location where classes and appointments happen.
+One location where classes happen.
 _Avoid_: gym, club
 
 **Cancellation rule** (remodelled):
@@ -72,13 +72,13 @@ rows, not edits.
 _Avoid_: log entry
 
 **Waitlist**:
-The first-come queue for a full class. Deferred to a follow-up ticket;
-cancel paths already free the seat it will subscribe to.
+The first-come queue for a full class. Cancel paths free the seat the
+queue head subscribes to.
 _Avoid_: standby list
 
 **Hold**:
-The window a promoted waitlister has to claim the seat. Deferred with the
-waitlist.
+The window a promoted waitlister has to claim the seat; lapses sweep
+back to the queue.
 _Avoid_: timeout
 
 **Late cancel**:
