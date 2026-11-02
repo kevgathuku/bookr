@@ -15,7 +15,7 @@ from tests.factories import (
     user_with_role,
 )
 
-#  Schedule API seam: GET /api/v1/classes/ is bounded (31d max), cheap
+#  Schedule API seam: GET /api/v1/sessions/ is bounded (31d max), cheap
 #  (memberships + org-roles loads; contract drops the legacy load), and
 #  venue-scoped. Publishing is staff-only.
 #

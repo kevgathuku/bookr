@@ -11,7 +11,7 @@ import {
 	type RosterRow,
 	searchMembers,
 	useDoorEvents,
-	useMemberPasses,
+	useMemberMemberships,
 	useRoster,
 } from "../hooks";
 import { formatInVenueTimeZone, useVenue, venueTimeZone } from "../venue";
@@ -93,7 +93,7 @@ export function MemberLookup() {
 	const [reason, setReason] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [done, setDone] = useState<string | null>(null);
-	const passes = useMemberPasses(member?.id ?? null);
+	const passes = useMemberMemberships(member?.id ?? null);
 	const adjust = useMutation({
 		mutationFn: () => adjustPass(Number(passId), Number(delta), reason),
 		onSuccess: () => {

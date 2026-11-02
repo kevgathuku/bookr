@@ -152,7 +152,7 @@ export async function searchMembers(query: string): Promise<MemberHit[]> {
 	);
 }
 
-export function useMemberPasses(memberId: number | null) {
+export function useMemberMemberships(memberId: number | null) {
 	return useQuery({
 		queryKey: ["desk", "passes", memberId],
 		queryFn: () =>

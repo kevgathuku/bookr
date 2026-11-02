@@ -17,7 +17,7 @@ from passes.services import spend_for_booking
 from scheduling.models import ClassCategory, ClassSession
 
 # Promotion reserves the seat this long; the sweep releases lapsed holds.
-# No VenuePolicy model exists yet (SPEC §3.2 foresaw per-venue config),
+# No per-venue config model exists yet (SPEC §3.2 foresaw one),
 # so one explicit constant until a venue asks otherwise.
 HOLD_WINDOW_MINUTES = 60
 

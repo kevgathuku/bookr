@@ -62,7 +62,7 @@ describe("apiFetch refresh", () => {
 		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([]));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await apiJson("/api/v1/classes/");
+		await apiJson("/api/v1/sessions/");
 
 		const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
 		expect((init.headers as Headers).get("X-Venue-Slug")).toBe("main");
