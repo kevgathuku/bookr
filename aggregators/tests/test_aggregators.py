@@ -55,6 +55,23 @@ def _setup_partner():
 
 
 class TestTokens:
+    def test_aggregator_str(self):
+        assert str(_partner("classpass")) == "classpass"
+
+    def test_event_log_newest_first(self):
+        partner = _partner("logpass")
+        old = AggregatorEventLog.objects.create(
+            aggregator=partner, method="POST", path="/old", status_code=200
+        )
+        AggregatorEventLog.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timedelta(hours=1)
+        )
+        fresh = AggregatorEventLog.objects.create(
+            aggregator=partner, method="POST", path="/new", status_code=200
+        )
+
+        assert list(AggregatorEventLog.objects.all()) == [fresh, old]
+
     def test_verify_accepts_issued_token(self):
         raw, token_hash = new_token()
 

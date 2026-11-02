@@ -98,6 +98,54 @@ def _check(token, member_pk, point_pk):
     )
 
 
+class TestAccessPointModel:
+    def test_token_roundtrip(self):
+        point, token = _point(_venue("token"))
+
+        assert point.check_token(token) is True
+        assert point.check_token("wrong-token") is False
+
+    def test_blank_hash_denies(self):
+        point = AccessPoint.objects.create(
+            venue=_venue("blank"), name="No Token", controller_id="door-9"
+        )
+
+        assert point.check_token("anything") is False
+
+    def test_str(self):
+        point, _token = _point(_venue("str"))
+
+        assert str(point) == f"Front Door @ {point.venue}"
+
+    def test_controller_unique_per_venue(self):
+        from django.db import IntegrityError
+
+        venue = _venue("dup")
+        _point(venue)
+
+        with pytest.raises(IntegrityError):
+            AccessPoint.objects.create(
+                venue=venue, name="Back Door", controller_id="door-1"
+            )
+
+    def test_event_str_and_newest_first(self):
+        venue = _venue("events")
+        point, _token = _point(venue)
+        member = _member_with_plan(venue, "event-member")
+        old = AccessEvent.objects.create(
+            access_point=point, member=member, granted=False, reason="no_access"
+        )
+        AccessEvent.objects.filter(pk=old.pk).update(
+            occurred_at=timezone.now() - timedelta(hours=1)
+        )
+        fresh = AccessEvent.objects.create(
+            access_point=point, member=member, granted=True, reason="active_pass"
+        )
+
+        assert str(fresh) == f"{point}: grant {member} (active_pass)"
+        assert list(AccessEvent.objects.all()) == [fresh, old]
+
+
 class TestGrantDeny:
     def test_active_pass_grants_and_logs(self):
         venue = _venue()

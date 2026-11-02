@@ -348,6 +348,64 @@ class TestMemberOutcome:
         assert outcome.reason == "for sam"
 
 
+class TestPolicyModel:
+    def test_specificity_counts_scopes(self):
+        venue = _venue()
+        org = venue.organization
+
+        assert _policy(org, NONE).specificity == 0
+        assert _policy(org, NONE, venue=venue, priority=1).specificity == 1
+        assert (
+            _policy(
+                org, NONE, venue=venue, plan_type=PlanType.CREDIT_PACK, priority=2
+            ).specificity
+            == 2
+        )
+        assert (
+            _policy(
+                org,
+                NONE,
+                venue=venue,
+                class_category=ClassCategory.GROUP,
+                plan_type=PlanType.CREDIT_PACK,
+                priority=3,
+            ).specificity
+            == 3
+        )
+
+    def test_overlaps(self):
+        venue = _venue()
+        org = venue.organization
+        plain = _policy(org, NONE)
+        pinned = _policy(org, NONE, venue=venue, priority=1)
+        far = VenueFactory(organization=org, slug="far")
+        elsewhere = _policy(org, NONE, venue=far, priority=2)
+
+        assert plain.overlaps(pinned) is True
+        assert pinned.overlaps(plain) is True
+        assert pinned.overlaps(elsewhere) is False
+
+    def test_str(self):
+        policy = _policy(_venue().organization, STRIKE)
+
+        assert str(policy) == f"policy #{policy.pk} (0 scopes)"
+
+    def test_record_str(self):
+        venue = _venue()
+        session = _session(venue)
+        member = _member("m1", venue, credits=10)
+        _policy(venue.organization, LATE)
+        booking = _book(member, session)
+        record = cancel_booking(
+            booking_id=booking.pk,
+            actor=member,
+            now=timezone.now(),
+            reason="change of plans",
+        )
+
+        assert str(record) == f"cancel record #{record.pk} (member_cancel)"
+
+
 class TestMemberCancel:
     def test_early_cancel_refunds_and_records(self):
         venue = _venue()

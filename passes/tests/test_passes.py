@@ -1,4 +1,6 @@
 import pytest
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.db.models import Sum
 from rest_framework.test import APIClient
 
@@ -10,7 +12,7 @@ from passes.models import (
 from passes.models import (
     Membership as PlanMembership,
 )
-from tests.factories import UserFactory
+from tests.factories import CreditLedgerFactory, UserFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -66,6 +68,84 @@ def _member_plan(venue, username, credits=10, plan=None):
         user=member, plan=plan, credits_remaining=credits
     )
     return member, membership
+
+
+class TestLedgerModel:
+    def test_str(self):
+        _, membership = _member_plan(_venue("ledger-str"), "str", credits=10)
+        entry = CreditLedgerFactory(membership=membership, delta=5)
+
+        assert str(entry) == "str → Pack (credit_pack) (10 left): +5 (purchase)"
+
+    def test_delete_refused(self):
+        _, membership = _member_plan(_venue("ledger-del"), "del")
+        entry = CreditLedgerFactory(membership=membership, delta=5)
+
+        with pytest.raises(ValidationError):
+            entry.delete()
+
+    def test_zero_delta_rejected(self):
+        _, membership = _member_plan(_venue("ledger-zero"), "zero")
+
+        with pytest.raises(IntegrityError):
+            CreditLedgerFactory(membership=membership, delta=0)
+
+    def test_second_waiver_for_record_rejected(self):
+        from booking.models import Booking, CancellationRecord
+        from tests.factories import (
+            ClassSessionFactory,
+            PlanFactory,
+            PlanMembershipFactory,
+        )
+
+        session = ClassSessionFactory()
+        org = session.offering.venue.organization
+        member = UserFactory(username="waive")
+        plan = PlanFactory(organization=org)
+        membership = PlanMembershipFactory(user=member, plan=plan, credits_remaining=10)
+        booking = Booking.objects.create(
+            session=session, member=member, membership=membership, credits_spent=2
+        )
+        record = CancellationRecord.objects.create(
+            booking=booking,
+            member=member,
+            organization=org,
+            cause="member_cancel",
+            was_late=True,
+            enforcement_applied="lose_credit",
+            snapshot={},
+        )
+        CreditLedgerFactory(membership=membership, cancellation_record=record, delta=2)
+
+        with pytest.raises(IntegrityError):
+            CreditLedgerFactory(
+                membership=membership, cancellation_record=record, delta=2
+            )
+
+    def test_plan_str(self):
+        _, membership = _member_plan(_venue("plan-str"), "plan")
+
+        assert str(membership.plan) == "Pack (credit_pack)"
+
+    def test_membership_str(self):
+        _, membership = _member_plan(_venue("member-str"), "mem", credits=10)
+
+        assert str(membership) == "mem → Pack (credit_pack) (10 left)"
+
+    def test_membership_clean_rejects_inverted_dates(self):
+        from datetime import date
+
+        _, membership = _member_plan(_venue("member-dates"), "dates")
+        membership.starts_on = date(2026, 2, 1)
+        membership.ends_on = date(2026, 1, 1)
+
+        with pytest.raises(ValidationError):
+            membership.clean()
+
+    def test_membership_clean_accepts_ordered_dates(self):
+        _, membership = _member_plan(_venue("member-ok"), "ok")
+
+        membership.clean()
 
 
 class TestSpend:

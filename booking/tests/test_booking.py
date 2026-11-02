@@ -95,6 +95,48 @@ def _session(venue, price=1, capacity=2, teacher=None):
     )
 
 
+class TestBookingModel:
+    def test_str(self):
+        venue = _venue("str")
+        member = _member("str-member", venue)
+        session = _session(venue)
+        booking = book_session(session=session, member=member)
+
+        assert str(booking) == f"{member} → {session} (booked)"
+
+    def test_clean_rejects_foreign_membership(self):
+        venue = _venue("foreign")
+        member = _member("foreign-member", venue)
+        other = _member("other-member", venue)
+        session = _session(venue)
+        booking = book_session(session=session, member=member)
+        booking.membership = other.plan_memberships.get()
+
+        with pytest.raises(ValidationError):
+            booking.clean()
+
+    def test_clean_rejects_cross_org_plan(self):
+        venue = _venue("home")
+        away = _venue("away")
+        member = _member("away-member", away)
+        session = _session(venue)
+        membership = member.plan_memberships.get()
+        booking = Booking(
+            session=session, member=member, membership=membership, credits_spent=0
+        )
+
+        with pytest.raises(ValidationError):
+            booking.clean()
+
+    def test_clean_accepts_matching_rows(self):
+        venue = _venue("match")
+        member = _member("match-member", venue)
+        session = _session(venue)
+        booking = book_session(session=session, member=member)
+
+        booking.clean()
+
+
 class TestBookSession:
     def test_confirmed_while_seats_remain(self):
         venue = _venue("downtown")
