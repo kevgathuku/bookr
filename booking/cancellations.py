@@ -8,6 +8,7 @@ ones arrive as linked ledger adjustments. No fee path anywhere.
 
 import dataclasses
 from datetime import timedelta
+from typing import assert_never
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
@@ -326,7 +327,20 @@ def _write_record(booking, session, organization, outcome, actor, late, waive_pe
     return record
 
 
-def _member_outcome(policy, late, penalize, waive_penalty, stamp, on_behalf, reason):
+def _member_outcome(
+    policy: CancellationPolicy,
+    late: bool,
+    penalize: bool,
+    waive_penalty: bool,
+    stamp: int,
+    on_behalf: bool,
+    reason: str,
+) -> _Outcome:
+    # Annotations are load-bearing: mypy 2.x skips fully-unannotated
+    # functions, which would silence assert_never below. Enforcement rides
+    # its own branches (never folded into the late/waive condition) so a
+    # new member fails mypy until handled.
+    enforcement = CancellationPolicy.Enforcement(policy.enforcement)
     none = CancellationPolicy.Enforcement.NONE
     late_status = Booking.Status.LATE_CANCELLED
     member_cancel = CancellationRecord.Cause.MEMBER_CANCEL
@@ -340,12 +354,22 @@ def _member_outcome(policy, late, penalize, waive_penalty, stamp, on_behalf, rea
             False,
             reason,
         )
-    if not late or policy.enforcement == none or waive_penalty:
+    if not late or waive_penalty:
         status = late_status if late else Booking.Status.CANCELLED
         return _Outcome(none, stamp, member_cancel, status, policy, on_behalf, reason)
-    if policy.enforcement == CancellationPolicy.Enforcement.LOSE_CREDIT:
+    if enforcement == CancellationPolicy.Enforcement.NONE:
         return _Outcome(
-            policy.enforcement,
+            none,
+            stamp,
+            member_cancel,
+            late_status,
+            policy,
+            on_behalf,
+            reason,
+        )
+    if enforcement == CancellationPolicy.Enforcement.LOSE_CREDIT:
+        return _Outcome(
+            enforcement,
             0,
             member_cancel,
             late_status,
@@ -353,15 +377,17 @@ def _member_outcome(policy, late, penalize, waive_penalty, stamp, on_behalf, rea
             on_behalf,
             reason,
         )
-    return _Outcome(
-        policy.enforcement,
-        stamp,
-        member_cancel,
-        late_status,
-        policy,
-        on_behalf,
-        reason,
-    )
+    if enforcement == CancellationPolicy.Enforcement.STRIKE:
+        return _Outcome(
+            enforcement,
+            stamp,
+            member_cancel,
+            late_status,
+            policy,
+            on_behalf,
+            reason,
+        )
+    assert_never(enforcement)
 
 
 def _cancel_one_for_session(booking, session, venue, organization, actor):

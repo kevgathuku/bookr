@@ -6,10 +6,11 @@ Sending is best-effort: a mail outage must never fail the booking write.
 """
 
 import logging
+from typing import assert_never
 
 from django.core.mail import send_mail
 
-from booking.models import CancellationPolicy
+from booking.models import CancellationPolicy, CancellationRecord
 
 logger = logging.getLogger(__name__)
 
@@ -52,17 +53,26 @@ def _outcome_text(record):
     return _late_outcome_text(record, refunded)
 
 
-def _late_outcome_text(record, refunded):
+def _late_outcome_text(record: CancellationRecord, refunded: int) -> str:
+    # Annotations are load-bearing: mypy 2.x skips fully-unannotated
+    # functions, which would silence assert_never below.
     if record.penalty_waived:
         return (
             "cancelled late but the penalty was waived and "
             f"{refunded} credit(s) refunded"
         )
-    if record.enforcement_applied == CancellationPolicy.Enforcement.STRIKE:
+    # Enum-typed so a new Enforcement member fails mypy below until handled.
+    enforcement = CancellationPolicy.Enforcement(record.enforcement_applied)
+    if enforcement == CancellationPolicy.Enforcement.STRIKE:
         return f"cancelled late and {refunded} credit(s) refunded, strike recorded"
     if refunded:
         return f"cancelled late and {refunded} credit(s) refunded"
-    return "cancelled late and the credit was forfeited"
+    if (
+        enforcement == CancellationPolicy.Enforcement.LOSE_CREDIT
+        or enforcement == CancellationPolicy.Enforcement.NONE
+    ):
+        return "cancelled late and the credit was forfeited"
+    assert_never(enforcement)
 
 
 def notify_session_cancelled(record):
