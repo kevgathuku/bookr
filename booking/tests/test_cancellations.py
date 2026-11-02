@@ -9,6 +9,7 @@ from datetime import timedelta
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import IntegrityError
 from django.utils import timezone
 
 from booking.cancellations import (
@@ -529,6 +530,42 @@ class TestHeldRelease:
 
         with pytest.raises(AlreadyCancelled):
             check_in(booking_id=waiting.pk, actor=desk)
+
+    def test_waived_record_without_actor_rejected_at_db(self):
+        venue = _venue()
+        session = _session(venue)
+        member = _member("waived", venue, credits=10)
+        booking = _book(member, session)
+
+        with pytest.raises(IntegrityError):
+            CancellationRecord.objects.create(
+                booking=booking,
+                member=member,
+                organization=venue.organization,
+                cause="member_cancel",
+                was_late=True,
+                enforcement_applied="lose_credit",
+                penalty_waived=True,
+                waived_by=None,
+                snapshot={},
+            )
+
+    def test_ontime_record_with_enforcement_rejected_at_db(self):
+        venue = _venue()
+        session = _session(venue)
+        member = _member("ontime", venue, credits=10)
+        booking = _book(member, session)
+
+        with pytest.raises(IntegrityError):
+            CancellationRecord.objects.create(
+                booking=booking,
+                member=member,
+                organization=venue.organization,
+                cause="member_cancel",
+                was_late=False,
+                enforcement_applied="lose_credit",
+                snapshot={},
+            )
 
 
 class TestMemberCancel:

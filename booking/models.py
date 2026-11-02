@@ -53,6 +53,11 @@ class Booking(models.Model):
                 condition=models.Q(status__in=ACTIVE_STATUSES),
                 name="one_active_session_booking",
             ),
+            models.CheckConstraint(
+                condition=models.Q(hold_expires_at__isnull=True)
+                | models.Q(status="held"),
+                name="hold_requires_held",
+            ),
         ]
 
     def clean(self):
@@ -202,6 +207,20 @@ class CancellationRecord(models.Model):
     credits_refunded = models.PositiveIntegerField(default=0)
     snapshot = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=models.Q(penalty_waived=False)
+                | models.Q(waived_by__isnull=False),
+                name="waiver_requires_actor",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(was_late=True)
+                | models.Q(enforcement_applied="none"),
+                name="ontime_enforcement_none",
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         # Append-only: forgiveness arrives as a linked ledger adjustment.

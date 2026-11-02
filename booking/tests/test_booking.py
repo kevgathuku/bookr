@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.utils import timezone
 
 from booking.errors import CreditInsufficient, DuplicateBooking, SeatFull
@@ -162,6 +162,22 @@ class TestBookingModel:
                 member=member,
                 membership=member.plan_memberships.get(),
                 credits_spent=0,
+            )
+
+    def test_hold_on_non_held_status_rejected_at_db(self):
+        venue = _venue("hold-db")
+        member = _member("hold-db-member", venue)
+        session = _session(venue)
+        membership = member.plan_memberships.get()
+
+        with pytest.raises(IntegrityError):
+            Booking.objects.create(
+                session=session,
+                member=member,
+                membership=membership,
+                credits_spent=0,
+                status="booked",
+                hold_expires_at=timezone.now() + timedelta(hours=1),
             )
 
 
