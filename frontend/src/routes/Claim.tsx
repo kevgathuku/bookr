@@ -32,7 +32,7 @@ function RequestLink() {
 	const [sent, setSent] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
-	async function submit(event: React.FormEvent): Promise<void> {
+	async function submit(event: React.SubmitEvent): Promise<void> {
 		event.preventDefault();
 		setError(null);
 		try {
@@ -87,7 +87,7 @@ function SetPassword({ uid, token }: { uid: string; token: string }) {
 	const [done, setDone] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
-	async function submit(event: React.FormEvent): Promise<void> {
+	async function submit(event: React.SubmitEvent): Promise<void> {
 		event.preventDefault();
 		setError(null);
 		if (password !== confirm) {

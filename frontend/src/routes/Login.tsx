@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, Navigate, useNavigate } from "react-router";
 import { useAuth } from "../auth";
 import { Button, ErrorText, Field } from "../components";
 
 export default function Login() {
-	const { login } = useAuth();
+	const { login, me, recovered } = useAuth();
 	const navigate = useNavigate();
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
 
-	async function submit(event: React.FormEvent): Promise<void> {
+	async function submit(event: React.SubmitEvent): Promise<void> {
 		event.preventDefault();
 		setError(null);
 		try {
@@ -20,6 +20,8 @@ export default function Login() {
 			setError("Login failed — check your username and password.");
 		}
 	}
+
+	if (recovered && me) return <Navigate to="/" />;
 
 	return (
 		<main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
