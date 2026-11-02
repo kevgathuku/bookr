@@ -17,6 +17,9 @@ def create_user(username):
     User = get_user_model()
     user, created = User.objects.get_or_create(
         username=username,
+        # Dev-seed-only placeholder, stored explicitly: the notify path
+        # uses the stored address and fails loudly when one is missing,
+        # so seeds must never rely on an invented fallback.
         defaults={"email": f"{username}@example.com"},
     )
     if created:

@@ -180,15 +180,15 @@ def test_door_grants_member_denies_stranger(base_url):
 
 
 def _partner_client(base_url, slug="e2e-partner", allotment=1):
-    from django.contrib.auth import get_user_model
     from django.utils import timezone
 
     from aggregators.models import Aggregator
     from aggregators.tokens import new_token
     from scheduling.models import ClassSession
+    from tests.factories import UserFactory
 
     api = f"{base_url}/api/v1"
-    service_user = get_user_model().objects.create_user(username=f"svc-{slug}")
+    service_user = UserFactory(username=f"svc-{slug}")
     raw, token_hash = new_token()
     partner = Aggregator.objects.create(
         slug=slug,

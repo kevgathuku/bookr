@@ -56,6 +56,8 @@ class StaffAggregatorListView(generics.ListCreateAPIView):
         form = StaffAggregatorSerializer(data=request.data)
         form.is_valid(raise_exception=True)
         raw, token_hash = new_token()
+        # Machine account, never a booking member: no address to notify,
+        # so blank email is intentional (notify fails loudly if ever used).
         service_user = get_user_model().objects.create_user(
             username=f"svc-{form.validated_data['slug']}"
         )

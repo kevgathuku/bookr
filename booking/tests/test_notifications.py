@@ -113,7 +113,32 @@ class TestMemberCancelNotice:
         body = mail.outbox[0].body
         assert "cancelled" in mail.outbox[0].subject.lower()
         assert "refunded" in body
-        assert member.email or member.username in mail.outbox[0].to[0]
+        assert mail.outbox[0].to == [member.email]
+
+    def test_missing_email_raises_instead_of_fabricating(self):
+        venue = _venue("notice-noemail")
+        session = _session(venue)
+        member = _member("m1", venue, credits=10)
+        member.email = ""
+        member.save(update_fields=["email"])
+        _policy(venue.organization, LATE)
+        booking = _book(member, session)
+
+        with (
+            pytest.raises(
+                ValueError,
+                match="email",
+            ),
+            TestCase.captureOnCommitCallbacks(execute=True),
+        ):
+            cancel_booking(
+                booking_id=booking.pk,
+                actor=member,
+                now=timezone.now(),
+                reason="change of plans",
+            )
+
+        assert len(mail.outbox) == 0
 
     def test_late_forfeit_says_forfeited(self):
         venue = _venue("notice-forfeit")

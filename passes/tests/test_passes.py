@@ -1,5 +1,4 @@
 import pytest
-from django.contrib.auth import get_user_model
 from django.db.models import Sum
 from rest_framework.test import APIClient
 
@@ -11,6 +10,7 @@ from passes.models import (
 from passes.models import (
     Membership as PlanMembership,
 )
+from tests.factories import UserFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -28,7 +28,7 @@ pytestmark = pytest.mark.django_db
 
 
 def _user(username):
-    return get_user_model().objects.create_user(username=username)
+    return UserFactory(username=username)
 
 
 def _venue(slug="downtown"):

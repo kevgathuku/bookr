@@ -1,11 +1,11 @@
 from datetime import timedelta
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from organizations.models import Organization, OrgRole, Venue
+from tests.factories import UserFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -44,7 +44,7 @@ def _venue(slug="downtown"):
 
 
 def _staff(venue, username="manager", role=OrgRole.Role.MANAGER):
-    user = get_user_model().objects.create_user(username=_unique(username))
+    user = UserFactory(username=_unique(username))
     OrgRole.objects.create(
         organization=venue.organization, venue=venue, user=user, role=role
     )
@@ -52,7 +52,7 @@ def _staff(venue, username="manager", role=OrgRole.Role.MANAGER):
 
 
 def _member(venue, username="member"):
-    user = get_user_model().objects.create_user(username=_unique(username))
+    user = UserFactory(username=_unique(username))
     OrgRole.objects.create(
         organization=venue.organization,
         venue=venue,

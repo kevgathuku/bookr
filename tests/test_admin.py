@@ -10,6 +10,7 @@ from access.models import AccessEvent, AccessPoint
 from organizations.admin_mixins import bookr_site
 from organizations.models import Organization, OrgRole, Venue
 from passes.models import CreditLedger
+from tests.factories import UserFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -24,10 +25,7 @@ pytestmark = pytest.mark.django_db
 
 
 def _user(username, staff=False):
-    user = get_user_model().objects.create_user(username=username)
-    user.is_staff = staff
-    user.save()
-    return user
+    return UserFactory(username=username, is_staff=staff)
 
 
 def _org(slug):
@@ -186,6 +184,45 @@ class TestTokenHash:
         point.refresh_from_db()
 
         assert point.api_token_hash != ""
+
+
+class TestUserEmailRequired:
+    def _manager_client(self):
+        org = _org("org")
+        venue = _venue(org, "main")
+        manager = _user("manager", staff=True)
+        _membership(org, manager, OrgRole.Role.MANAGER, venue)
+        return _admin_client(manager)
+
+    def test_add_without_email_rejected(self):
+        response = self._manager_client().post(
+            "/admin/auth/user/add/",
+            {
+                "username": "noemail",
+                "email": "",
+                "password1": "s3cret-pass!",
+                "password2": "s3cret-pass!",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "email" in response.context["adminform"].form.errors
+        assert not get_user_model().objects.filter(username="noemail").exists()
+
+    def test_add_with_email_creates_user(self):
+        response = self._manager_client().post(
+            "/admin/auth/user/add/",
+            {
+                "username": "mailed",
+                "email": "mailed@example.com",
+                "password1": "s3cret-pass!",
+                "password2": "s3cret-pass!",
+            },
+        )
+
+        assert response.status_code == 302
+        user = get_user_model().objects.get(username="mailed")
+        assert user.email == "mailed@example.com"
 
 
 def _request(user):

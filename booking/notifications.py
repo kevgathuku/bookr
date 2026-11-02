@@ -14,8 +14,6 @@ from booking.models import CancellationPolicy, CancellationRecord
 
 logger = logging.getLogger(__name__)
 
-FALLBACK_DOMAIN = "example.com"
-
 
 def _send(subject, body, to):
     try:
@@ -25,9 +23,11 @@ def _send(subject, body, to):
 
 
 def _address(member):
-    if member.email:
-        return member.email
-    return f"{member.username}@{FALLBACK_DOMAIN}"
+    if not member.email:
+        raise ValueError(
+            f"member {member.username} has no email; refusing to invent one",
+        )
+    return member.email
 
 
 def notify_member_cancel(record):

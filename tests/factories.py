@@ -31,6 +31,7 @@ class UserFactory(factory.django.DjangoModelFactory):
         skip_postgeneration_save = True
 
     username = factory.Sequence(lambda n: f"user-{n}")
+    email = factory.LazyAttribute(lambda user: f"{user.username}@example.com")
 
     @factory.post_generation
     def password(obj, create, extracted, **kwargs):

@@ -40,7 +40,14 @@ _PEOPLE_SPECS = (
 def _e2e_people(org):
     users = {}
     for key, username, role in _PEOPLE_SPECS:
-        user = get_user_model().objects.get_or_create(username=username)[0]
+        user, _ = get_user_model().objects.get_or_create(
+            username=username,
+            defaults={"email": f"{username}@example.com"},
+        )
+        if not user.email:
+            # Backfill pre-email seeds: the notify path fails loudly on a
+            # missing address, so every seeded user carries a stored one.
+            user.email = f"{username}@example.com"
         user.set_password("password")
         user.save()
         ensure_org_role(org, user, role)
