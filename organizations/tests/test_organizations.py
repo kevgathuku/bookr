@@ -1,4 +1,5 @@
 import pytest
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from organizations.models import Organization, OrgRole, Venue
@@ -78,3 +79,24 @@ class TestOrgRole:
         org_role = OrgRoleFactory(role=role, venue=venue)
 
         assert str(org_role) == f"{org_role.user} · {role.value} @ Downtown"
+
+    def test_cross_org_venue_rejected(self):
+        org = OrganizationFactory(slug="home")
+        other = OrganizationFactory(slug="away")
+        venue = VenueFactory(organization=other, slug="away-main")
+        role = OrgRoleFactory(organization=org, venue=venue)
+
+        with pytest.raises(ValidationError):
+            role.full_clean()
+
+    def test_same_org_venue_accepted(self):
+        org = OrganizationFactory(slug="home")
+        venue = VenueFactory(organization=org, slug="home-main")
+        role = OrgRoleFactory(organization=org, venue=venue)
+
+        role.full_clean()
+
+    def test_org_wide_role_accepted(self):
+        role = OrgRoleFactory(venue=None)
+
+        role.full_clean()

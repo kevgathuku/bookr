@@ -62,6 +62,15 @@ class OrgRole(models.Model):
     venue = models.ForeignKey(Venue, null=True, blank=True, on_delete=models.CASCADE)
     role = models.CharField(max_length=20, choices=Role.choices)
 
+    def clean(self):
+        super().clean()
+        if self.venue_id is None or self.organization_id is None:
+            return
+        if self.venue.organization_id != self.organization_id:
+            raise ValidationError(
+                {"venue": "Role venue belongs to another organization."}
+            )
+
     def __str__(self):
         where = self.venue.name if self.venue else "all venues"
         return f"{self.user} · {self.role} @ {where}"
