@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { apiJson } from "./api/client";
 
@@ -58,6 +58,9 @@ export function useSessions(
 				`/api/v1/sessions/?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
 			),
 		enabled: venue !== null,
+		// Week navigation changes the key: keep showing the current week
+		// while the next one loads, so stateful views never unmount.
+		placeholderData: keepPreviousData,
 	});
 }
 
@@ -107,6 +110,8 @@ export function useCalendarEvents(
 		queryKey: ["venue", venue, "calendar", query],
 		queryFn: () => apiJson<CalendarEventItem[]>(`/api/v1/calendar/?${query}`),
 		enabled: venue !== null,
+		// Same as useSessions: never unmount the grid mid-navigation.
+		placeholderData: keepPreviousData,
 	});
 }
 

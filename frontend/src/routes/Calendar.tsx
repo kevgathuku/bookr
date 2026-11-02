@@ -4,7 +4,7 @@ import momentTimezonePlugin from "@fullcalendar/moment-timezone";
 import FullCalendar from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useAuth } from "../auth";
 import { Button, ErrorText } from "../components";
 import {
@@ -66,6 +66,31 @@ export default function Calendar() {
 			seen.set(klass.teacher, klass.teacher_name);
 		return [...seen];
 	}, [sessions.data]);
+	const calendarEvents = useMemo(
+		() => calendarEventsForWeek(events.data),
+		[events.data],
+	);
+	const handleDatesSet = useCallback(
+		(info: { start: Date; end: Date }) =>
+			setRange({
+				from: info.start.toISOString(),
+				to: info.end.toISOString(),
+			}),
+		[],
+	);
+	const handleEventClick = useCallback(
+		(info: { event: { id: string } }) => {
+			const found = (events.data ?? []).find(
+				(event) => event.id === Number(info.event.id),
+			);
+			// Sessions are selectable; booking them wires up in .3.
+			if (found?.kind === "session") {
+				setSelectedId(found.id);
+				setError(null);
+			}
+		},
+		[events.data],
+	);
 	const selected = (events.data ?? []).find((event) => event.id === selectedId);
 
 	if (events.isPending || sessions.isPending) return <SkeletonList />;
@@ -113,23 +138,9 @@ export default function Calendar() {
 				initialView="timeGridWeek"
 				timeZone={timeZone}
 				eventColor="#4f46e5"
-				events={calendarEventsForWeek(events.data)}
-				datesSet={(info) =>
-					setRange({
-						from: info.start.toISOString(),
-						to: info.end.toISOString(),
-					})
-				}
-				eventClick={(info) => {
-					const found = (events.data ?? []).find(
-						(event) => event.id === Number(info.event.id),
-					);
-					// Sessions are selectable; booking them wires up in .3.
-					if (found?.kind === "session") {
-						setSelectedId(found.id);
-						setError(null);
-					}
-				}}
+				events={calendarEvents}
+				datesSet={handleDatesSet}
+				eventClick={handleEventClick}
 			/>
 			{selected ? (
 				<div

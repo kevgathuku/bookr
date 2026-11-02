@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth";
@@ -66,6 +67,76 @@ describe("venue time display", () => {
 		expect(() =>
 			formatInVenueTimeZone("2026-10-28T06:00:00Z", "Narnia/Nowhere"),
 		).toThrow();
+	});
+});
+
+describe("week navigation", () => {
+	afterEach(() => {
+		cleanup();
+		vi.unstubAllGlobals();
+		localStorage.clear();
+	});
+
+	it("keeps the grid mounted while the next week loads", async () => {
+		const user = userEvent.setup();
+		const me = {
+			id: 14,
+			username: "coach",
+			memberships: [{ organization: "o", venue: null, role: "teacher" }],
+			venues: [
+				{
+					organization: "o",
+					slug: "annex",
+					name: "Annex",
+					time_zone: "America/Chicago",
+				},
+			],
+		};
+		const event = {
+			kind: "session",
+			id: 11,
+			title: "Box",
+			starts_at: "2026-11-03T18:00:00Z",
+			ends_at: "2026-11-03T19:00:00Z",
+			room: null,
+			teacher: 14,
+		};
+		localStorage.setItem("bookr.venue", "annex");
+		localStorage.setItem("bookr.refresh", "refresh-token");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((url: string | URL | Request) => {
+				const path = String(url);
+				if (path.endsWith("/api/v1/me/"))
+					return Promise.resolve(jsonResponse(me));
+				if (path.includes("/api/v1/calendar/") && !path.includes("2026-11-08"))
+					return Promise.resolve(jsonResponse([event]));
+				if (path.includes("/api/v1/sessions/") && !path.includes("2026-11-08"))
+					return Promise.resolve(jsonResponse([]));
+				// Later ranges hang: the grid must survive on previous data.
+				return new Promise<Response>(() => {});
+			}),
+		);
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		render(
+			<QueryClientProvider client={client}>
+				<VenueProvider>
+					<AuthProvider>
+						<MemoryRouter initialEntries={["/calendar"]}>
+							<Routes>
+								<Route path="/calendar" element={<Calendar />} />
+							</Routes>
+						</MemoryRouter>
+					</AuthProvider>
+				</VenueProvider>
+			</QueryClientProvider>,
+		);
+
+		await screen.findByTitle("Next week");
+		await user.click(screen.getByTitle("Next week"));
+		expect(screen.queryByTitle("Previous week")).toBeInTheDocument();
 	});
 });
 
