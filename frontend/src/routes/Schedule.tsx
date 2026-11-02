@@ -5,11 +5,11 @@ import { Button, EmptyState, ErrorText, Pill } from "../components";
 import {
 	BOOK_ERROR_MESSAGE,
 	type BookError,
-	bookClass,
 	bookErrorOf,
-	type ClassItem,
+	bookSession,
+	type SessionItem,
 	useBookings,
-	useClasses,
+	useSessions,
 } from "../hooks";
 import { SkeletonList } from "../route-ux";
 import { useVenue, venueTimeZone } from "../venue";
@@ -49,14 +49,14 @@ function formatTime(iso: string, timeZone: string): string {
 	}).format(new Date(iso));
 }
 
-function durationMin(klass: ClassItem): number {
+function durationMin(klass: SessionItem): number {
 	return Math.round(
 		(new Date(klass.ends_at).getTime() - new Date(klass.starts_at).getTime()) /
 			60000,
 	);
 }
 
-function Availability({ klass }: { klass: ClassItem }) {
+function Availability({ klass }: { klass: SessionItem }) {
 	if (klass.spots_left === null || klass.spots_left === undefined) return null;
 	if (klass.spots_left <= 0) return <Pill tone="bad">Full</Pill>;
 	if (klass.spots_left <= 3)
@@ -64,7 +64,7 @@ function Availability({ klass }: { klass: ClassItem }) {
 	return <Pill tone="ok">{klass.spots_left} spots left</Pill>;
 }
 
-function CapacityMeter({ klass }: { klass: ClassItem }) {
+function CapacityMeter({ klass }: { klass: SessionItem }) {
 	if (klass.capacity === null || klass.spots_left === null) return null;
 	if (klass.capacity <= 0) return null;
 	const taken = Math.min(
@@ -88,15 +88,14 @@ function ClassRow({
 	booked,
 	timeZone,
 }: {
-	klass: ClassItem;
+	klass: SessionItem;
 	booked: boolean;
 	timeZone: string;
 }) {
 	const queryClient = useQueryClient();
 	const [error, setError] = useState<BookError | null>(null);
 	const booking = useMutation({
-		mutationFn: (waitlist: boolean) =>
-			bookClass(klass.id, crypto.randomUUID(), waitlist),
+		mutationFn: (waitlist: boolean) => bookSession(klass.id, waitlist),
 		onSuccess: () => {
 			setError(null);
 			void queryClient.invalidateQueries();
@@ -122,7 +121,7 @@ function ClassRow({
 			<div className="h-12 w-px bg-slate-200" />
 			<div className="min-w-0 flex-1">
 				<p className="font-semibold">
-					{klass.class_type_name}{" "}
+					{klass.offering_title}{" "}
 					{booked ? (
 						<Pill tone="brand" testId="booked-badge">
 							Booked
@@ -132,7 +131,7 @@ function ClassRow({
 					)}
 				</p>
 				<p className="mt-0.5 text-sm text-slate-500">
-					{klass.teacher_name} · {klass.room_name}
+					{klass.teacher_name}
 				</p>
 				{booked ? null : <CapacityMeter klass={klass} />}
 			</div>
@@ -175,7 +174,6 @@ export default function Schedule({ venue }: { venue: string | null }) {
 	const [anchor, setAnchor] = useState(startOfToday);
 	const [selectedKey, setSelectedKey] = useState<string | null>(null);
 	const [teacher, setTeacher] = useState<number | null>(null);
-	const [room, setRoom] = useState<number | null>(null);
 	const [onlyBookable, setOnlyBookable] = useState(false);
 
 	const range = useMemo(
@@ -185,7 +183,7 @@ export default function Schedule({ venue }: { venue: string | null }) {
 		}),
 		[anchor],
 	);
-	const classes = useClasses(resolvedVenue, range);
+	const sessions = useSessions(resolvedVenue, range);
 	const bookings = useBookings();
 
 	const days = useMemo(() => {
@@ -198,10 +196,9 @@ export default function Schedule({ venue }: { venue: string | null }) {
 	}, [anchor, timeZone]);
 
 	const grouped = useMemo(() => {
-		const groups = new Map<string, ClassItem[]>();
-		for (const klass of classes.data ?? []) {
+		const groups = new Map<string, SessionItem[]>();
+		for (const klass of sessions.data ?? []) {
 			if (teacher !== null && klass.teacher !== teacher) continue;
-			if (room !== null && klass.room !== room) continue;
 			if (onlyBookable && klass.spots_left !== null && klass.spots_left <= 0)
 				continue;
 			const key = dayKey(new Date(klass.starts_at), timeZone);
@@ -216,7 +213,7 @@ export default function Schedule({ venue }: { venue: string | null }) {
 				list: list.sort((a, b) => a.starts_at.localeCompare(b.starts_at)),
 			}))
 			.sort((a, b) => a.key.localeCompare(b.key));
-	}, [classes.data, teacher, room, onlyBookable, timeZone]);
+	}, [sessions.data, teacher, onlyBookable, timeZone]);
 
 	// Default to the earliest day that has classes, so a fresh week lands
 	// on something bookable instead of an empty today.
@@ -226,24 +223,19 @@ export default function Schedule({ venue }: { venue: string | null }) {
 
 	const teachers = useMemo(() => {
 		const seen = new Map<number, string>();
-		for (const klass of classes.data ?? [])
+		for (const klass of sessions.data ?? [])
 			seen.set(klass.teacher, klass.teacher_name);
 		return [...seen];
-	}, [classes.data]);
-	const rooms = useMemo(() => {
-		const seen = new Map<number, string>();
-		for (const klass of classes.data ?? [])
-			seen.set(klass.room, klass.room_name);
-		return [...seen];
-	}, [classes.data]);
+	}, [sessions.data]);
 
-	if (classes.isPending || bookings.isPending) return <SkeletonList />;
-	if (classes.isError) return <ErrorText message="Could not load classes." />;
+	if (sessions.isPending || bookings.isPending) return <SkeletonList />;
+	if (sessions.isError)
+		return <ErrorText message="Could not load sessions." />;
 	if (bookings.isError) return <ErrorText message="Could not load bookings." />;
 	const bookedIds = new Set(
 		(bookings.data ?? [])
-			.filter((b) => b.status === "confirmed" || b.status === "waitlisted")
-			.map((b) => b.scheduled_class),
+			.filter((b) => b.status === "booked" || b.status === "waitlisted")
+			.map((b) => b.session),
 	);
 
 	return (
@@ -342,26 +334,6 @@ export default function Schedule({ venue }: { venue: string | null }) {
 						))}
 					</select>
 				</label>
-				<label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2">
-					Room
-					<select
-						data-testid="schedule-room-filter"
-						value={room ?? ""}
-						onChange={(change) =>
-							setRoom(
-								change.target.value === "" ? null : Number(change.target.value),
-							)
-						}
-						className="bg-transparent font-medium outline-none"
-					>
-						<option value="">All</option>
-						{rooms.map(([id, name]) => (
-							<option key={id} value={id}>
-								{name}
-							</option>
-						))}
-					</select>
-				</label>
 				<label className="ml-auto flex items-center gap-2 text-slate-600">
 					<input
 						type="checkbox"
@@ -375,7 +347,7 @@ export default function Schedule({ venue }: { venue: string | null }) {
 
 			{visible.length === 0 ? (
 				<div className="mt-8">
-					<EmptyState message="No classes this week." />
+					<EmptyState message="No sessions this week." />
 				</div>
 			) : (
 				visible.map((group) => (

@@ -1,27 +1,25 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "../api/client";
-import { useAuth } from "../auth";
 import { Button, EmptyState, ErrorText, Pill } from "../components";
 import { useBookings } from "../hooks";
 import { SkeletonList } from "../route-ux";
-import { useVenue, venueTimeZone } from "../venue";
 
 export default function Bookings() {
 	const bookings = useBookings();
-	const { venue } = useVenue();
-	const { me } = useAuth();
-	const timeZone = venueTimeZone(me, venue);
 	const queryClient = useQueryClient();
 	const cancel = useMutation({
 		mutationFn: (id: number) =>
-			apiJson(`/api/v1/bookings/${id}/cancel/`, { method: "POST" }),
+			apiJson(`/api/v1/bookings/${id}/cancel/`, {
+				method: "POST",
+				body: JSON.stringify({}),
+			}),
 		onSuccess: () => queryClient.invalidateQueries(),
 	});
 
 	if (bookings.isPending) return <SkeletonList />;
 	if (bookings.isError) return <ErrorText message="Could not load bookings." />;
 	const active = bookings.data.filter((b) =>
-		["confirmed", "waitlisted"].includes(b.status),
+		["booked", "waitlisted"].includes(b.status),
 	);
 	if (active.length === 0)
 		return <EmptyState message="No bookings yet — pick a class above." />;
@@ -41,21 +39,12 @@ export default function Bookings() {
 					>
 						<div className="min-w-0 flex-1">
 							<p className="font-semibold">
-								Class {booking.scheduled_class}{" "}
+								{booking.session_title}{" "}
 								{booking.status === "waitlisted" ? (
 									<Pill tone="warn">Waitlisted</Pill>
 								) : (
-									<Pill tone="brand">Confirmed</Pill>
+									<Pill tone="brand">Booked</Pill>
 								)}
-							</p>
-							<p className="mt-0.5 text-sm text-slate-500">
-								{booking.hold_until
-									? `Hold expires ${new Intl.DateTimeFormat("en-GB", {
-											timeZone,
-											dateStyle: "medium",
-											timeStyle: "short",
-										}).format(new Date(booking.hold_until))}`
-									: "Seat held"}
 							</p>
 						</div>
 						<Button

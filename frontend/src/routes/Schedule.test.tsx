@@ -36,29 +36,28 @@ describe("Schedule", () => {
 		localStorage.clear();
 	});
 
-	it("books a class with one tap", async () => {
-		const klass = {
+	it("books a session with one tap", async () => {
+		const session = {
 			id: 7,
-			class_type: 1,
-			room: 1,
+			venue: 1,
+			offering: 1,
+			offering_title: "Spin",
+			category: "group",
 			teacher: 1,
+			teacher_name: "Wanjiku",
 			starts_at: new Date(Date.now() + 86400000).toISOString(),
 			ends_at: new Date(Date.now() + 90000000).toISOString(),
-			status: "scheduled",
 			capacity: 20,
+			spots_left: 19,
 		};
 		const fetchMock = vi
 			.fn()
-			.mockResolvedValueOnce(jsonResponse([klass]))
+			.mockResolvedValueOnce(jsonResponse([session]))
 			.mockResolvedValueOnce(jsonResponse([]))
 			.mockResolvedValueOnce(
-				jsonResponse({ id: 9, status: "confirmed", scheduled_class: 7 }),
+				jsonResponse({ id: 9, status: "booked", session: 7 }),
 			);
 		vi.stubGlobal("fetch", fetchMock);
-		// crypto.randomUUID is available in jsdom; stub to be safe.
-		if (!crypto.randomUUID) {
-			vi.stubGlobal("crypto", { randomUUID: () => "uuid-1" });
-		}
 		renderSchedule();
 		const user = userEvent.setup();
 
@@ -66,20 +65,23 @@ describe("Schedule", () => {
 
 		await waitFor(() => {
 			const [, init] = fetchMock.mock.calls[2] as [string, RequestInit];
-			expect(JSON.parse(init.body as string).scheduled_class).toBe(7);
+			expect(JSON.parse(init.body as string).session).toBe(7);
 		});
 	});
 
 	it("offers the waitlist inline on 409", async () => {
 		const klass = {
 			id: 7,
-			class_type: 1,
-			room: 1,
+			venue: 1,
+			offering: 1,
+			offering_title: "Spin",
+			category: "group",
 			teacher: 1,
+			teacher_name: "Wanjiku",
 			starts_at: new Date(Date.now() + 86400000).toISOString(),
 			ends_at: new Date(Date.now() + 90000000).toISOString(),
-			status: "scheduled",
 			capacity: 1,
+			spots_left: 0,
 		};
 		const fetchMock = vi
 			.fn()
@@ -103,29 +105,27 @@ describe("Schedule", () => {
 		const classes = [
 			{
 				id: 1,
-				class_type: 1,
-				class_type_name: "Vinyasa",
-				room: 1,
-				room_name: "Studio A",
+				venue: 1,
+				offering: 1,
+				offering_title: "Vinyasa",
+				category: "group",
 				teacher: 1,
 				teacher_name: "Wanjiku",
 				starts_at: dayA.toISOString(),
 				ends_at: new Date(dayA.getTime() + 3600000).toISOString(),
-				status: "scheduled",
 				capacity: 20,
 				spots_left: 8,
 			},
 			{
 				id: 2,
-				class_type: 1,
-				class_type_name: "HIIT",
-				room: 1,
-				room_name: "Studio A",
+				venue: 1,
+				offering: 2,
+				offering_title: "HIIT",
+				category: "group",
 				teacher: 2,
 				teacher_name: "Otieno",
 				starts_at: dayB.toISOString(),
 				ends_at: new Date(dayB.getTime() + 3600000).toISOString(),
-				status: "scheduled",
 				capacity: 20,
 				spots_left: 0,
 			},

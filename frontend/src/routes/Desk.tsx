@@ -167,8 +167,7 @@ export function MemberLookup() {
 								<option value="">Pick a pass</option>
 								{passes.data.map((pass) => (
 									<option key={pass.id} value={pass.id}>
-										{pass.product_name} (
-										{pass.credits_total - pass.credits_used} left)
+										{pass.plan_name} ({pass.credits_remaining} left)
 									</option>
 								))}
 							</select>{" "}

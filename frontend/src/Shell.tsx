@@ -58,13 +58,13 @@ function Shell() {
 		if (!localStorage.getItem("bookr.refresh")) navigate("/login");
 	}, [navigate]);
 	const activeCount = (bookings.data ?? []).filter((b) =>
-		["confirmed", "waitlisted"].includes(b.status),
+		["booked", "waitlisted"].includes(b.status),
 	).length;
-	const activePasses = (passes.data ?? []).filter((p) => p.status === "active");
-	const creditsLeft = activePasses.reduce(
-		(sum, p) => sum + p.credits_total - p.credits_used,
+	const creditsLeft = (passes.data ?? []).reduce(
+		(sum, p) => sum + p.credits_remaining,
 		0,
 	);
+	const activePasses = passes.data ?? [];
 	return (
 		<div className="flex min-h-screen bg-stone-100">
 			<aside className="flex w-64 shrink-0 flex-col bg-slate-900 px-4 pb-6 pt-6 text-slate-200">

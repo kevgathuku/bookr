@@ -124,7 +124,7 @@ def _apply_cancel(
     )
     booking.status = outcome.status
     if outcome.refund:
-        _refund(booking, outcome.refund, actor)
+        _refund(booking, outcome.refund, actor, outcome.reason)
     return _write_record(
         booking, session, organization, outcome, actor, late, waive_penalty
     )
@@ -397,7 +397,7 @@ def _cancel_one_for_session(booking, session, venue, organization, actor):
     )
 
 
-def _refund(booking, amount, actor):
+def _refund(booking, amount, actor, note=""):
     # Lock the membership: two concurrent cancels refunding the same
     # member must serialize, or one credit-back is silently lost.
     membership = Membership.objects.select_for_update().get(pk=booking.membership_id)
@@ -408,6 +408,7 @@ def _refund(booking, amount, actor):
         booking=booking,
         delta=amount,
         reason=CreditLedger.Reason.REFUND,
+        note=note,
         created_by=actor,
     )
 

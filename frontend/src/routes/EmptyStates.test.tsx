@@ -72,7 +72,7 @@ describe("empty states", () => {
 				jsonResponse([
 					{
 						id: 1,
-						member_pass: 2,
+						membership: 2,
 						booking: 3,
 						delta: -1,
 						reason: "adjustment",

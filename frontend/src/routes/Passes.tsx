@@ -24,32 +24,21 @@ export default function Passes() {
 			</p>
 			<ul className="mt-5 space-y-3">
 				{passes.data.map((pass) => {
-					const left = pass.credits_total - pass.credits_used;
-					const share = pass.credits_total > 0 ? left / pass.credits_total : 1;
+					const left = pass.credits_remaining;
 					return (
 						<li
 							key={pass.id}
 							data-testid="pass-row"
 							className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-						>
+							>
 							<p className="font-semibold">
-								{pass.product_name}{" "}
-								<Pill tone={pass.status === "active" ? "ok" : "bad"}>
-									{pass.status}
-								</Pill>
+								{pass.plan_name}{" "}
+								<Pill tone="ok">{pass.plan_type}</Pill>
 							</p>
 							<p className="mt-0.5 text-sm text-slate-500">
-								{left}/{pass.credits_total} credits left · expires{" "}
-								{pass.valid_until
-									? formatInVenueTimeZone(pass.valid_until, timeZone)
-									: "never"}
+								{left} credits left · expires{" "}
+								{formatInVenueTimeZone(pass.ends_on, timeZone)}
 							</p>
-							<div className="mt-2 h-1.5 w-48 rounded-full bg-stone-200">
-								<div
-									className="h-full rounded-full bg-ok"
-									style={{ width: `${Math.min(1, Math.max(0, share)) * 100}%` }}
-								/>
-							</div>
 						</li>
 					);
 				})}

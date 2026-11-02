@@ -108,7 +108,10 @@ def _seed_annex_session(annex, people):
 
     from scheduling.sessions import schedule_session
 
-    start = timezone.now() + timezone.timedelta(days=1)
+    # Day 2: the main-venue Spin session lands on day 1 for the same
+    # teacher, and schedule_session rejects teacher clashes (suppressed
+    # below), which used to leave the annex silently empty.
+    start = timezone.now() + timezone.timedelta(days=2)
     if not offering.sessions.filter(starts_at__gt=timezone.now()).exists():
         with contextlib.suppress(ValidationError):
             schedule_session(offering=offering, starts_at=start)

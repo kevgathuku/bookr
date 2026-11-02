@@ -43,7 +43,7 @@ function deskFetch(
 		if (path.endsWith("/api/v1/me/")) return Promise.resolve(jsonResponse(ME));
 		if (path.includes("/bookings/roster/"))
 			return Promise.resolve(jsonResponse(roster));
-		if (path.includes("/passes/?member="))
+		if (path.includes("/memberships/?member="))
 			return Promise.resolve(jsonResponse(passes));
 		if (path.includes("/members/search/"))
 			return Promise.resolve(jsonResponse([{ id: 9, username: "sam-member" }]));
@@ -99,13 +99,12 @@ describe("Desk", () => {
 			[
 				{
 					id: 4,
-					product: 1,
-					product_name: "Ten pack",
-					credits_total: 10,
-					credits_used: 2,
-					valid_from: "2026-01-01",
-					valid_until: null,
-					status: "active",
+					plan: 1,
+					plan_name: "Ten pack",
+					plan_type: "credit_pack",
+					credits_remaining: 8,
+					starts_on: "2026-01-01",
+					ends_on: "2026-01-31",
 				},
 			],
 			[],
@@ -127,7 +126,7 @@ describe("Desk", () => {
 			const init = call?.[1];
 			const body = JSON.parse((init?.body ?? "") as string);
 			expect(body).toMatchObject({
-				member_pass: 4,
+				membership: 4,
 				delta: 1,
 				reason: "goodwill",
 			});

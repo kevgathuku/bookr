@@ -2,26 +2,25 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { apiJson } from "./api/client";
 
-export interface ClassItem {
+export interface SessionItem {
 	id: number;
-	class_type: number;
-	class_type_name: string;
-	room: number;
-	room_name: string;
+	venue: number;
+	offering: number;
+	offering_title: string;
+	category: string;
 	teacher: number;
 	teacher_name: string;
 	starts_at: string;
 	ends_at: string;
-	status: string;
 	capacity: number | null;
 	spots_left: number | null;
 }
 
 export interface BookingItem {
 	id: number;
+	session: number;
+	session_title: string;
 	status: string;
-	scheduled_class: number | null;
-	hold_until: string | null;
 	created_at: string;
 }
 
@@ -46,17 +45,17 @@ function weekWindow(): { from: string; to: string } {
 	return { from: from.toISOString(), to: to.toISOString() };
 }
 
-export function useClasses(
+export function useSessions(
 	venue: string | null,
 	range: { from: string; to: string } | null = null,
 ) {
 	const window = useMemo(() => range ?? weekWindow(), [range]);
 	const { from, to } = window;
 	return useQuery({
-		queryKey: ["venue", venue, "classes", from, to],
+		queryKey: ["venue", venue, "sessions", from, to],
 		queryFn: () =>
-			apiJson<ClassItem[]>(
-				`/api/v1/classes/?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+			apiJson<SessionItem[]>(
+				`/api/v1/sessions/?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
 			),
 		enabled: venue !== null,
 	});
@@ -72,20 +71,19 @@ export interface CalendarEventItem {
 	teacher: number;
 }
 
-export interface MemberPassItem {
+export interface MembershipItem {
 	id: number;
-	product: number;
-	product_name: string;
-	credits_total: number;
-	credits_used: number;
-	valid_from: string;
-	valid_until: string | null;
-	status: string;
+	plan: number;
+	plan_name: string;
+	plan_type: string;
+	credits_remaining: number;
+	starts_on: string;
+	ends_on: string;
 }
 
 export interface LedgerEntryItem {
 	id: number;
-	member_pass: number;
+	membership: number;
 	booking: number | null;
 	delta: number;
 	reason: string;
@@ -98,14 +96,12 @@ export function useCalendarEvents(
 	venue: string | null,
 	range: { from: string; to: string },
 	teacher: number | null,
-	room: number | null,
 ) {
 	const params = new URLSearchParams({
 		from: range.from,
 		to: range.to,
 	});
 	if (teacher !== null) params.set("teacher", String(teacher));
-	if (room !== null) params.set("room", String(room));
 	const query = params.toString();
 	return useQuery({
 		queryKey: ["venue", venue, "calendar", query],
@@ -117,7 +113,7 @@ export function useCalendarEvents(
 export function usePasses() {
 	return useQuery({
 		queryKey: ["passes", "mine"],
-		queryFn: () => apiJson<MemberPassItem[]>("/api/v1/me/passes/"),
+		queryFn: () => apiJson<MembershipItem[]>("/api/v1/memberships/"),
 	});
 }
 
@@ -160,7 +156,7 @@ export function useMemberPasses(memberId: number | null) {
 	return useQuery({
 		queryKey: ["desk", "passes", memberId],
 		queryFn: () =>
-			apiJson<MemberPassItem[]>(`/api/v1/passes/?member=${memberId}`),
+			apiJson<MembershipItem[]>(`/api/v1/memberships/?member=${memberId}`),
 		enabled: memberId !== null,
 	});
 }
@@ -206,116 +202,7 @@ export async function adjustPass(
 ): Promise<void> {
 	await apiJson("/api/v1/ledger/adjust/", {
 		method: "POST",
-		body: JSON.stringify({ member_pass: passId, delta, reason }),
-	});
-}
-
-export interface RoomItem {
-	id: number;
-	name: string;
-	capacity: number | null;
-}
-
-export interface ClassTypeItem {
-	id: number;
-	name: string;
-	description: string;
-	capacity_default: number | null;
-	duration_min: number;
-}
-
-export function useRooms() {
-	return useQuery({
-		queryKey: ["manage", "rooms"],
-		queryFn: () => apiJson<RoomItem[]>("/api/v1/rooms/"),
-	});
-}
-
-export function useClassTypes() {
-	return useQuery({
-		queryKey: ["manage", "class-types"],
-		queryFn: () => apiJson<ClassTypeItem[]>("/api/v1/class-types/"),
-	});
-}
-
-export interface SubstitutionItem {
-	id: number;
-	scheduled_class: number;
-	old_teacher: number;
-	old_teacher_name: string;
-	new_teacher: number;
-	new_teacher_name: string;
-	created_by: number | null;
-}
-
-export function useSubstitutions() {
-	return useQuery({
-		queryKey: ["manage", "substitutions"],
-		queryFn: () => apiJson<SubstitutionItem[]>("/api/v1/substitutions/"),
-	});
-}
-
-export async function createSubstitution(
-	classId: number,
-	newTeacher: number,
-): Promise<void> {
-	await apiJson("/api/v1/substitutions/", {
-		method: "POST",
-		body: JSON.stringify({ scheduled_class: classId, new_teacher: newTeacher }),
-	});
-}
-
-export interface ProductItem {
-	id: number;
-	name: string;
-	credits_total: number;
-	validity_days: number;
-}
-
-export function useProducts() {
-	return useQuery({
-		queryKey: ["manage", "products"],
-		queryFn: () => apiJson<ProductItem[]>("/api/v1/pass-products/"),
-	});
-}
-
-export async function createProduct(body: {
-	name: string;
-	credits_total: number;
-	validity_days: number;
-}): Promise<void> {
-	await apiJson("/api/v1/pass-products/", {
-		method: "POST",
-		body: JSON.stringify(body),
-	});
-}
-
-export async function patchProduct(id: number, body: object): Promise<void> {
-	await apiJson(`/api/v1/pass-products/${id}/`, {
-		method: "PATCH",
-		body: JSON.stringify(body),
-	});
-}
-
-export interface PolicyItem {
-	id: number;
-	valid_from: string;
-	valid_until: string | null;
-	class_late_cancel_hours: number;
-	waitlist_hold_minutes: number;
-}
-
-export function usePolicies() {
-	return useQuery({
-		queryKey: ["manage", "policies"],
-		queryFn: () => apiJson<PolicyItem[]>("/api/v1/policies/"),
-	});
-}
-
-export async function activatePolicy(body: object): Promise<void> {
-	await apiJson("/api/v1/policies/activate/", {
-		method: "POST",
-		body: JSON.stringify(body),
+		body: JSON.stringify({ membership: passId, delta, reason }),
 	});
 }
 
@@ -375,23 +262,6 @@ export function useAggEvents(slug: string | null) {
 	});
 }
 
-export async function createClass(body: {
-	class_type: number;
-	room: number;
-	teacher: number;
-	starts_at: string;
-	ends_at: string;
-}): Promise<void> {
-	await apiJson("/api/v1/classes/", {
-		method: "POST",
-		body: JSON.stringify(body),
-	});
-}
-
-export async function deleteClass(id: number): Promise<void> {
-	await apiJson(`/api/v1/classes/${id}/`, { method: "DELETE" });
-}
-
 export function useBookings() {
 	return useQuery({
 		queryKey: ["bookings", "mine"],
@@ -399,17 +269,13 @@ export function useBookings() {
 	});
 }
 
-export async function bookClass(
-	classId: number,
-	idempotencyKey: string,
+export async function bookSession(
+	sessionId: number,
 	waitlist = false,
 ): Promise<BookingItem> {
 	const query = waitlist ? "?waitlist=true" : "";
 	return apiJson<BookingItem>(`/api/v1/bookings/${query}`, {
 		method: "POST",
-		body: JSON.stringify({
-			scheduled_class: classId,
-			idempotency_key: idempotencyKey,
-		}),
+		body: JSON.stringify({ session: sessionId }),
 	});
 }

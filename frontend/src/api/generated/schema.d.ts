@@ -126,23 +126,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/availability/slots/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Day slots for one resource. Members may read (future booking flow). */
-        get: operations["v1_availability_slots_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/bookings/": {
         parameters: {
             query?: never;
@@ -150,10 +133,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description POST books (409/402 mapped); GET lists your own with ?mine=true. */
+        /** @description POST books a session; GET lists mine (?mine=true). */
         get: operations["v1_bookings_list"];
         put?: never;
-        /** @description POST books (409/402 mapped); GET lists your own with ?mine=true. */
+        /** @description POST books a session; GET lists mine (?mine=true). */
         post: operations["v1_bookings_create"];
         delete?: never;
         options?: never;
@@ -170,7 +153,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Owner cancels; staff may override the window with a reason. */
+        /**
+         * @description Cancel one booking: member's own choice, or desk on their behalf
+         *     with an explicit reason. Waivers ride along; contradictions raise.
+         */
         post: operations["v1_bookings_cancel_create"];
         delete?: never;
         options?: never;
@@ -187,7 +173,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Frontdesk stamps a confirmed booking as checked in. */
+        /** @description Status-only attendance mark. Door staff only. */
         post: operations["v1_bookings_checkin_create"];
         delete?: never;
         options?: never;
@@ -204,7 +190,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Frontdesk marks a confirmed booking within 2h after the end. */
+        /** @description Door-observed absence. Door staff only; the service enforces it. */
         post: operations["v1_bookings_no_show_create"];
         delete?: never;
         options?: never;
@@ -236,7 +222,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Frontdesk day roster: venue bookings with member + class info. */
+        /** @description Frontdesk day roster: venue bookings with member + session info. */
         get: operations["v1_bookings_roster_list"];
         put?: never;
         post?: never;
@@ -253,7 +239,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Merged classes + appointments for a bounded window (31d max). */
+        /** @description Sessions for a bounded window (31d max). */
         get: operations["v1_calendar_list"];
         put?: never;
         post?: never;
@@ -263,70 +249,21 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/class-types/": {
+    "/api/v1/cancellation-policies/": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** @description Read-only room / class-type lists for staff forms. */
-        get: operations["v1_class_types_list"];
+        /** @description Back-office rule lookup; filterable for the desk UI and coverage. */
+        get: operations["v1_cancellation_policies_list"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/v1/class-types/{id}/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Read-only room / class-type lists for staff forms. */
-        get: operations["v1_class_types_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/classes/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["v1_classes_list"];
-        put?: never;
-        post: operations["v1_classes_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/classes/{id}/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["v1_classes_retrieve"];
-        put: operations["v1_classes_update"];
-        post?: never;
-        delete: operations["v1_classes_destroy"];
-        options?: never;
-        head?: never;
-        patch: operations["v1_classes_partial_update"];
         trace?: never;
     };
     "/api/v1/ledger/": {
@@ -336,7 +273,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Own entries for members; whole-venue entries for covering staff. */
+        /**
+         * @description Own entries for members; entries for members booked at the
+         *     staffer's venues for covering staff.
+         */
         get: operations["v1_ledger_list"];
         put?: never;
         post?: never;
@@ -355,7 +295,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Staff correction with mandatory reason. Returns the pass. */
+        /** @description Desk goodwill path: move credits with a reason, append-only. */
         post: operations["v1_ledger_adjust_create"];
         delete?: never;
         options?: never;
@@ -370,25 +310,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Who am I: username + memberships for the venue switcher. */
+        /** @description Who am I: username + roles for the venue switcher. */
         get: operations["v1_me_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/me/passes/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Own passes, all venues. Membership alone suffices. */
-        get: operations["v1_me_passes_list"];
         put?: never;
         post?: never;
         delete?: never;
@@ -414,51 +337,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/pass-products/": {
+    "/api/v1/memberships/": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** @description Staff catalog. No DELETE: issued passes PROTECT their product. */
-        get: operations["v1_pass_products_list"];
-        put?: never;
-        /** @description Staff catalog. No DELETE: issued passes PROTECT their product. */
-        post: operations["v1_pass_products_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/pass-products/{id}/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Staff catalog. No DELETE: issued passes PROTECT their product. */
-        get: operations["v1_pass_products_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** @description Staff catalog. No DELETE: issued passes PROTECT their product. */
-        patch: operations["v1_pass_products_partial_update"];
-        trace?: never;
-    };
-    "/api/v1/passes/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Frontdesk lists one member's passes by ?member= id. */
-        get: operations["v1_passes_list"];
+        /** @description Own plan memberships; covering staff may list one member's. */
+        get: operations["v1_memberships_list"];
         put?: never;
         post?: never;
         delete?: never;
@@ -467,7 +354,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/passes/grant/": {
+    "/api/v1/offerings/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Venues' offerings. Creation lives in admin (contract owns the form). */
+        get: operations["v1_offerings_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/offerings/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Venues' offerings. Creation lives in admin (contract owns the form). */
+        get: operations["v1_offerings_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/offerings/{id}/sessions/generate/": {
         parameters: {
             query?: never;
             header?: never;
@@ -476,32 +397,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Staff sale: issue a pass + purchase ledger row. */
-        post: operations["v1_passes_grant_create"];
+        /** @description Expand an RFC recurrence rule into sessions, all or nothing. */
+        post: operations["v1_offerings_sessions_generate_create"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/policies/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Version history, newest first. Staff only; versions never edit. */
-        get: operations["v1_policies_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/policies/activate/": {
+    "/api/v1/records/{id}/waive/": {
         parameters: {
             query?: never;
             header?: never;
@@ -510,23 +414,23 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Retire the open version + insert the successor, atomically. */
-        post: operations["v1_policies_activate_create"];
+        /** @description Retroactive waiver with a required reason. Waive-capable roles only. */
+        post: operations["v1_records_waive_create"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/policy/": {
+    "/api/v1/sessions/": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** @description Open policy windows for countdown display. */
-        get: operations["v1_policy_retrieve"];
+        /** @description Bookable sessions with derived ends; cancelled ones never listed. */
+        get: operations["v1_sessions_list"];
         put?: never;
         post?: never;
         delete?: never;
@@ -535,15 +439,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/rooms/": {
+    "/api/v1/sessions/{id}/": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** @description Read-only room / class-type lists for staff forms. */
-        get: operations["v1_rooms_list"];
+        /** @description Bookable sessions with derived ends; cancelled ones never listed. */
+        get: operations["v1_sessions_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -552,17 +456,20 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/rooms/{id}/": {
+    "/api/v1/sessions/{id}/cancel/": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** @description Read-only room / class-type lists for staff forms. */
-        get: operations["v1_rooms_retrieve"];
+        get?: never;
         put?: never;
-        post?: never;
+        /**
+         * @description Provider-side cancel. The service decides who may: desk any
+         *     session, teachers their own; everyone refunds, none penalized.
+         */
+        post: operations["v1_sessions_cancel_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -635,41 +542,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/substitutions/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description History kept: list/retrieve/create, never update/delete. */
-        get: operations["v1_substitutions_list"];
-        put?: never;
-        /** @description History kept: list/retrieve/create, never update/delete. */
-        post: operations["v1_substitutions_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/substitutions/{id}/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description History kept: list/retrieve/create, never update/delete. */
-        get: operations["v1_substitutions_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -684,18 +556,6 @@ export interface components {
             /** Format: date-time */
             occurred_at?: string;
         };
-        Activate: {
-            class_late_cancel_hours?: number;
-            appointment_late_cancel_hours?: number;
-            forfeit_late_cancel?: boolean;
-            waitlist_hold_minutes?: number;
-            booking_buffer_minutes?: number;
-        };
-        Adjust: {
-            member_pass: number;
-            delta: number;
-            reason: string;
-        };
         AggregatorEvent: {
             readonly id: number;
             method: string;
@@ -705,33 +565,23 @@ export interface components {
             readonly created_at: string;
         };
         Book: {
-            scheduled_class: number;
-            idempotency_key: string;
-            /** @default false */
-            waitlist: boolean;
+            session: number;
         };
         Booking: {
             readonly id: number;
-            venue: number;
-            scheduled_class?: number | null;
-            appointment?: number | null;
-            status?: components["schemas"]["BookingStatusEnum"];
-            source?: string;
+            readonly session: number;
+            readonly session_title: string;
+            readonly member: number;
+            readonly member_name: string;
+            readonly membership: number;
+            readonly credits_spent: number;
+            /** @default booked */
+            readonly status: components["schemas"]["StatusEnum"];
             /** Format: date-time */
-            hold_until?: string | null;
+            readonly checked_in_at: string | null;
             /** Format: date-time */
             readonly created_at: string;
         };
-        /**
-         * @description * `confirmed` - Confirmed
-         *     * `waitlisted` - Waitlisted
-         *     * `cancelled` - Cancelled
-         *     * `cancelled_late` - Cancelled late
-         *     * `no_show` - No-show
-         *     * `completed` - Completed
-         * @enum {string}
-         */
-        BookingStatusEnum: "confirmed" | "waitlisted" | "cancelled" | "cancelled_late" | "no_show" | "completed";
         CalendarEvent: {
             kind: string;
             id: number;
@@ -743,6 +593,29 @@ export interface components {
             room: string | null;
             teacher: number;
         };
+        CancelBooking: {
+            /** @default false */
+            staff_override: boolean;
+            /** @default false */
+            waive_penalty: boolean;
+            /** @default  */
+            reason: string;
+        };
+        /**
+         * @description * `group` - Group
+         *     * `private` - Private
+         *     * `workshop` - Workshop
+         * @enum {string}
+         */
+        CategoryEnum: "group" | "private" | "workshop";
+        /**
+         * @description * `member_cancel` - Member cancel
+         *     * `staff_decision` - Staff decision
+         *     * `session_cancelled` - Session cancelled
+         *     * `no_show` - No-show
+         * @enum {string}
+         */
+        CauseEnum: "member_cancel" | "staff_decision" | "session_cancelled" | "no_show";
         Check: {
             access_point: number;
             member: number;
@@ -751,16 +624,16 @@ export interface components {
             granted: boolean;
             reason: string;
         };
-        ClassType: {
-            readonly id: number;
-            name: string;
-            description?: string;
-            capacity_default?: number | null;
-            duration_min: number;
-        };
+        /**
+         * @description * `group` - Group
+         *     * `private` - Private
+         *     * `workshop` - Workshop
+         * @enum {string}
+         */
+        ClassCategoryEnum: "group" | "private" | "workshop";
         CreditLedger: {
             readonly id: number;
-            member_pass: number;
+            membership: number;
             booking?: number | null;
             delta: number;
             reason: components["schemas"]["ReasonEnum"];
@@ -769,10 +642,20 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
-        Grant: {
-            member: number;
-            product: number;
-        };
+        /**
+         * @description * `none` - None
+         *     * `strike` - Strike
+         *     * `lose_credit` - Lose credit
+         * @enum {string}
+         */
+        EnforcementAppliedEnum: "none" | "strike" | "lose_credit";
+        /**
+         * @description * `none` - None
+         *     * `strike` - Strike
+         *     * `lose_credit` - Lose credit
+         * @enum {string}
+         */
+        EnforcementEnum: "none" | "strike" | "lose_credit";
         Me: {
             id: number;
             username: string;
@@ -790,81 +673,47 @@ export interface components {
             name: string;
             time_zone: string;
         };
-        MemberPass: {
-            readonly id: number;
-            product: number;
-            readonly product_name: string;
-            credits_total?: number | null;
-            credits_used?: number;
-            /** Format: date-time */
-            valid_from: string;
-            /** Format: date-time */
-            valid_until: string;
-            status?: components["schemas"]["MemberPassStatusEnum"];
-        };
-        /**
-         * @description * `active` - Active
-         *     * `expired` - Expired
-         *     * `depleted` - Depleted
-         * @enum {string}
-         */
-        MemberPassStatusEnum: "active" | "expired" | "depleted";
         MemberSearch: {
             id: number;
             username: string;
         };
-        PartnerBook: {
-            scheduled_class: number;
-            external_id: string;
+        Membership: {
+            readonly id: number;
+            plan: number;
+            readonly plan_name: string;
+            readonly plan_type: string;
+            credits_remaining?: number;
+            /** Format: date */
+            starts_on: string;
+            /** Format: date */
+            ends_on: string;
         };
-        PartnerClass: {
+        /** @enum {unknown} */
+        NullEnum: null;
+        Offering: {
             readonly id: number;
             venue: number;
-            class_type: number;
-            readonly class_type_name: string;
-            readonly room_name: string;
+            teacher: number;
+            readonly teacher_name: string;
+            title: string;
+            category: components["schemas"]["CategoryEnum"];
+            duration_minutes?: number;
+            credit_cost?: number;
+        };
+        PartnerBook: {
+            session: number;
+            external_id: string;
+        };
+        PartnerSession: {
+            readonly id: number;
+            readonly venue: number;
+            offering: number;
+            readonly title: string;
             /** Format: date-time */
             starts_at: string;
             /** Format: date-time */
-            ends_at: string;
-            status?: components["schemas"]["Status324Enum"];
-            readonly capacity: string;
-        };
-        PassProduct: {
-            readonly id: number;
-            readonly venue: number;
-            name: string;
-            credits_total?: number | null;
-            validity_days: number;
-            applicable_class_types?: number[];
-            transferable?: boolean;
-        };
-        PatchedPassProduct: {
-            readonly id?: number;
-            readonly venue?: number;
-            name?: string;
-            credits_total?: number | null;
-            validity_days?: number;
-            applicable_class_types?: number[];
-            transferable?: boolean;
-        };
-        PatchedScheduledClass: {
-            readonly id?: number;
-            venue?: number;
-            class_type?: number;
-            readonly class_type_name?: string;
-            room?: number;
-            readonly room_name?: string;
-            teacher?: number;
-            readonly teacher_name?: string;
-            /** Format: date-time */
-            starts_at?: string;
-            /** Format: date-time */
-            ends_at?: string;
-            capacity_override?: number | null;
-            status?: components["schemas"]["Status324Enum"];
-            checkin_opens_minutes?: number;
-            readonly capacity?: string;
+            readonly ends_at: string;
+            capacity?: number;
         };
         PatchedStaffAggregator: {
             slug?: string;
@@ -877,6 +726,26 @@ export interface components {
             webhook_url?: string;
         };
         /**
+         * @description * `monthly` - Monthly
+         *     * `credit_pack` - Credit pack
+         *     * `drop_in` - Drop-in
+         *     * `complimentary` - Complimentary
+         * @enum {string}
+         */
+        PlanTypeEnum: "monthly" | "credit_pack" | "drop_in" | "complimentary";
+        Policy: {
+            readonly id: number;
+            readonly organization: number;
+            readonly venue: number | null;
+            readonly class_category: (components["schemas"]["ClassCategoryEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly plan_type: (components["schemas"]["PlanTypeEnum"] | components["schemas"]["NullEnum"]) | null;
+            /** @description Cancel at least this many hours before start. */
+            readonly late_cancel_hours: number;
+            readonly enforcement: components["schemas"]["EnforcementEnum"];
+            /** @description Higher wins ties between equally specific rules. The auto baseline sits at -1 so any explicit rule beats it. */
+            readonly priority: number;
+        };
+        /**
          * @description * `purchase` - Purchase
          *     * `booking` - Booking
          *     * `refund` - Refund
@@ -886,10 +755,19 @@ export interface components {
          * @enum {string}
          */
         ReasonEnum: "purchase" | "booking" | "refund" | "forfeit" | "expiry" | "adjustment";
-        Room: {
+        Record: {
             readonly id: number;
-            name: string;
-            capacity?: number | null;
+            readonly booking: number;
+            readonly member: number;
+            readonly cause: components["schemas"]["CauseEnum"];
+            readonly was_late: boolean;
+            readonly enforcement_applied: components["schemas"]["EnforcementAppliedEnum"];
+            readonly penalty_waived: boolean;
+            readonly waived_by: number | null;
+            readonly credits_refunded: number;
+            readonly snapshot: unknown;
+            /** Format: date-time */
+            readonly created_at: string;
         };
         RosterRow: {
             id: number;
@@ -901,29 +779,20 @@ export interface components {
             /** Format: date-time */
             checked_in_at: string | null;
         };
-        ScheduledClass: {
+        Session: {
             readonly id: number;
-            venue: number;
-            class_type: number;
-            readonly class_type_name: string;
-            room: number;
-            readonly room_name: string;
-            teacher: number;
+            readonly venue: number;
+            offering: number;
+            readonly offering_title: string;
+            readonly category: string;
+            readonly teacher: number;
             readonly teacher_name: string;
             /** Format: date-time */
             starts_at: string;
             /** Format: date-time */
-            ends_at: string;
-            capacity_override?: number | null;
-            status?: components["schemas"]["Status324Enum"];
-            checkin_opens_minutes?: number;
-            readonly capacity: string;
-        };
-        Slot: {
-            /** Format: date-time */
-            starts_at: string;
-            /** Format: date-time */
-            ends_at: string;
+            readonly ends_at: string;
+            capacity?: number;
+            readonly spots_left: number | null;
         };
         StaffAggregator: {
             slug: string;
@@ -936,22 +805,15 @@ export interface components {
             webhook_url?: string;
         };
         /**
-         * @description * `scheduled` - Scheduled
+         * @description * `booked` - Booked
+         *     * `waitlisted` - Waitlisted
          *     * `cancelled` - Cancelled
-         *     * `completed` - Completed
+         *     * `late_cancelled` - Late cancelled
+         *     * `no_show` - No-show
+         *     * `attended` - Attended
          * @enum {string}
          */
-        Status324Enum: "scheduled" | "cancelled" | "completed";
-        TeacherSubstitution: {
-            readonly id: number;
-            scheduled_class: number;
-            readonly old_teacher: number;
-            readonly old_teacher_name: string;
-            new_teacher: number;
-            readonly new_teacher_name: string;
-            reason?: string;
-            readonly created_by: number | null;
-        };
+        StatusEnum: "booked" | "waitlisted" | "cancelled" | "late_cancelled" | "no_show" | "attended";
         TokenObtainPair: {
             username: string;
             password: string;
@@ -962,22 +824,8 @@ export interface components {
             readonly access: string;
             refresh: string;
         };
-        VenuePolicy: {
-            readonly id: number;
-            venue: number;
-            /** Format: date-time */
-            readonly valid_from: string;
-            /** Format: date-time */
-            valid_until?: string | null;
-            /** @description Cancel cutoff for group classes; inside the window the credit is forfeited. */
-            class_late_cancel_hours?: number;
-            /** @description Cancel cutoff for 1-1 classes; inside the window the credit is forfeited. */
-            appointment_late_cancel_hours?: number;
-            forfeit_late_cancel?: boolean;
-            /** @description Window allowed for holding a place in the waitlist pending member confirmation */
-            waitlist_hold_minutes?: number;
-            /** @description Buffer allowed between successive bookings */
-            booking_buffer_minutes?: number;
+        Waive: {
+            reason: string;
         };
     };
     responses: never;
@@ -1100,7 +948,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PartnerClass"][];
+                    "application/json": components["schemas"]["PartnerSession"][];
                 };
             };
         };
@@ -1155,32 +1003,6 @@ export interface operations {
             };
         };
     };
-    v1_availability_slots_list: {
-        parameters: {
-            query?: {
-                date?: string;
-                duration?: number;
-                from?: string;
-                resource?: number;
-                teacher?: number;
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Slot"][];
-                };
-            };
-        };
-    };
     v1_bookings_list: {
         parameters: {
             query?: {
@@ -1204,9 +1026,7 @@ export interface operations {
     };
     v1_bookings_create: {
         parameters: {
-            query?: {
-                waitlist?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -1238,14 +1058,20 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CancelBooking"];
+                "application/x-www-form-urlencoded": components["schemas"]["CancelBooking"];
+                "multipart/form-data": components["schemas"]["CancelBooking"];
+            };
+        };
         responses: {
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Booking"];
+                    "application/json": components["schemas"]["Record"];
                 };
             };
         };
@@ -1287,7 +1113,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Booking"];
+                    "application/json": components["schemas"]["Record"];
                 };
             };
         };
@@ -1351,7 +1177,7 @@ export interface operations {
             };
         };
     };
-    v1_class_types_list: {
+    v1_cancellation_policies_list: {
         parameters: {
             query?: never;
             header?: never;
@@ -1365,168 +1191,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ClassType"][];
-                };
-            };
-        };
-    };
-    v1_class_types_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this class type. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ClassType"];
-                };
-            };
-        };
-    };
-    v1_classes_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScheduledClass"][];
-                };
-            };
-        };
-    };
-    v1_classes_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ScheduledClass"];
-                "application/x-www-form-urlencoded": components["schemas"]["ScheduledClass"];
-                "multipart/form-data": components["schemas"]["ScheduledClass"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScheduledClass"];
-                };
-            };
-        };
-    };
-    v1_classes_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScheduledClass"];
-                };
-            };
-        };
-    };
-    v1_classes_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ScheduledClass"];
-                "application/x-www-form-urlencoded": components["schemas"]["ScheduledClass"];
-                "multipart/form-data": components["schemas"]["ScheduledClass"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScheduledClass"];
-                };
-            };
-        };
-    };
-    v1_classes_destroy: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No response body */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    v1_classes_partial_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PatchedScheduledClass"];
-                "application/x-www-form-urlencoded": components["schemas"]["PatchedScheduledClass"];
-                "multipart/form-data": components["schemas"]["PatchedScheduledClass"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScheduledClass"];
+                    "application/json": components["schemas"]["Policy"][];
                 };
             };
         };
@@ -1557,21 +1222,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Adjust"];
-                "application/x-www-form-urlencoded": components["schemas"]["Adjust"];
-                "multipart/form-data": components["schemas"]["Adjust"];
-            };
-        };
+        requestBody?: never;
         responses: {
+            /** @description No response body */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["MemberPass"];
-                };
+                content?: never;
             };
         };
     };
@@ -1590,25 +1248,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Me"];
-                };
-            };
-        };
-    };
-    v1_me_passes_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemberPass"][];
                 };
             };
         };
@@ -1634,7 +1273,7 @@ export interface operations {
             };
         };
     };
-    v1_pass_products_list: {
+    v1_memberships_list: {
         parameters: {
             query?: never;
             header?: never;
@@ -1648,37 +1287,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PassProduct"][];
+                    "application/json": components["schemas"]["Membership"][];
                 };
             };
         };
     };
-    v1_pass_products_create: {
+    v1_offerings_list: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PassProduct"];
-                "application/x-www-form-urlencoded": components["schemas"]["PassProduct"];
-                "multipart/form-data": components["schemas"]["PassProduct"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PassProduct"];
+                    "application/json": components["schemas"]["Offering"][];
                 };
             };
         };
     };
-    v1_pass_products_retrieve: {
+    v1_offerings_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -1694,12 +1327,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PassProduct"];
+                    "application/json": components["schemas"]["Offering"];
                 };
             };
         };
     };
-    v1_pass_products_partial_update: {
+    v1_offerings_sessions_generate_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1708,55 +1341,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PatchedPassProduct"];
-                "application/x-www-form-urlencoded": components["schemas"]["PatchedPassProduct"];
-                "multipart/form-data": components["schemas"]["PatchedPassProduct"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PassProduct"];
-                };
-            };
-        };
-    };
-    v1_passes_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemberPass"][];
-                };
-            };
-        };
-    };
-    v1_passes_grant_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Grant"];
-                "application/x-www-form-urlencoded": components["schemas"]["Grant"];
-                "multipart/form-data": components["schemas"]["Grant"];
+                "application/json": components["schemas"]["Offering"];
+                "application/x-www-form-urlencoded": components["schemas"]["Offering"];
+                "multipart/form-data": components["schemas"]["Offering"];
             };
         };
         responses: {
@@ -1765,103 +1354,45 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberPass"];
+                    "application/json": components["schemas"]["Offering"];
                 };
             };
         };
     };
-    v1_policies_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VenuePolicy"][];
-                };
-            };
-        };
-    };
-    v1_policies_activate_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["Activate"];
-                "application/x-www-form-urlencoded": components["schemas"]["Activate"];
-                "multipart/form-data": components["schemas"]["Activate"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VenuePolicy"];
-                };
-            };
-        };
-    };
-    v1_policy_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VenuePolicy"];
-                };
-            };
-        };
-    };
-    v1_rooms_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Room"][];
-                };
-            };
-        };
-    };
-    v1_rooms_retrieve: {
+    v1_records_waive_create: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description A unique integer value identifying this room. */
                 id: number;
             };
             cookie?: never;
         };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Waive"];
+                "application/x-www-form-urlencoded": components["schemas"]["Waive"];
+                "multipart/form-data": components["schemas"]["Waive"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Record"];
+                };
+            };
+        };
+    };
+    v1_sessions_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
         requestBody?: never;
         responses: {
             200: {
@@ -1869,7 +1400,55 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Room"];
+                    "application/json": components["schemas"]["Session"][];
+                };
+            };
+        };
+    };
+    v1_sessions_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+        };
+    };
+    v1_sessions_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Session"];
+                "application/x-www-form-urlencoded": components["schemas"]["Session"];
+                "multipart/form-data": components["schemas"]["Session"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
                 };
             };
         };
@@ -2004,71 +1583,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StaffAggregator"];
-                };
-            };
-        };
-    };
-    v1_substitutions_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TeacherSubstitution"][];
-                };
-            };
-        };
-    };
-    v1_substitutions_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TeacherSubstitution"];
-                "application/x-www-form-urlencoded": components["schemas"]["TeacherSubstitution"];
-                "multipart/form-data": components["schemas"]["TeacherSubstitution"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TeacherSubstitution"];
-                };
-            };
-        };
-    };
-    v1_substitutions_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TeacherSubstitution"];
                 };
             };
         };
