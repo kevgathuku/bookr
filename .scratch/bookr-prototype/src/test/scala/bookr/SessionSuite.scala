@@ -61,9 +61,9 @@ class SessionSuite extends munit.FunSuite:
     assert(closed.cancelledAt.isDefined)
     val results =
       List(booking(1), booking(2)).map(b =>
-        cancelSession(policy, venue, start, before, b)
+        cancelSession(policy, venue, start, before, b, Trail.empty)
       )
-    assert(results.forall { case (b, r) =>
+    assert(results.forall { case (b, r, _) =>
       r.refunded == 2 && r.cause == Cause.SessionCancelled &&
       b.status == BookingStatus.Cancelled(Cancellation.LateAllowed(before))
     })

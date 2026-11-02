@@ -103,8 +103,8 @@ class PolicySuite extends munit.FunSuite:
         )
         .toOption
         .get
-    val (flipped, record) =
-      cancelMember(policy, venue, start, lateAt, booking, None)
+    val (flipped, record, _) =
+      cancelMember(policy, venue, start, lateAt, booking, None, Trail.empty)
     assertEquals(record.refunded, 2)
     assertEquals(record.status, flipped.status)
     assertEquals(
@@ -143,13 +143,14 @@ class PolicySuite extends munit.FunSuite:
         )
         .toOption
         .get
-    val (_, record) = cancelMember(
+    val (_, record, _) = cancelMember(
       policy = policy,
       venue = venue,
       start = start,
       now = lateAt,
       booking = booking,
-      waiver = None
+      waiver = None,
+      trail = Trail.empty
     )
     assertEquals(
       reassess(

@@ -96,13 +96,14 @@ def cancelMember(
     start: Instant,
     now: Instant,
     booking: Booking,
-    waiver: Option[Waiver]
-): (Booking, CancellationRecord) =
+    waiver: Option[Waiver],
+    trail: Trail
+): (Booking, CancellationRecord, Trail) =
   // A held-but-unconfirmed booking is not a booking yet: never charged, so
   // nothing to penalise, refund, or waive — release as unclaimed regardless
   // of lateness or waiver. The decided path stays nested so no other caller
   // can reach it with a held booking.
-  def decided(): (Booking, CancellationRecord) =
+  def decided(): (Booking, CancellationRecord, Trail) =
     val cancellation = decide(policy, start, now, venue, waiver)
     val status = cancellation match
       case o: Cancellation.OnTime        => BookingStatus.Cancelled(o)
@@ -119,9 +120,10 @@ def cancelMember(
       )
       .toOption
       .get
-    (booking.copy(status = status), record)
+    val transition = Transition(booking.id, Some(booking.status), status, now)
+    (booking.copy(status = status), record, trail.post(transition))
   booking.status match
-    case BookingStatus.Held(_) => releaseHold(booking, now)
+    case BookingStatus.Held(_) => releaseHold(booking, now, trail)
     case _                     => decided()
 
 def cancelUnpenalised(
@@ -130,8 +132,9 @@ def cancelUnpenalised(
     venue: VenueId,
     start: Instant,
     now: Instant,
-    booking: Booking
-): (Booking, CancellationRecord) =
+    booking: Booking,
+    trail: Trail
+): (Booking, CancellationRecord, Trail) =
   val cutoff = start.minus(policy.window.duration)
   val status =
     if !now.isAfter(cutoff) then
@@ -142,33 +145,59 @@ def cancelUnpenalised(
     .toOption
     .get
   // Terminal transitions clear holds: no hold outside an unconfirmed BOOKED row.
-  (booking.copy(status = status), record)
+  val transition =
+    Transition(booking.id, Some(booking.status), status, now)
+  (booking.copy(status = status), record, trail.post(transition))
 
 def cancelStaff(
     policy: Policy,
     venue: VenueId,
     start: Instant,
     now: Instant,
-    booking: Booking
-): (Booking, CancellationRecord) =
-  cancelUnpenalised(Cause.StaffDecision, policy, venue, start, now, booking)
+    booking: Booking,
+    trail: Trail
+): (Booking, CancellationRecord, Trail) =
+  cancelUnpenalised(
+    Cause.StaffDecision,
+    policy,
+    venue,
+    start,
+    now,
+    booking,
+    trail
+  )
 
 def cancelSession(
     policy: Policy,
     venue: VenueId,
     start: Instant,
     now: Instant,
-    booking: Booking
-): (Booking, CancellationRecord) =
-  cancelUnpenalised(Cause.SessionCancelled, policy, venue, start, now, booking)
+    booking: Booking,
+    trail: Trail
+): (Booking, CancellationRecord, Trail) =
+  cancelUnpenalised(
+    Cause.SessionCancelled,
+    policy,
+    venue,
+    start,
+    now,
+    booking,
+    trail
+  )
 
-def markNoShow(booking: Booking): (Booking, CancellationRecord) =
+def markNoShow(
+    booking: Booking,
+    now: Instant,
+    trail: Trail
+): (Booking, CancellationRecord, Trail) =
   val record = CancellationRecord
     .of(booking.id, Cause.NoShow, BookingStatus.NoShow, 0, booking.spent)
     .toOption
     .get
   // Terminal transitions clear holds: no hold outside an unconfirmed BOOKED row.
-  (booking.copy(status = BookingStatus.NoShow), record)
+  val transition =
+    Transition(booking.id, Some(booking.status), BookingStatus.NoShow, now)
+  (booking.copy(status = BookingStatus.NoShow), record, trail.post(transition))
 
 // Retroactive waiver: compensates a standing LOSE_CREDIT forfeit, nothing
 // else. The grant is re-verified against the venue here, the way the write
@@ -199,6 +228,7 @@ def reassess(
             record.booking,
             membership.id,
             spent.credits,
+            0,
             LedgerReason.Compensation,
             now
           )
@@ -216,8 +246,9 @@ def reassess(
       case _ =>
         Left("record carries no compensable forfeit")
 
-// Posts a computed refund to the ledger. Zero refunds post nothing:
-// zero-delta rows are forbidden, mirroring the ledger rule.
+// Posts a computed refund to the ledger. Refunds are pure money movement
+// (value 0: consumption was recorded at spend). Zero refunds post nothing,
+// since a row must carry value or money.
 def settle(
     log: Ledger,
     record: CancellationRecord,
@@ -232,6 +263,7 @@ def settle(
         record.booking,
         membership.id,
         record.refunded,
+        0,
         LedgerReason.Refund,
         now
       )

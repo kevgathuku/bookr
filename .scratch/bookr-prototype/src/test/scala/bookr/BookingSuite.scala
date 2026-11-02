@@ -61,7 +61,7 @@ class BookingSuite extends munit.FunSuite:
       .get
 
   test("booking spends the session's credit cost, not a hardcoded amount"):
-    val (booked, debited, log) =
+    val (booked, debited, log, _) =
       book(
         id = BookingId(1),
         session = session(2),
@@ -69,7 +69,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
     assertEquals(booked.status, BookingStatus.Booked)
     assertEquals(booked.spent, Stamp.of(2).toOption.get)
@@ -83,6 +84,7 @@ class BookingSuite extends munit.FunSuite:
           BookingId(1),
           MembershipId(7),
           -2,
+          2,
           LedgerReason.Spend,
           before
         )
@@ -90,7 +92,7 @@ class BookingSuite extends munit.FunSuite:
     )
 
   test("a different session cost debits differently"):
-    val (_, debited, _) =
+    val (_, debited, _, _) =
       book(
         id = BookingId(1),
         session = session(3),
@@ -98,12 +100,13 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
     assertEquals(debited.entitlement, credits(2))
 
   test("monthly booking spends nothing and keeps unlimited"):
-    val (booked, debited, _) =
+    val (booked, debited, _, _) =
       book(
         id = BookingId(1),
         session = session(2),
@@ -111,7 +114,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
     assertEquals(booked.spent, Stamp.of(0).toOption.get)
     assertEquals(debited.entitlement, Entitlement.Unlimited)
@@ -128,7 +132,7 @@ class BookingSuite extends munit.FunSuite:
       )
       .toOption
       .get
-    val (_, debited, _) =
+    val (_, debited, _, _) =
       book(
         id = BookingId(1),
         session = session(2),
@@ -136,7 +140,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
     assertEquals(debited.entitlement, credits(3))
 
@@ -150,12 +155,13 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ),
       Left("insufficient credits")
     )
     // The refusal spent nothing: the single credit still books a cost-1 session.
-    val (_, debited, _) =
+    val (_, debited, _, _) =
       book(
         id = BookingId(2),
         session = session(1),
@@ -163,7 +169,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
     assertEquals(debited.entitlement, credits(0))
 
@@ -178,7 +185,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ),
       Left("session is cancelled")
     )
@@ -203,7 +211,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ),
       Left("membership is not currently valid")
     )
@@ -217,7 +226,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ),
       Left("membership belongs to another user")
     )
@@ -232,7 +242,8 @@ class BookingSuite extends munit.FunSuite:
       member = alice,
       existing = Nil,
       now = before,
-      log = Ledger.empty
+      log = Ledger.empty,
+      trail = Trail.empty
     ).toOption.get._1
     assertEquals(
       book(
@@ -242,7 +253,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = List(first),
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ),
       Left("duplicate booking")
     )
@@ -256,12 +268,13 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = List(cancelled),
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).isRight
     )
 
   test("late cancel refunds the stamp back to the balance"):
-    val (booked1, debited, log1) =
+    val (booked1, debited, log1, _) =
       book(
         id = BookingId(1),
         session = session(2),
@@ -269,7 +282,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
     assertEquals(debited.entitlement, credits(3))
     assertEquals(log1.balanceOf(MembershipId(7)), -2)
@@ -281,14 +295,15 @@ class BookingSuite extends munit.FunSuite:
         )
         .toOption
         .get
-    val (_, record) =
+    val (_, record, _) =
       cancelMember(
         policy = freePolicy,
         venue = venue,
         start = start,
         now = before,
         booking = booked1,
-        waiver = None
+        waiver = None,
+        trail = Trail.empty
       )
     assertEquals(record.refunded, 2)
     assertEquals(debited.entitlement, credits(3))
@@ -302,6 +317,7 @@ class BookingSuite extends munit.FunSuite:
           BookingId(1),
           MembershipId(7),
           2,
+          0,
           LedgerReason.Refund,
           before
         ),
@@ -309,6 +325,7 @@ class BookingSuite extends munit.FunSuite:
           BookingId(1),
           MembershipId(7),
           -2,
+          2,
           LedgerReason.Spend,
           before
         )
@@ -316,7 +333,7 @@ class BookingSuite extends munit.FunSuite:
     )
 
   test("a strike refunds in full while still penalising"):
-    val (booked1, debited, _) =
+    val (booked1, debited, _, _) =
       book(
         id = BookingId(1),
         session = session(2),
@@ -324,7 +341,8 @@ class BookingSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
     val strikePolicy =
       Policy
@@ -334,14 +352,15 @@ class BookingSuite extends munit.FunSuite:
         )
         .toOption
         .get
-    val (_, record) =
+    val (_, record, _) =
       cancelMember(
         policy = strikePolicy,
         venue = venue,
         start = start,
         now = before,
         booking = booked1,
-        waiver = None
+        waiver = None,
+        trail = Trail.empty
       )
     assertEquals(record.refunded, 2)
     assertEquals(

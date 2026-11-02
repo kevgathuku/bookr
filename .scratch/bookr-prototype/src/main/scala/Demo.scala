@@ -134,8 +134,8 @@ import Types.*
       )
       .toOption
       .get
-  val (flipped, memberRecord) =
-    cancelMember(policy, home, start, lateAt, booking, None)
+  val (flipped, memberRecord, trail1) =
+    cancelMember(policy, home, start, lateAt, booking, None, Trail.empty)
   println(
     s"member late cancel flips booking and writes one record -> $flipped / $memberRecord"
   )
@@ -151,12 +151,20 @@ import Types.*
     .toOption
     .get
   val forfeitBooking = booking.copy(id = BookingId(2))
-  val (_, forfeit) =
-    cancelMember(losePolicy, home, start, lateAt, forfeitBooking, None)
+  val (_, forfeit, trail2) =
+    cancelMember(losePolicy, home, start, lateAt, forfeitBooking, None, trail1)
   println(s"member late lose-credit cancel -> $forfeit")
   println(
     s"retroactive waiver of forfeit -> ${reassess(forfeit, demoMembership, home, waiver.get, lateAt, Ledger.empty)}"
   )
+  // Its own booking id: cancelling the same booking twice would leave the
+  // trail showing two endings for one row.
+  val staffBooking = booking.copy(id = BookingId(3))
+  val (staffFlipped, staffRecord, trail3) =
+    cancelStaff(policy, home, start, lateAt, staffBooking, trail2)
   println(
-    s"staff cancel flips booking and writes one record -> ${cancelStaff(policy, home, start, lateAt, booking)}"
+    s"staff cancel flips booking and writes one record -> $staffFlipped / $staffRecord"
+  )
+  println(
+    s"the trail replays booking 3's status changes -> ${trail3.forBooking(BookingId(3))}"
   )

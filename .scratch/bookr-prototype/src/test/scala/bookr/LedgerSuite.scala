@@ -44,7 +44,7 @@ class LedgerSuite extends munit.FunSuite:
     Waiver(grant, Reason.of("teacher double-booked the room").toOption.get)
 
   test("booking appends a spend entry"):
-    val (_, _, log) =
+    val (_, _, log, _) =
       book(
         id = BookingId(1),
         session = session(2),
@@ -52,7 +52,8 @@ class LedgerSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
     assertEquals(
       log.entries,
@@ -61,13 +62,14 @@ class LedgerSuite extends munit.FunSuite:
           BookingId(1),
           MembershipId(7),
           -2,
+          2,
           LedgerReason.Spend,
           before
         )
       )
     )
 
-  test("monthly booking appends nothing"):
+  test("monthly booking appends a value-only row"):
     val monthly =
       Membership
         .of(
@@ -80,7 +82,7 @@ class LedgerSuite extends munit.FunSuite:
         )
         .toOption
         .get
-    val (_, _, log) =
+    val (_, _, log, _) =
       book(
         id = BookingId(1),
         session = session(2),
@@ -88,9 +90,55 @@ class LedgerSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
-    assertEquals(log.entries, Nil)
+    assertEquals(
+      log.entries,
+      List(
+        LedgerEntry(
+          BookingId(1),
+          MembershipId(7),
+          0,
+          2,
+          LedgerReason.Spend,
+          before
+        )
+      )
+    )
+    // Unlimited consumption is invisible to money but visible to value.
+    assertEquals(log.balanceOf(MembershipId(7)), 0)
+    assertEquals(log.valueOf(MembershipId(7)), 2)
+
+  test(
+    "a free session writes a row, so free bookings stay visible"
+  ):
+    val (_, _, log, _) =
+      book(
+        id = BookingId(1),
+        session = session(0),
+        membership = membership(5),
+        member = alice,
+        existing = Nil,
+        now = before,
+        log = Ledger.empty,
+        trail = Trail.empty
+      ).toOption.get
+    // Neither money nor value moved, but the row marks the booking - that
+    // is how free sessions can be counted for attendance.
+    assertEquals(
+      log.entries,
+      List(
+        LedgerEntry(
+          BookingId(1),
+          MembershipId(7),
+          0,
+          0,
+          LedgerReason.Spend,
+          before
+        )
+      )
+    )
 
   test("zero refunds post nothing"):
     val noRefund = CancellationRecord.of(
@@ -106,7 +154,7 @@ class LedgerSuite extends munit.FunSuite:
     assertEquals(log.entries, Nil)
 
   test("a waived forfeit is compensated, not refunded"):
-    val (booked, debited, log1) =
+    val (booked, debited, log1, _) =
       book(
         id = BookingId(1),
         session = session(2),
@@ -114,7 +162,8 @@ class LedgerSuite extends munit.FunSuite:
         member = alice,
         existing = Nil,
         now = before,
-        log = Ledger.empty
+        log = Ledger.empty,
+        trail = Trail.empty
       ).toOption.get
     val losePolicy =
       Policy
@@ -124,14 +173,15 @@ class LedgerSuite extends munit.FunSuite:
         )
         .toOption
         .get
-    val (_, record) =
+    val (_, record, _) =
       cancelMember(
         policy = losePolicy,
         venue = venue,
         start = start,
         now = before,
         booking = booked,
-        waiver = None
+        waiver = None,
+        trail = Trail.empty
       )
     assertEquals(record.refunded, 0)
     val (compensated, log2) = reassess(
@@ -150,6 +200,7 @@ class LedgerSuite extends munit.FunSuite:
           BookingId(1),
           MembershipId(7),
           2,
+          0,
           LedgerReason.Compensation,
           before
         ),
@@ -157,6 +208,7 @@ class LedgerSuite extends munit.FunSuite:
           BookingId(1),
           MembershipId(7),
           -2,
+          2,
           LedgerReason.Spend,
           before
         )

@@ -85,8 +85,9 @@ def book(
     member: UserId,
     existing: List[Booking],
     now: Instant,
-    log: Ledger
-): Either[String, (Booking, Membership, Ledger)] =
+    log: Ledger,
+    trail: Trail
+): Either[String, (Booking, Membership, Ledger, Trail)] =
   for
     open <- requireOpen(session, now)
     _ <- Either.cond(
@@ -117,18 +118,21 @@ def book(
         BookingStatus.Booked,
         stamp
       )
-      // No money moved, no row: zero-delta rows are forbidden.
-      if stamp.credits == 0 then (booked, debited, log)
-      else
-        val entry =
-          LedgerEntry(
-            id,
-            membership.id,
-            -stamp.credits,
-            LedgerReason.Spend,
-            now
-          )
-        (booked, debited, log.post(entry))
+      // Every booking writes one row, even with zero delta: the value
+      // consumed is visible regardless of membership kind. A free session
+      // writes a row carrying neither money nor value - it still marks the
+      // booking, so free sessions stay visible for attendance analysis.
+      val entry =
+        LedgerEntry(
+          id,
+          membership.id,
+          -stamp.credits,
+          session.creditCost,
+          LedgerReason.Spend,
+          now
+        )
+      val transition = Transition(id, None, BookingStatus.Booked, now)
+      (booked, debited, log.post(entry), trail.post(transition))
 
 // Booking debits this many credits at booking time (the offering's
 // credit_cost, possibly > 1). Refunds return exactly the stamp — never a
