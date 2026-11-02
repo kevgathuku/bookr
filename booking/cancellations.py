@@ -336,10 +336,6 @@ def _member_outcome(
     on_behalf: bool,
     reason: str,
 ) -> _Outcome:
-    # Annotations are load-bearing: mypy 2.x skips fully-unannotated
-    # functions, which would silence assert_never below. Enforcement rides
-    # its own branches (never folded into the late/waive condition) so a
-    # new member fails mypy until handled.
     enforcement = CancellationPolicy.Enforcement(policy.enforcement)
     none = CancellationPolicy.Enforcement.NONE
     late_status = Booking.Status.LATE_CANCELLED

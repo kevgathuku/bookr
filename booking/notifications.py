@@ -54,14 +54,11 @@ def _outcome_text(record):
 
 
 def _late_outcome_text(record: CancellationRecord, refunded: int) -> str:
-    # Annotations are load-bearing: mypy 2.x skips fully-unannotated
-    # functions, which would silence assert_never below.
     if record.penalty_waived:
         return (
             "cancelled late but the penalty was waived and "
             f"{refunded} credit(s) refunded"
         )
-    # Enum-typed so a new Enforcement member fails mypy below until handled.
     enforcement = CancellationPolicy.Enforcement(record.enforcement_applied)
     if enforcement == CancellationPolicy.Enforcement.STRIKE:
         return f"cancelled late and {refunded} credit(s) refunded, strike recorded"
