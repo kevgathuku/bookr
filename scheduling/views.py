@@ -107,7 +107,10 @@ class SessionViewSet(viewsets.ReadOnlyModelViewSet):
             sessions.in_window(start, end)
             .select_related("offering", "offering__teacher")
             .annotate(
-                booked=Count("bookings", filter=Q(bookings__status="booked")),
+                booked=Count(
+                    "bookings",
+                    filter=Q(bookings__status__in=["booked", "held"]),
+                ),
             )
             .order_by("starts_at")
         )

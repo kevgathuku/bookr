@@ -45,6 +45,8 @@ def notify_member_cancel(record):
 
 def _outcome_text(record):
     snap = record.snapshot
+    if snap["cause"] == "unclaimed":
+        return "released unclaimed and no charge was made"
     refunded = snap["credits_refunded"]
     if snap["cause"] == "staff_decision":
         return f"cancelled by staff and {refunded} credit(s) refunded"
@@ -95,21 +97,20 @@ def notify_promoted(booking):
     _send(
         f"Seat held: {session_label}",
         f"A seat opened in {session_label} and is held for you until "
-        f"{hold_until} in venue time. "
-        f"{booking.credits_spent} credit(s) were debited.",
+        f"{hold_until} in venue time. Confirm to claim it; "
+        "nothing has been charged yet.",
         _address(booking.member),
     )
 
 
-def notify_hold_expired(booking, refunded):
-    """A lapsed hold released the seat; the stamp is refunded."""
+def notify_hold_expired(booking):
+    """A lapsed hold released the seat; nothing had been charged."""
     session = booking.session
     title = session.offering.title
     starts = session.starts_at.isoformat()
     session_label = f"{title} at {starts}"
     _send(
         f"Hold lapsed: {session_label}",
-        f"Your held seat in {session_label} lapsed and was released; "
-        f"{refunded} credit(s) refunded.",
+        f"Your held seat in {session_label} lapsed and was released.",
         _address(booking.member),
     )

@@ -15,6 +15,8 @@
 # Celery-prescribed bootstrap, which cannot live anywhere else.
 # Per-file: access/views.py ignores WPS201 — check + recent-events views
 # share one module rather than one-import-per-view files.
+# Per-file: booking/urls.py ignores WPS235 — one view per route, nine
+# routes by design; splitting the import would scatter one URLconf.
 # Per-file: tests ignore WPS501 — thread race tests release the DB
 # connection in a bare try/finally; there is no exception to catch.
 # (tests/* covers top-level + e2e; */tests/* mirrors it for per-app
@@ -99,6 +101,8 @@ per-file-ignores =
         WPS202,
         WPS210,
         WPS213,
+    booking/urls.py:
+        WPS235,
     booking/views.py:
         WPS201,
         WPS202,

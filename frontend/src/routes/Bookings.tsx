@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "../api/client";
 import { Button, EmptyState, ErrorText, Pill } from "../components";
-import { useBookings } from "../hooks";
+import { confirmBooking, useBookings } from "../hooks";
 import { SkeletonList } from "../route-ux";
 
 export default function Bookings() {
@@ -15,11 +15,15 @@ export default function Bookings() {
 			}),
 		onSuccess: () => queryClient.invalidateQueries(),
 	});
+	const confirm = useMutation({
+		mutationFn: (id: number) => confirmBooking(id),
+		onSuccess: () => queryClient.invalidateQueries(),
+	});
 
 	if (bookings.isPending) return <SkeletonList />;
 	if (bookings.isError) return <ErrorText message="Could not load bookings." />;
 	const active = bookings.data.filter((b) =>
-		["booked", "waitlisted"].includes(b.status),
+		["booked", "waitlisted", "held"].includes(b.status),
 	);
 	if (active.length === 0)
 		return <EmptyState message="No bookings yet — pick a class above." />;
@@ -42,11 +46,24 @@ export default function Bookings() {
 								{booking.session_title}{" "}
 								{booking.status === "waitlisted" ? (
 									<Pill tone="warn">Waitlisted</Pill>
+								) : booking.status === "held" ? (
+									<Pill tone="warn" testId="held-badge">
+										Held
+									</Pill>
 								) : (
 									<Pill tone="brand">Booked</Pill>
 								)}
 							</p>
 						</div>
+						{booking.status === "held" ? (
+							<Button
+								testId="confirm-button"
+								disabled={confirm.isPending}
+								onClick={() => confirm.mutate(booking.id)}
+							>
+								Confirm seat
+							</Button>
+						) : null}
 						<Button
 							testId="cancel-button"
 							variant="outline"

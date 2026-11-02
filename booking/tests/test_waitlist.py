@@ -12,17 +12,24 @@ from datetime import timedelta
 
 import pytest
 from django.core import mail
+from django.core.exceptions import PermissionDenied
 from django.db import connection
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from booking.cancellations import cancel_booking, cancel_session, mark_no_show
-from booking.errors import DuplicateBooking, SeatFull
-from booking.models import Booking, CancellationPolicy
+from booking.errors import (
+    CreditInsufficient,
+    DuplicateBooking,
+    NotHeld,
+    SeatFull,
+)
+from booking.models import Booking, CancellationPolicy, CancellationRecord
 from booking.services import (
     HOLD_WINDOW_MINUTES,
     book_session,
+    confirm_booking,
     promote_next,
     sweep_expired_holds,
 )
@@ -159,7 +166,7 @@ class TestPromoteNext:
 
         assert promoted is not None
         assert promoted.pk == first.pk
-        assert promoted.status == Booking.Status.BOOKED
+        assert promoted.status == Booking.Status.HELD
         assert (
             Booking.objects.filter(
                 session=session, status=Booking.Status.WAITLISTED
@@ -167,19 +174,19 @@ class TestPromoteNext:
             == 1
         )
 
-    def test_promotion_writes_spend_and_hold(self):
+    def test_promotion_holds_without_spend(self):
         session, before, _first = self._queued_world()
 
         promoted = promote_next(session)
 
         assert promoted is not None
-        assert promoted.credits_spent == 1
+        assert promoted.credits_spent == 0
         assert promoted.hold_expires_at is not None
         assert promoted.hold_expires_at - before >= timedelta(
             minutes=HOLD_WINDOW_MINUTES - 1
         )
 
-    def test_promotion_writes_spend_to_ledger(self):
+    def test_promotion_writes_no_ledger(self):
         session, member = _world(capacity=1, credits=10)
         seated = member("seated")
         queued = member("queued")
@@ -193,13 +200,14 @@ class TestPromoteNext:
         promote_next(session)
 
         waiting.refresh_from_db()
-        assert waiting.credits_spent == 1
-        assert Membership.objects.get(user=queued).credits_remaining == opening - 1
-        assert CreditLedger.objects.filter(
-            booking=waiting, reason=CreditLedger.Reason.BOOKING, delta=-1
-        ).exists()
+        assert waiting.credits_spent == 0
+        assert waiting.status == Booking.Status.HELD
+        assert Membership.objects.get(user=queued).credits_remaining == opening
+        assert not CreditLedger.objects.filter(booking=waiting).exists()
 
-    def test_lapsed_pass_stays_queued_seat_stays_open(self):
+    def test_lapsed_pass_still_promoted_without_spend(self):
+        # Promotion never checks passes: the head is seated as Held and
+        # confirm collects the 402 when the pass cannot pay.
         session, member = _world(capacity=1)
         seated = book_session(session=session, member=member("seated"))
         queued = member("queued")
@@ -209,15 +217,11 @@ class TestPromoteNext:
             ends_on=timezone.now().date() - timedelta(days=1)
         )
 
-        assert promote_next(session) is None
-        queued_booking = Booking.objects.get(session=session, member=queued)
-        assert queued_booking.status == Booking.Status.WAITLISTED
-        assert (
-            Booking.objects.filter(
-                session=session, status=Booking.Status.BOOKED
-            ).count()
-            == 0
-        )
+        promoted = promote_next(session)
+
+        assert promoted is not None
+        assert promoted.status == Booking.Status.HELD
+        assert promoted.credits_spent == 0
 
     def test_promote_is_idle_when_full_or_empty(self):
         session, member = _world(capacity=1)
@@ -251,15 +255,13 @@ class TestPromoteNext:
 
         assert sum(result is not None for result in results) == 1
         assert (
-            Booking.objects.filter(
-                session=session, status=Booking.Status.BOOKED
-            ).count()
+            Booking.objects.filter(session=session, status=Booking.Status.HELD).count()
             == 1
         )
 
 
 class TestSweepExpiredHolds:
-    def test_lapsed_hold_refunds_cancels_and_promotes_next(self):
+    def test_lapsed_hold_releases_unclaimed_and_promotes_next(self):
         session, member = _world(capacity=1, credits=10)
         seated = member("seated")
         queued = member("queued")
@@ -275,13 +277,37 @@ class TestSweepExpiredHolds:
         swept = sweep_expired_holds()
 
         assert swept == 1
+        assert sweep_expired_holds() == 0
         waiting.refresh_from_db()
-        assert waiting.status == Booking.Status.CANCELLED
-        assert waiting.hold_expires_at is None
-        assert Membership.objects.get(user=queued).credits_remaining == opening + 1
-        assert CreditLedger.objects.filter(
-            booking=waiting, reason=CreditLedger.Reason.REFUND, delta=1
-        ).exists()
+        assert (waiting.status, waiting.hold_expires_at) == (
+            Booking.Status.CANCELLED,
+            None,
+        )
+        assert Membership.objects.get(user=queued).credits_remaining == opening
+        assert not CreditLedger.objects.filter(booking=waiting).exists()
+        record = CancellationRecord.objects.get(booking=waiting)
+        assert (record.cause, record.enforcement_applied, record.credits_refunded) == (
+            CancellationRecord.Cause.UNCLAIMED,
+            CancellationPolicy.Enforcement.NONE,
+            0,
+        )
+
+    def test_sweep_releases_hold_expiring_exactly_on_the_tick(self):
+        session, member = _world(capacity=1)
+        book_session(session=session, member=member("seated"))
+        book_session(session=session, member=member("queued"), waitlist=True)
+        Booking.objects.filter(member__username="seated").update(
+            status=Booking.Status.CANCELLED
+        )
+        promote_next(session)
+        moment = timezone.now()
+        Booking.objects.filter(member__username="queued").update(hold_expires_at=moment)
+
+        assert sweep_expired_holds(now=moment) == 1
+        assert (
+            Booking.objects.get(member__username="queued").status
+            == Booking.Status.CANCELLED
+        )
 
     def test_unexpired_holds_survive_the_sweep(self):
         session, member = _world(capacity=1)
@@ -294,7 +320,7 @@ class TestSweepExpiredHolds:
 
         assert sweep_expired_holds() == 0
         promoted.refresh_from_db()
-        assert promoted.status == Booking.Status.BOOKED
+        assert promoted.status == Booking.Status.HELD
 
     def test_sweep_passes_the_seat_to_next_in_line(self):
         session, member = _world(capacity=1)
@@ -312,9 +338,96 @@ class TestSweepExpiredHolds:
         sweep_expired_holds()
 
         assert (
-            Booking.objects.get(member__username="second").status
-            == Booking.Status.BOOKED
+            Booking.objects.get(member__username="second").status == Booking.Status.HELD
         )
+
+
+class TestConfirmHold:
+    def _held_world(self):
+        session, member = _world(capacity=1, credits=10)
+        seated = member("seated")
+        queued = member("queued")
+        book_session(session=session, member=seated)
+        waiting = book_session(session=session, member=queued, waitlist=True)
+        Booking.objects.filter(member=seated).update(status=Booking.Status.CANCELLED)
+        held = promote_next(session)
+        assert held is not None
+        return session, queued, waiting
+
+    def test_confirm_charges_and_books(self):
+        _session, queued, waiting = self._held_world()
+        opening = Membership.objects.get(user=queued).credits_remaining
+
+        confirmed = confirm_booking(booking_id=waiting.pk, actor=queued)
+
+        assert confirmed.status == Booking.Status.BOOKED
+        assert confirmed.credits_spent == 1
+        assert confirmed.hold_expires_at is None
+        assert Membership.objects.get(user=queued).credits_remaining == opening - 1
+        assert CreditLedger.objects.filter(
+            booking=waiting, reason=CreditLedger.Reason.BOOKING, delta=-1
+        ).exists()
+
+    def test_confirm_monthly_books_without_ledger(self):
+        session, member = _world(capacity=1)
+        seated = member("seated")
+        monthly_user = UserFactory(username="monthly")
+        OrgRoleFactory(
+            organization=session.offering.venue.organization,
+            venue=None,
+            user=monthly_user,
+            role=OrgRole.Role.MEMBER,
+        )
+        plan = PlanFactory(
+            organization=session.offering.venue.organization,
+            plan_type=PlanType.MONTHLY,
+        )
+        PlanMembershipFactory(user=monthly_user, plan=plan, credits_remaining=0)
+        book_session(session=session, member=seated)
+        waiting = book_session(session=session, member=monthly_user, waitlist=True)
+        Booking.objects.filter(member=seated).update(status=Booking.Status.CANCELLED)
+        promote_next(session)
+
+        confirmed = confirm_booking(booking_id=waiting.pk, actor=monthly_user)
+
+        assert confirmed.status == Booking.Status.BOOKED
+        assert confirmed.credits_spent == 0
+        assert not CreditLedger.objects.filter(booking=waiting).exists()
+
+    def test_confirm_non_held_raises(self):
+        session, member = _world(capacity=1)
+        booking = book_session(session=session, member=member("seated"))
+
+        with pytest.raises(NotHeld):
+            confirm_booking(booking_id=booking.pk, actor=booking.member)
+
+    def test_confirm_expired_hold_raises(self):
+        _session, queued, waiting = self._held_world()
+        Booking.objects.filter(pk=waiting.pk).update(
+            hold_expires_at=timezone.now() - timedelta(minutes=1)
+        )
+
+        with pytest.raises(NotHeld):
+            confirm_booking(booking_id=waiting.pk, actor=queued)
+
+    def test_confirm_lapsed_pass_raises(self):
+        _session, queued, waiting = self._held_world()
+        queued.plan_memberships.update(
+            ends_on=timezone.now().date() - timedelta(days=1)
+        )
+
+        with pytest.raises(CreditInsufficient):
+            confirm_booking(booking_id=waiting.pk, actor=queued)
+
+        waiting.refresh_from_db()
+        assert waiting.status == Booking.Status.HELD
+
+    def test_confirm_by_other_member_raises(self):
+        _session, _queued, waiting = self._held_world()
+        stranger = UserFactory(username="stranger")
+
+        with pytest.raises(PermissionDenied):
+            confirm_booking(booking_id=waiting.pk, actor=stranger)
 
 
 class TestWaitlistNotifications:
@@ -352,8 +465,8 @@ class TestCancelTriggersPromotion:
         cancel_booking(booking_id=seated_booking.pk, actor=seated)
 
         waiting.refresh_from_db()
-        assert waiting.status == Booking.Status.BOOKED
-        assert waiting.credits_spent == 1
+        assert waiting.status == Booking.Status.HELD
+        assert waiting.credits_spent == 0
         assert waiting.hold_expires_at is not None
 
     def test_late_cancel_promotes_head(self):
@@ -372,7 +485,7 @@ class TestCancelTriggersPromotion:
 
         assert record.cause == "member_cancel"
         waiting.refresh_from_db()
-        assert waiting.status == Booking.Status.BOOKED
+        assert waiting.status == Booking.Status.HELD
 
     def test_staff_on_behalf_cancel_promotes_head(self):
         session, member = _world(capacity=1)
@@ -396,7 +509,7 @@ class TestCancelTriggersPromotion:
         )
 
         waiting.refresh_from_db()
-        assert waiting.status == Booking.Status.BOOKED
+        assert waiting.status == Booking.Status.HELD
 
     def test_no_show_promotes_head(self):
         session, member = _world(capacity=1)
@@ -419,7 +532,7 @@ class TestCancelTriggersPromotion:
         mark_no_show(booking_id=seated_booking.pk, actor=desk)
 
         waiting.refresh_from_db()
-        assert waiting.status == Booking.Status.BOOKED
+        assert waiting.status == Booking.Status.HELD
 
     def test_session_cancel_closes_queue_without_promoting(self):
         session, member = _world(capacity=1)
@@ -494,6 +607,38 @@ class TestWaitlistApi:
 
         assert response.status_code == 409
 
+    def test_confirm_claims_seat_through_the_api(self):
+        session, member = _world(capacity=1)
+        venue = session.offering.venue
+        seated = member("seated")
+        queued = member("queued")
+        seated_booking = book_session(session=session, member=seated)
+        waiting = book_session(session=session, member=queued, waitlist=True)
+        Booking.objects.filter(pk=seated_booking.pk).update(
+            status=Booking.Status.CANCELLED
+        )
+        promote_next(session)
+
+        confirm = self._client(queued, venue).post(
+            f"/api/v1/bookings/{waiting.pk}/confirm/", {}
+        )
+
+        assert confirm.status_code == 200, confirm.content
+        assert confirm.json()["status"] == "booked"
+        assert confirm.json()["credits_spent"] == 1
+
+    def test_confirm_non_held_is_409(self):
+        session, member = _world(capacity=1)
+        venue = session.offering.venue
+        seated = member("seated")
+        booking = book_session(session=session, member=seated)
+
+        confirm = self._client(seated, venue).post(
+            f"/api/v1/bookings/{booking.pk}/confirm/", {}
+        )
+
+        assert confirm.status_code == 409
+
     def test_cancel_promotes_through_the_api(self):
         session, member = _world(capacity=1)
         venue = session.offering.venue
@@ -510,4 +655,4 @@ class TestWaitlistApi:
 
         assert cancel.status_code == 200, cancel.content
         queued_booking = Booking.objects.get(session=session, member=queued)
-        assert queued_booking.status == Booking.Status.BOOKED
+        assert queued_booking.status == Booking.Status.HELD

@@ -112,11 +112,12 @@ def _live_booking(member, venue, now):
 
 
 def _bookings(member, venue):
+    # Door seats are claimed seats: held-but-unconfirmed rows grant nothing.
     return (
         Booking.objects.filter(
             member=member,
             session__offering__venue=venue,
-            status__in=ACTIVE_STATUSES,
+            status=Booking.Status.BOOKED,
         )
         .select_related("session", "session__offering")
         .order_by("session__starts_at")

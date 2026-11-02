@@ -28,7 +28,7 @@ from booking.serializers import (
     RecordSerializer,
     WaiveSerializer,
 )
-from booking.services import book_session
+from booking.services import book_session, confirm_booking
 from organizations.permissions import IsStaff, IsVenueMember, staff_covering
 
 
@@ -206,6 +206,21 @@ class BookingCancelView(APIView):
                 reason=params.get("reason") or "",
             ),
         )
+
+
+class BookingConfirmView(APIView):
+    """Claim a held seat: charge the pass, flip Held to Booked."""
+
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        IsVenueMember,
+    ]
+
+    @extend_schema(request=None, responses=BookingSerializer)
+    def post(self, request, pk):
+        booking = _owned(request, pk)
+        with mapped_errors():
+            booking = confirm_booking(booking_id=booking.pk, actor=request.user)
+        return Response(BookingSerializer(booking).data)
 
 
 class NoShowView(APIView):

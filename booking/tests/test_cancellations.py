@@ -27,7 +27,7 @@ from booking.services import book_session
 from organizations.ids import OrgId, VenueId
 from organizations.models import OrgRole
 from passes.models import CreditLedger, PlanType
-from scheduling.models import ClassCategory
+from scheduling.models import ClassCategory, ClassSession
 from tests.factories import (
     CancellationPolicyFactory,
     ClassOfferingFactory,
@@ -437,6 +437,98 @@ class TestPolicyModel:
 
         with pytest.raises(ValidationError):
             record.save(update_fields=["snapshot"])
+
+
+class TestHeldRelease:
+    def _held_world(self, starts_in_hours=48):
+        from booking.services import promote_next
+
+        venue = _venue()
+        session = _session(venue, starts_in_hours=starts_in_hours)
+        session.capacity = 1
+        session.save(update_fields=["capacity"])
+        seated = _member("seated", venue, credits=10)
+        queued = _member("queued", venue, credits=10)
+        _policy(venue.organization, LATE, late_cancel_hours=12)
+        seated_booking = _book(seated, session)
+        waiting = book_session(session=session, member=queued, waitlist=True)
+        Booking.objects.filter(pk=seated_booking.pk).update(
+            status=Booking.Status.CANCELLED
+        )
+        held = promote_next(session)
+        assert held is not None
+        return venue, session, queued, waiting
+
+    def test_member_cancel_of_held_releases_unclaimed(self):
+        _venue, _session, queued, waiting = self._held_world()
+
+        record = cancel_booking(
+            booking_id=waiting.pk,
+            actor=queued,
+            now=timezone.now(),
+            reason="changed mind",
+        )
+
+        assert (record.cause, record.enforcement_applied, record.credits_refunded) == (
+            CancellationRecord.Cause.UNCLAIMED,
+            CancellationPolicy.Enforcement.NONE,
+            0,
+        )
+        assert record.was_late is False
+        waiting.refresh_from_db()
+        assert waiting.status == Booking.Status.CANCELLED
+        assert waiting.hold_expires_at is None
+
+    def test_late_cancel_of_held_releases_unclaimed_without_penalty(self):
+        _venue, _session, queued, waiting = self._held_world(starts_in_hours=2)
+
+        record = cancel_booking(
+            booking_id=waiting.pk,
+            actor=queued,
+            now=timezone.now(),
+            reason="late but unclaimed",
+        )
+
+        assert record.cause == CancellationRecord.Cause.UNCLAIMED
+        assert record.enforcement_applied == CancellationPolicy.Enforcement.NONE
+
+    def test_no_show_of_held_releases_unclaimed(self):
+        from booking.cancellations import mark_no_show
+
+        venue, session, _queued, waiting = self._held_world()
+        desk = _staff("door", venue)
+        ClassSession.objects.filter(pk=session.pk).update(
+            starts_at=timezone.now() - timedelta(minutes=30)
+        )
+
+        record = mark_no_show(booking_id=waiting.pk, actor=desk)
+
+        assert record.cause == CancellationRecord.Cause.UNCLAIMED
+        waiting.refresh_from_db()
+        assert waiting.status == Booking.Status.CANCELLED
+
+    def test_session_cancel_of_held_keeps_provider_cause_and_clears_hold(self):
+        venue, session, _queued, waiting = self._held_world()
+        desk = _staff("manager", venue, role=OrgRole.Role.MANAGER)
+
+        records = cancel_session(
+            session_id=session.pk, actor=desk, reason="studio closed"
+        )
+
+        held_record = next(row for row in records if row.booking_id == waiting.pk)
+        assert held_record.cause == CancellationRecord.Cause.SESSION_CANCELLED
+        waiting.refresh_from_db()
+        assert waiting.hold_expires_at is None
+
+    def test_check_in_of_held_refused(self):
+        from booking.cancellations import check_in
+        from booking.errors import AlreadyCancelled
+
+        venue, _session, _queued, waiting = self._held_world()
+        desk = _staff("door", venue)
+
+        with pytest.raises(AlreadyCancelled):
+            check_in(booking_id=waiting.pk, actor=desk)
 
 
 class TestMemberCancel:

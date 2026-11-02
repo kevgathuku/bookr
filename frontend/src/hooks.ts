@@ -280,6 +280,13 @@ export async function bookSession(
 	});
 }
 
+export async function confirmBooking(bookingId: number): Promise<BookingItem> {
+	return apiJson<BookingItem>(`/api/v1/bookings/${bookingId}/confirm/`, {
+		method: "POST",
+		body: JSON.stringify({}),
+	});
+}
+
 export async function requestPasswordReset(
 	email: string,
 ): Promise<{ detail: string }> {

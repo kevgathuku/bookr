@@ -114,6 +114,10 @@ def _apply_cancel(
     penalize = _check_actor(
         actor, booking, organization, on_behalf_of, waive_penalty, reason
     )
+    if booking.status == Booking.Status.HELD:
+        # A held-but-unconfirmed seat releases as unclaimed regardless of
+        # lateness or waiver: nothing was charged, so nothing is penalized.
+        return release_unclaimed(booking, session, organization, actor, reason)
     policy = resolve_policy(
         OrgId(organization.pk),
         VenueId(venue.pk),
@@ -182,6 +186,10 @@ def mark_no_show(*, booking_id, actor):
             # absent, and the flip is irreversible — refuse the fat finger.
             raise ValidationError("Session has not started.")
         _require_door(actor, organization)
+        if booking.status == Booking.Status.HELD:
+            record = release_unclaimed(booking, session, organization, actor, "")
+            promote_waitlist.delay(session_id=session.pk)
+            return record
         booking.status = Booking.Status.NO_SHOW
         booking.save(update_fields=["status"])
         record = _write_no_show_record(booking, session, organization, actor)
@@ -218,6 +226,8 @@ def check_in(*, booking_id, actor):
         booking, _session, _venue, organization = _load_open_booking(
             booking_id, timezone.now(), allow_started=True
         )
+        if booking.status != Booking.Status.BOOKED:
+            raise AlreadyCancelled("Only confirmed bookings can check in.")
         _require_door(actor, organization)
         booking.status = Booking.Status.ATTENDED
         booking.checked_in_at = timezone.now()
@@ -299,7 +309,7 @@ def _load_open_booking(booking_id, moment, allow_started=False):
         .get(pk=booking_id)
     )
     session = booking.session
-    if booking.status != Booking.Status.BOOKED:
+    if booking.status not in (Booking.Status.BOOKED, Booking.Status.HELD):
         raise AlreadyCancelled("Booking is no longer active.")
     if session.cancelled_at is not None:
         raise SessionStarted("Session has been cancelled.")
@@ -310,6 +320,33 @@ def _load_open_booking(booking_id, moment, allow_started=False):
         )
     venue = session.offering.venue
     return booking, session, venue, venue.organization
+
+
+def release_unclaimed(booking, session, organization, actor, reason):
+    """Shared exit for unconfirmed holds: never charged, so never
+    penalized, refunded, or waived — released as unclaimed."""
+    booking.status = Booking.Status.CANCELLED
+    booking.hold_expires_at = None
+    booking.save(update_fields=["status", "hold_expires_at"])
+    outcome = _Outcome(
+        applied=CancellationPolicy.Enforcement.NONE,
+        refund=0,
+        cause=CancellationRecord.Cause.UNCLAIMED,
+        status=Booking.Status.CANCELLED,
+        policy=None,
+        on_behalf_of=False,
+        reason=reason,
+    )
+    return CancellationRecord.objects.create(
+        booking=booking,
+        member=booking.member,
+        organization=organization,
+        cause=outcome.cause,
+        was_late=False,
+        enforcement_applied=outcome.applied,
+        credits_refunded=0,
+        snapshot=_snapshot(booking, session, outcome, actor, False),
+    )
 
 
 def _write_record(booking, session, organization, outcome, actor, late, waive_penalty):
@@ -391,7 +428,8 @@ def _member_outcome(
 def _cancel_one_for_session(booking, session, venue, organization, actor):
     stamp = booking.credits_spent
     booking.status = Booking.Status.CANCELLED
-    booking.save(update_fields=["status"])
+    booking.hold_expires_at = None
+    booking.save(update_fields=["status", "hold_expires_at"])
     if stamp:
         _refund(booking, stamp, actor)
     policy = resolve_policy(
@@ -492,7 +530,7 @@ def _snapshot(booking, session, outcome, actor, waived):
         "credits_spent": booking.credits_spent,
         "credits_refunded": outcome.refund,
         "policy": None,
-        "actor_id": actor.pk,
+        "actor_id": actor.pk if actor else None,
         "on_behalf_of": outcome.on_behalf_of,
         "reason": outcome.reason,
         # Duplicates the columns on purpose: the snapshot must tell the

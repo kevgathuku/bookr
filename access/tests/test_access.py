@@ -175,6 +175,28 @@ class TestGrantDeny:
         assert response.data["granted"] is True
         assert AccessEvent.objects.get(member=member).reason == "live_booking"
 
+    def test_held_booking_denies_door(self):
+        from booking.models import Booking
+
+        venue = _venue()
+        point, token = _point(venue)
+        member = _member_with_plan(venue, "holder", credits=0)
+        session = _session(venue, minutes_from_now=10)
+        membership = member.plan_memberships.get()
+        Booking.objects.create(
+            session=session,
+            member=member,
+            membership=membership,
+            credits_spent=0,
+            status=Booking.Status.HELD,
+            hold_expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        response = _check(token, member.pk, point.pk)
+
+        assert response.data["granted"] is False
+        assert AccessEvent.objects.get(member=member).reason == "no_access"
+
     def test_staff_grants_without_pass_or_booking(self):
         venue = _venue()
         point, token = _point(venue)

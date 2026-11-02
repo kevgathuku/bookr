@@ -306,8 +306,15 @@ def test_cancel_promotes_waitlisted_member(base_url):
     _cancel(booker, booking["id"])
 
     promoted = _mine(queued, waiting["id"])
-    assert promoted["status"] == "booked"
-    assert promoted["credits_spent"] > 0
+    assert promoted["status"] == "held"
+    assert promoted["credits_spent"] == 0
+
+    confirmed = queued.client.post(
+        f"{queued.api}/bookings/{waiting['id']}/confirm/", json={}
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["status"] == "booked"
+    assert confirmed.json()["credits_spent"] > 0
 
 
 def test_cancel_refunds_and_ledger_balances(base_url):

@@ -7,13 +7,14 @@ from django.db import models
 from passes.models import PlanType
 from scheduling.models import ClassCategory
 
-ACTIVE_STATUSES = ("booked", "waitlisted")
+ACTIVE_STATUSES = ("booked", "waitlisted", "held")
 
 
 class Booking(models.Model):
     class Status(models.TextChoices):
         BOOKED = "booked", "Booked"
         WAITLISTED = "waitlisted", "Waitlisted"
+        HELD = "held", "Held"
         CANCELLED = "cancelled", "Cancelled"
         LATE_CANCELLED = "late_cancelled", "Late cancelled"
         NO_SHOW = "no_show", "No-show"
@@ -32,10 +33,11 @@ class Booking(models.Model):
         "passes.Membership", on_delete=models.PROTECT, related_name="bookings"
     )
     # Credits actually debited at booking time; refunds return exactly this.
-    # Waitlisted rows stamp zero: spend happens on promotion, never on join.
+    # Waitlisted and held rows stamp zero: spend happens on confirm, never
+    # on join and never on promotion.
     credits_spent = models.PositiveIntegerField(default=0)
     # Promotion reserves the seat until this moment; the sweep releases
-    # lapsed holds. NULL for every other status.
+    # lapsed holds. Set exactly when the status is Held; NULL otherwise.
     hold_expires_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.BOOKED
@@ -169,6 +171,7 @@ class CancellationRecord(models.Model):
         STAFF_DECISION = "staff_decision", "Staff decision"
         SESSION_CANCELLED = "session_cancelled", "Session cancelled"
         NO_SHOW = "no_show", "No-show"
+        UNCLAIMED = "unclaimed", "Unclaimed"
 
     booking = models.ForeignKey(
         Booking, on_delete=models.PROTECT, related_name="cancellation_records"

@@ -155,6 +155,10 @@ Manage (manager, owner):
   Invite-claim (bookr-0vc): no public signup — staff presets the member
   in admin, and `/claim` (link form, or set-password form on `?uid&token`)
   drives `POST /api/v1/auth/password-reset/` + `.../password-reset-confirm/`.
+  Held seats (bookr-c37): promotion seats the queue head as Held (no spend)
+  and `POST /api/v1/bookings/{id}/confirm/` charges the pass and flips Held
+  to Booked; decline/lapse/cancel-of-held releases as unclaimed. Bookings
+  shows a Held pill + Confirm button; Schedule badges Held rows.
   The API client is hand-written (`api/client.ts`); OpenAPI types are
   generated (`generate:api` script) but behavior is never code-generated.
 - The shell owns venue context: switcher clears the query cache; the

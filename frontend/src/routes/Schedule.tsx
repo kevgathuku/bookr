@@ -86,11 +86,13 @@ function CapacityMeter({ klass }: { klass: SessionItem }) {
 function ClassRow({
 	klass,
 	booked,
+	held,
 	timeZone,
 	mayBook,
 }: {
 	klass: SessionItem;
 	booked: boolean;
+	held: boolean;
 	timeZone: string;
 	mayBook: boolean;
 }) {
@@ -124,7 +126,11 @@ function ClassRow({
 			<div className="min-w-0 flex-1">
 				<p className="font-semibold">
 					{klass.offering_title}{" "}
-					{booked ? (
+					{held ? (
+						<Pill tone="warn" testId="held-badge">
+							Held
+						</Pill>
+					) : booked ? (
 						<Pill tone="brand" testId="booked-badge">
 							Booked
 						</Pill>
@@ -233,7 +239,12 @@ export default function Schedule({ venue }: { venue: string | null }) {
 	if (bookings.isError) return <ErrorText message="Could not load bookings." />;
 	const bookedIds = new Set(
 		(bookings.data ?? [])
-			.filter((b) => b.status === "booked" || b.status === "waitlisted")
+			.filter((b) => ["booked", "waitlisted", "held"].includes(b.status))
+			.map((b) => b.session),
+	);
+	const heldIds = new Set(
+		(bookings.data ?? [])
+			.filter((b) => b.status === "held")
 			.map((b) => b.session),
 	);
 
@@ -364,6 +375,7 @@ export default function Schedule({ venue }: { venue: string | null }) {
 									key={klass.id}
 									klass={klass}
 									booked={bookedIds.has(klass.id)}
+									held={heldIds.has(klass.id)}
 									timeZone={timeZone}
 									mayBook={canBook(me, resolvedVenue)}
 								/>

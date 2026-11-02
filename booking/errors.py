@@ -18,6 +18,10 @@ class DuplicateBooking(BookingError):
     """Member already holds an active booking for this session."""
 
 
+class NotHeld(BookingError):
+    """Booking holds no confirmable seat: not held, or hold expired."""
+
+
 class AllotmentExhausted(BookingError):
     """Partner holds no more seats in this session."""
 
