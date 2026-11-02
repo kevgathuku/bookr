@@ -115,7 +115,7 @@ def booker_membership(venue, user, name="Credits", credits=10, validity_days=30)
         name=name,
         defaults={"plan_type": PlanType.CREDIT_PACK, "validity_days": validity_days},
     )
-    membership, _ = PlanMembership.objects.get_or_create(
+    membership, created = PlanMembership.objects.get_or_create(
         user=user,
         plan=plan,
         defaults={
@@ -124,4 +124,12 @@ def booker_membership(venue, user, name="Credits", credits=10, validity_days=30)
             "ends_on": timezone.now().date() + timedelta(days=validity_days),
         },
     )
+    if created:
+        from passes.models import CreditLedger
+
+        CreditLedger.objects.create(
+            membership=membership,
+            delta=credits,
+            reason=CreditLedger.Reason.PURCHASE,
+        )
     return membership
