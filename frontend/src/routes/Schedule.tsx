@@ -130,9 +130,7 @@ function ClassRow({
 						<Availability klass={klass} />
 					)}
 				</p>
-				<p className="mt-0.5 text-sm text-slate-500">
-					{klass.teacher_name}
-				</p>
+				<p className="mt-0.5 text-sm text-slate-500">{klass.teacher_name}</p>
 				{booked ? null : <CapacityMeter klass={klass} />}
 			</div>
 			<div className="shrink-0 text-right">
@@ -229,8 +227,7 @@ export default function Schedule({ venue }: { venue: string | null }) {
 	}, [sessions.data]);
 
 	if (sessions.isPending || bookings.isPending) return <SkeletonList />;
-	if (sessions.isError)
-		return <ErrorText message="Could not load sessions." />;
+	if (sessions.isError) return <ErrorText message="Could not load sessions." />;
 	if (bookings.isError) return <ErrorText message="Could not load bookings." />;
 	const bookedIds = new Set(
 		(bookings.data ?? [])

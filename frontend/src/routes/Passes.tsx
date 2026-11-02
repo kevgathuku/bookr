@@ -30,10 +30,9 @@ export default function Passes() {
 							key={pass.id}
 							data-testid="pass-row"
 							className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-							>
+						>
 							<p className="font-semibold">
-								{pass.plan_name}{" "}
-								<Pill tone="ok">{pass.plan_type}</Pill>
+								{pass.plan_name} <Pill tone="ok">{pass.plan_type}</Pill>
 							</p>
 							<p className="mt-0.5 text-sm text-slate-500">
 								{left} credits left · expires{" "}
