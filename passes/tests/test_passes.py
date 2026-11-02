@@ -84,6 +84,21 @@ class TestLedgerModel:
         with pytest.raises(ValidationError):
             entry.delete()
 
+    def test_resave_refused(self):
+        _, membership = _member_plan(_venue("ledger-resave"), "resave")
+        entry = CreditLedgerFactory(membership=membership, delta=5)
+
+        with pytest.raises(ValidationError):
+            entry.note = "edited"
+            entry.save()
+
+    def test_update_fields_save_refused(self):
+        _, membership = _member_plan(_venue("ledger-fields"), "fields")
+        entry = CreditLedgerFactory(membership=membership, delta=5)
+
+        with pytest.raises(ValidationError):
+            entry.save(update_fields=["note"])
+
     def test_zero_delta_rejected(self):
         _, membership = _member_plan(_venue("ledger-zero"), "zero")
 

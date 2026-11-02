@@ -200,5 +200,11 @@ class CancellationRecord(models.Model):
     snapshot = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def save(self, *args, **kwargs):
+        # Append-only: forgiveness arrives as a linked ledger adjustment.
+        if not self._state.adding:
+            raise ValidationError("Cancel records are append-only.")
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"cancel record #{self.pk} ({self.cause})"

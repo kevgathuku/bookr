@@ -405,6 +405,39 @@ class TestPolicyModel:
 
         assert str(record) == f"cancel record #{record.pk} (member_cancel)"
 
+    def test_record_resave_refused(self):
+        venue = _venue()
+        session = _session(venue)
+        member = _member("m1", venue, credits=10)
+        _policy(venue.organization, LATE)
+        booking = _book(member, session)
+        record = cancel_booking(
+            booking_id=booking.pk,
+            actor=member,
+            now=timezone.now(),
+            reason="change of plans",
+        )
+
+        with pytest.raises(ValidationError):
+            record.credits_refunded = 99
+            record.save()
+
+    def test_record_update_fields_save_refused(self):
+        venue = _venue()
+        session = _session(venue)
+        member = _member("m1", venue, credits=10)
+        _policy(venue.organization, LATE)
+        booking = _book(member, session)
+        record = cancel_booking(
+            booking_id=booking.pk,
+            actor=member,
+            now=timezone.now(),
+            reason="change of plans",
+        )
+
+        with pytest.raises(ValidationError):
+            record.save(update_fields=["snapshot"])
+
 
 class TestMemberCancel:
     def test_early_cancel_refunds_and_records(self):
@@ -1127,8 +1160,11 @@ class TestStrikes:
 
         fresh = late_cancel("a", 0)
         old = late_cancel("b", 0)
-        old.created_at = now - timedelta(days=31)
-        old.save(update_fields=["created_at"])
+        # Time travel bypasses the append-only save() guard by design:
+        # queryset update() writes no Python-side state, it only backdates.
+        CancellationRecord.objects.filter(pk=old.pk).update(
+            created_at=now - timedelta(days=31)
+        )
         waived_booking_member = _member("s-c", venue, credits=10)
         session_c = _session(venue, starts_in_hours=2)
         booking_c = _book(waived_booking_member, session_c)

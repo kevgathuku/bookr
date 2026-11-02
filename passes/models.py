@@ -74,6 +74,11 @@ class CreditLedger(models.Model):
 
         raise ValidationError("Ledger rows are append-only.")
 
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Ledger rows are append-only.")
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         sign = "+" if self.delta >= 0 else ""
         return f"{self.membership}: {sign}{self.delta} ({self.reason})"
