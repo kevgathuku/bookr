@@ -145,6 +145,20 @@ credentials (`staff:rehearsal-only` unless overridden) — staff-only
 like the admin; prod fronts them with the same proxy/auth. Worker
 owns `promote_waitlist`/`sweep_expired_holds` off the eager path;
 beat fires the sweep every 15 minutes; both are visible in Flower.
+
+Redis does double duty on one service: the Celery broker lives on DB 0
+(`CELERY_BROKER_URL`, default `redis://redis:6379/0`) and the Django
+cache on DB 1 (`CACHE_URL`, default `redis://redis:6379/1`) — separate
+keyspaces, so a cache flush can never drop queued tasks. Prod uses the
+Redis cache backend (`django-redis`); dev/test stay on per-process
+locmem. Point either at a managed Redis by setting the matching env
+var — no code change.
+
+Real prod injects its own values over the rehearsal defaults in
+`docker-compose.yml` (`x-bookr-env`): at minimum `SECRET_KEY`,
+`ALLOWED_HOSTNAMES`, and `DATABASE_URL`, plus `FLOWER_BASIC_AUTH` and
+the `EMAIL_*` SMTP settings. Everything else (`CELERY_EAGER=0`, the
+broker/cache URLs) already defaults to the compose services.
 Tear the rehearsal down with `docker compose stop web worker beat
 flower mailpit redis` (leave `db` running for tests).
 
