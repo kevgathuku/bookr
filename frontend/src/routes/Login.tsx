@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useAuth } from "../auth";
 import { Button, ErrorText, Field } from "../components";
 
@@ -54,6 +54,14 @@ export default function Login() {
 					<Button testId="login-button" type="submit" className="w-full">
 						Log in
 					</Button>
+					<p className="text-center text-sm">
+						<Link
+							to="/claim"
+							className="font-semibold text-brand hover:underline"
+						>
+							New here, or forgot your password?
+						</Link>
+					</p>
 				</form>
 			</div>
 		</main>

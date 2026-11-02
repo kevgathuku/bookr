@@ -4,6 +4,7 @@ import { AuthProvider, isDeskStaff, useAuth } from "./auth";
 import { NotFound } from "./route-ux";
 import Bookings from "./routes/Bookings";
 import Calendar from "./routes/Calendar";
+import Claim from "./routes/Claim";
 import Desk from "./routes/Desk";
 import Ledger from "./routes/Ledger";
 import Login from "./routes/Login";
@@ -44,6 +45,7 @@ export default function App() {
 					<BrowserRouter>
 						<Routes>
 							<Route path="/login" element={<Login />} />
+							<Route path="/claim" element={<Claim />} />
 							<Route element={<Shell />}>
 								<Route path="/" element={<RequireVenue />} />
 								<Route path="/bookings" element={<Bookings />} />

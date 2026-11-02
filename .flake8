@@ -103,6 +103,7 @@ per-file-ignores =
         WPS201,
         WPS202,
     organizations/views.py:
+        WPS201,
         WPS202,
     aggregators/views.py:
         WPS201,

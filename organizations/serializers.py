@@ -19,3 +19,13 @@ class MeSerializer(serializers.Serializer):
     username = serializers.CharField()
     memberships = MeMembershipSerializer(many=True)
     venues = MeVenueSerializer(many=True)
+
+
+class PasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True)

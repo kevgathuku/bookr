@@ -50,8 +50,24 @@ class BookrUserCreationForm(UserCreationForm):
         model = User
         fields = ("username", "email")
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Invited members set their own password through the claim link,
+        # so staff may leave both fields blank (blank + filled keeps
+        # Django's mismatch check, which only compares two given values).
+        self.fields["password1"].required = False
+        self.fields["password2"].required = False
+
     def clean_email(self):
         return _clean_email(self)
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        if not self.cleaned_data.get("password1"):
+            user.set_unusable_password()
+        if commit:
+            user.save()
+        return user
 
 
 class BookrUserChangeForm(forms.ModelForm):

@@ -224,6 +224,18 @@ class TestUserEmailRequired:
         user = get_user_model().objects.get(username="mailed")
         assert user.email == "mailed@example.com"
 
+    def test_add_without_password_invites_unusable(self):
+        # Invited members set their own password through the claim link;
+        # staff must not invent one for them.
+        response = self._manager_client().post(
+            "/admin/auth/user/add/",
+            {"username": "invited", "email": "invited@example.com"},
+        )
+
+        assert response.status_code == 302
+        user = get_user_model().objects.get(username="invited")
+        assert user.has_usable_password() is False
+
 
 def _request(user):
     from django.contrib.messages.storage.fallback import FallbackStorage

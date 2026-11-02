@@ -152,6 +152,9 @@ Manage (manager, owner):
 - Auth is a short token pair: access token in memory, refresh token in
   `localStorage`, `X-Venue-Slug` header on every call, refresh-once on
   401 then redirect to `/login`. Logout is client-side storage clear.
+  Invite-claim (bookr-0vc): no public signup — staff presets the member
+  in admin, and `/claim` (link form, or set-password form on `?uid&token`)
+  drives `POST /api/v1/auth/password-reset/` + `.../password-reset-confirm/`.
   The API client is hand-written (`api/client.ts`); OpenAPI types are
   generated (`generate:api` script) but behavior is never code-generated.
 - The shell owns venue context: switcher clears the query cache; the

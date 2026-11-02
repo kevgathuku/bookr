@@ -279,3 +279,23 @@ export async function bookSession(
 		body: JSON.stringify({ session: sessionId }),
 	});
 }
+
+export async function requestPasswordReset(
+	email: string,
+): Promise<{ detail: string }> {
+	return apiJson<{ detail: string }>("/api/v1/auth/password-reset/", {
+		method: "POST",
+		body: JSON.stringify({ email }),
+	});
+}
+
+export async function confirmPasswordReset(
+	uid: string,
+	token: string,
+	newPassword: string,
+): Promise<{ detail: string }> {
+	return apiJson<{ detail: string }>("/api/v1/auth/password-reset-confirm/", {
+		method: "POST",
+		body: JSON.stringify({ uid, token, new_password: newPassword }),
+	});
+}
