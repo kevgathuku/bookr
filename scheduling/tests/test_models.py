@@ -12,6 +12,7 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+from organizations.models import OrgRole
 from scheduling.models import ClassSession, derived_end
 from scheduling.sessions import generate_sessions, schedule_session
 from tests.factories import (
@@ -164,6 +165,60 @@ class TestGenerateSessions:
             )
 
         assert offering.sessions.count() == 0
+
+
+class TestOfferingTeacherRole:
+    def test_pinned_teacher_role_accepted(self):
+        offering = ClassOfferingFactory()
+
+        offering.full_clean()
+
+    def test_org_wide_teacher_role_accepted(self):
+        offering = ClassOfferingFactory()
+        OrgRole.objects.filter(user=offering.teacher).delete()
+        OrgRole.objects.create(
+            organization=offering.venue.organization,
+            venue=None,
+            user=offering.teacher,
+            role=OrgRole.Role.TEACHER,
+        )
+
+        offering.full_clean()
+
+    def test_teacher_without_role_rejected(self):
+        offering = ClassOfferingFactory()
+        offering.teacher = UserFactory()
+
+        with pytest.raises(ValidationError):
+            offering.full_clean()
+
+    def test_other_org_teacher_role_rejected(self):
+        offering = ClassOfferingFactory()
+        stranger = UserFactory()
+        OrgRole.objects.create(
+            organization=VenueFactory().organization,
+            venue=None,
+            user=stranger,
+            role=OrgRole.Role.TEACHER,
+        )
+        offering.teacher = stranger
+
+        with pytest.raises(ValidationError):
+            offering.full_clean()
+
+    def test_member_role_is_not_enough(self):
+        offering = ClassOfferingFactory()
+        member = UserFactory()
+        OrgRole.objects.create(
+            organization=offering.venue.organization,
+            venue=offering.venue,
+            user=member,
+            role=OrgRole.Role.MEMBER,
+        )
+        offering.teacher = member
+
+        with pytest.raises(ValidationError):
+            offering.full_clean()
 
 
 class TestStr:

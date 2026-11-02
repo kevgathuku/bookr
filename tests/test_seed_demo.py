@@ -37,6 +37,18 @@ class TestRemodelSeeds:
         assert kinds == {"purchase", "booking"}
         assert Booking.objects.filter(member=member).count() == 1
 
+    def test_seeded_offerings_pass_teacher_validation(self):
+        from organizations.management.commands.seed_demo import _remodel_graph
+        from scheduling.models import ClassOffering
+
+        self._demo_org()
+        _remodel_graph()
+
+        offerings = list(ClassOffering.objects.all())
+        assert offerings
+        for offering in offerings:
+            offering.full_clean()
+
     def test_remodel_graph_is_rerunnable(self):
         from organizations.management.commands.seed_demo import _remodel_graph
 

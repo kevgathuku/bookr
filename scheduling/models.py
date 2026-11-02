@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import DateTimeField, ExpressionWrapper, F, Value
 
@@ -48,6 +49,25 @@ class ClassOffering(models.Model):
     category = models.CharField(max_length=20, choices=ClassCategory.choices)
     duration_minutes = models.PositiveIntegerField(default=60)
     credit_cost = models.PositiveIntegerField(default=1)
+
+    def clean(self):
+        super().clean()
+        if self.teacher_id is None or self.venue_id is None:
+            return
+        from organizations.models import OrgRole
+
+        venue = self.venue
+        covering = OrgRole.objects.filter(
+            user_id=self.teacher_id,
+            organization_id=venue.organization_id,
+            role=OrgRole.Role.TEACHER,
+        ).filter(
+            models.Q(venue_id=venue.pk) | models.Q(venue__isnull=True),
+        )
+        if not covering.exists():
+            raise ValidationError(
+                {"teacher": "Teacher holds no Teacher role covering this venue."},
+            )
 
     def __str__(self):
         return f"{self.title} ({self.category})"
