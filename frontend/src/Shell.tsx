@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
-import { canTeach, isDeskStaff, useAuth } from "./auth";
+import { canBook, canTeach, isDeskStaff, useAuth } from "./auth";
 import { useBookings, usePasses } from "./hooks";
 import { ErrorBoundary, RouteFocus } from "./route-ux";
 import { useVenue, venueTimeZone } from "./venue";
@@ -79,20 +79,24 @@ function Shell() {
 					<NavLink to="/calendar" className={navClass}>
 						Calendar
 					</NavLink>
-					<NavLink to="/bookings" className={navClass}>
-						<span>My bookings</span>
-						{activeCount > 0 ? (
-							<span className="ml-auto rounded-full bg-slate-700 px-2 py-0.5 text-xs">
-								{activeCount}
-							</span>
-						) : null}
-					</NavLink>
-					<NavLink to="/passes" className={navClass}>
-						Passes
-					</NavLink>
-					<NavLink to="/ledger" className={navClass}>
-						Ledger
-					</NavLink>
+					{canBook(me, venue) ? (
+						<>
+							<NavLink to="/bookings" className={navClass}>
+								<span>My bookings</span>
+								{activeCount > 0 ? (
+									<span className="ml-auto rounded-full bg-slate-700 px-2 py-0.5 text-xs">
+										{activeCount}
+									</span>
+								) : null}
+							</NavLink>
+							<NavLink to="/passes" className={navClass}>
+								Passes
+							</NavLink>
+							<NavLink to="/ledger" className={navClass}>
+								Ledger
+							</NavLink>
+						</>
+					) : null}
 					{isDeskStaff(me, venue) ? (
 						<>
 							<NavLink to="/desk" className={navClass}>
@@ -110,7 +114,7 @@ function Shell() {
 					) : null}
 				</nav>
 				<div className="mt-auto space-y-4">
-					{passes.data ? (
+					{canBook(me, venue) && passes.data ? (
 						<div className="rounded-lg bg-slate-800 px-3 py-2.5 text-sm">
 							<p className="text-xs uppercase tracking-wider text-slate-400">
 								Credits left

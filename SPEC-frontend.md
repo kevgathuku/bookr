@@ -180,6 +180,8 @@ Manage (manager, owner):
   from the stylesheet layer.
 - Route guards: the schedule redirects logged-out users to login; desk
   and manage require staff roles; teach links gate on the teacher role.
+  The sidebar shows Teach only to teachers and the member trio
+  (bookings/passes/ledger plus the credits chip) only to members.
   Every tenant denial answers 404 (never 403), so the UI has no forbidden
   page by design.
 

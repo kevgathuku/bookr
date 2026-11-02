@@ -41,7 +41,7 @@ export function canTeach(me: Me | null, venue: string | null): boolean {
 	return (
 		me?.memberships.some(
 			(membership) =>
-				membership.role !== "member" &&
+				membership.role === "teacher" &&
 				(membership.venue === venue || membership.venue === null),
 		) ?? false
 	);
