@@ -6,7 +6,7 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useAuth } from "../auth";
-import { Button, EmptyState, ErrorText } from "../components";
+import { Button, ErrorText } from "../components";
 import {
 	BOOK_ERROR_MESSAGE,
 	type BookError,
@@ -100,39 +100,37 @@ export default function Calendar() {
 					</select>
 				</label>
 			</div>
-			{events.data.length === 0 ? (
-				<EmptyState message="No classes this week." />
-			) : (
-				<FullCalendar
-					key={timeZone}
-					plugins={[
-						dayGridPlugin,
-						timeGridPlugin,
-						interactionPlugin,
-						momentTimezonePlugin,
-					]}
-					initialView="timeGridWeek"
-					timeZone={timeZone}
-					eventColor="#4f46e5"
-					events={calendarEventsForWeek(events.data)}
-					datesSet={(info) =>
-						setRange({
-							from: info.start.toISOString(),
-							to: info.end.toISOString(),
-						})
+			{/* The grid itself is the empty state: an eventless week still
+				needs its toolbar so members can navigate back. */}
+			<FullCalendar
+				key={timeZone}
+				plugins={[
+					dayGridPlugin,
+					timeGridPlugin,
+					interactionPlugin,
+					momentTimezonePlugin,
+				]}
+				initialView="timeGridWeek"
+				timeZone={timeZone}
+				eventColor="#4f46e5"
+				events={calendarEventsForWeek(events.data)}
+				datesSet={(info) =>
+					setRange({
+						from: info.start.toISOString(),
+						to: info.end.toISOString(),
+					})
+				}
+				eventClick={(info) => {
+					const found = (events.data ?? []).find(
+						(event) => event.id === Number(info.event.id),
+					);
+					// Sessions are selectable; booking them wires up in .3.
+					if (found?.kind === "session") {
+						setSelectedId(found.id);
+						setError(null);
 					}
-					eventClick={(info) => {
-						const found = (events.data ?? []).find(
-							(event) => event.id === Number(info.event.id),
-						);
-						// Sessions are selectable; booking them wires up in .3.
-						if (found?.kind === "session") {
-							setSelectedId(found.id);
-							setError(null);
-						}
-					}}
-				/>
-			)}
+				}}
+			/>
 			{selected ? (
 				<div
 					data-testid="calendar-selection"

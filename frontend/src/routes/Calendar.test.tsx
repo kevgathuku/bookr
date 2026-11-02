@@ -1,7 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AuthProvider } from "../auth";
 import { BOOK_ERROR_MESSAGE, bookErrorOf } from "../hooks";
-import { calendarEventsForWeek } from "../routes/Calendar";
-import { formatInVenueTimeZone, venueTimeZone } from "../venue";
+import { formatInVenueTimeZone, VenueProvider, venueTimeZone } from "../venue";
+import Calendar, { calendarEventsForWeek } from "./Calendar";
+
+function jsonResponse(body: unknown): Response {
+	return new Response(JSON.stringify(body), {
+		status: 200,
+		headers: { "Content-Type": "application/json" },
+	});
+}
 
 describe("calendarEventsForWeek", () => {
 	it("maps API events to FullCalendar fields", () => {
@@ -55,6 +66,60 @@ describe("venue time display", () => {
 		expect(() =>
 			formatInVenueTimeZone("2026-10-28T06:00:00Z", "Narnia/Nowhere"),
 		).toThrow();
+	});
+});
+
+describe("empty week", () => {
+	afterEach(() => {
+		cleanup();
+		vi.unstubAllGlobals();
+		localStorage.clear();
+	});
+
+	it("keeps week navigation when there are no classes", async () => {
+		const me = {
+			id: 14,
+			username: "coach",
+			memberships: [{ organization: "o", venue: null, role: "teacher" }],
+			venues: [
+				{
+					organization: "o",
+					slug: "annex",
+					name: "Annex",
+					time_zone: "America/Chicago",
+				},
+			],
+		};
+		localStorage.setItem("bookr.venue", "annex");
+		localStorage.setItem("bookr.refresh", "refresh-token");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((url: string | URL | Request) => {
+				if (String(url).endsWith("/api/v1/me/"))
+					return Promise.resolve(jsonResponse(me));
+				return Promise.resolve(jsonResponse([]));
+			}),
+		);
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		render(
+			<QueryClientProvider client={client}>
+				<VenueProvider>
+					<AuthProvider>
+						<MemoryRouter initialEntries={["/calendar"]}>
+							<Routes>
+								<Route path="/calendar" element={<Calendar />} />
+							</Routes>
+						</MemoryRouter>
+					</AuthProvider>
+				</VenueProvider>
+			</QueryClientProvider>,
+		);
+
+		await screen.findByTitle("Previous week");
+		expect(screen.queryByTitle("Next week")).toBeInTheDocument();
+		expect(screen.queryByText("No classes this week.")).not.toBeInTheDocument();
 	});
 });
 
