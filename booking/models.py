@@ -67,6 +67,14 @@ class Booking(models.Model):
             if plan_org != venue_org:
                 raise ValidationError("Booking plan belongs to another organization.")
 
+    def save(self, *args, **kwargs):
+        # clean(), not full_clean(): the partial-unique race in
+        # _create_booking relies on the DB raising IntegrityError so the
+        # winner's row can be returned; unique validation here would turn
+        # that race into ValidationError and break retry-safety.
+        self.clean()
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.member} → {self.session} ({self.status})"
 

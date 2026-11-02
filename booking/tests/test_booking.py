@@ -136,6 +136,34 @@ class TestBookingModel:
 
         booking.clean()
 
+    def test_create_with_foreign_membership_raises(self):
+        venue = _venue("foreign-save")
+        member = _member("foreign-saver", venue)
+        other = _member("other-saver", venue)
+        session = _session(venue)
+
+        with pytest.raises(ValidationError):
+            Booking.objects.create(
+                session=session,
+                member=member,
+                membership=other.plan_memberships.get(),
+                credits_spent=0,
+            )
+
+    def test_create_with_cross_org_plan_raises(self):
+        venue = _venue("home-save")
+        away = _venue("away-save")
+        member = _member("away-saver", away)
+        session = _session(venue)
+
+        with pytest.raises(ValidationError):
+            Booking.objects.create(
+                session=session,
+                member=member,
+                membership=member.plan_memberships.get(),
+                credits_spent=0,
+            )
+
 
 class TestBookSession:
     def test_confirmed_while_seats_remain(self):

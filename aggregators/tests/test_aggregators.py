@@ -95,7 +95,10 @@ class TestTokens:
         venue = VenueFactory()
         partner = _partner()
         member = UserFactory(username="agg-member")
-        membership = PlanMembershipFactory(user=member)
+        membership = PlanMembershipFactory(
+            user=member,
+            plan__organization=venue.organization,
+        )
         session = ClassSessionFactory(offering=ClassOfferingFactory(venue=venue))
         booking = Booking.objects.create(
             session=session, member=member, membership=membership
