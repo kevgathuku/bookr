@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { useAuth } from "../auth";
+import { canBook, useAuth } from "../auth";
 import { Button, EmptyState, ErrorText, Pill } from "../components";
 import {
 	BOOK_ERROR_MESSAGE,
@@ -87,10 +87,12 @@ function ClassRow({
 	klass,
 	booked,
 	timeZone,
+	mayBook,
 }: {
 	klass: SessionItem;
 	booked: boolean;
 	timeZone: string;
+	mayBook: boolean;
 }) {
 	const queryClient = useQueryClient();
 	const [error, setError] = useState<BookError | null>(null);
@@ -134,9 +136,9 @@ function ClassRow({
 				{booked ? null : <CapacityMeter klass={klass} />}
 			</div>
 			<div className="shrink-0 text-right">
-				{booked ? null : <p className="text-sm text-slate-500">1 credit</p>}
-				{booked ? null : (
+				{booked || !mayBook ? null : (
 					<>
+						<p className="text-sm text-slate-500">1 credit</p>
 						<Button
 							testId={`book-button-${klass.id}`}
 							disabled={booking.isPending}
@@ -332,13 +334,17 @@ export default function Schedule({ venue }: { venue: string | null }) {
 					</select>
 				</label>
 				<label className="ml-auto flex items-center gap-2 text-slate-600">
-					<input
-						type="checkbox"
-						checked={onlyBookable}
-						onChange={(change) => setOnlyBookable(change.target.checked)}
-						className="h-4 w-4 accent-[#4f46e5]"
-					/>
-					Only bookable
+					{canBook(me, resolvedVenue) ? (
+						<>
+							<input
+								type="checkbox"
+								checked={onlyBookable}
+								onChange={(change) => setOnlyBookable(change.target.checked)}
+								className="h-4 w-4 accent-[#4f46e5]"
+							/>
+							Only bookable
+						</>
+					) : null}
 				</label>
 			</div>
 
@@ -359,6 +365,7 @@ export default function Schedule({ venue }: { venue: string | null }) {
 									klass={klass}
 									booked={bookedIds.has(klass.id)}
 									timeZone={timeZone}
+									mayBook={canBook(me, resolvedVenue)}
 								/>
 							))}
 						</ul>

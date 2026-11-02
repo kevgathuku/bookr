@@ -13,8 +13,56 @@ function jsonResponse(body: unknown, status = 200): Response {
 	});
 }
 
-function renderSchedule() {
+const MEMBER_ME = {
+	id: 9,
+	username: "member",
+	memberships: [{ organization: "o", venue: "main", role: "member" }],
+	venues: [
+		{
+			organization: "o",
+			slug: "main",
+			name: "Main",
+			time_zone: "UTC",
+		},
+	],
+};
+
+interface MockRoutes {
+	me?: unknown;
+	sessions?: unknown;
+	bookings?: unknown;
+	post?: { status: number; body?: unknown };
+}
+
+function mockApi(routes: MockRoutes) {
 	localStorage.setItem("bookr.venue", "main");
+	localStorage.setItem("bookr.refresh", "refresh-token");
+	const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+		const path = String(url);
+		if (path.endsWith("/api/v1/me/"))
+			return Promise.resolve(jsonResponse(routes.me ?? MEMBER_ME));
+		if (init?.method === "POST") {
+			const post = routes.post ?? { status: 200, body: { id: 9 } };
+			if (post.status === 200) return Promise.resolve(jsonResponse(post.body));
+			return Promise.resolve(new Response(null, { status: post.status }));
+		}
+		if (path.includes("/api/v1/sessions/"))
+			return Promise.resolve(jsonResponse(routes.sessions ?? []));
+		if (path.includes("/api/v1/bookings/"))
+			return Promise.resolve(jsonResponse(routes.bookings ?? []));
+		return Promise.resolve(new Response(null, { status: 404 }));
+	});
+	vi.stubGlobal("fetch", fetchMock);
+	return fetchMock;
+}
+
+function postBodies(fetchMock: { mock: { calls: unknown[][] } }): unknown[] {
+	return fetchMock.mock.calls
+		.filter((call) => (call[1] as RequestInit | undefined)?.method === "POST")
+		.map((call) => JSON.parse((call[1] as RequestInit).body as string));
+}
+
+function renderSchedule() {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
@@ -50,22 +98,18 @@ describe("Schedule", () => {
 			capacity: 20,
 			spots_left: 19,
 		};
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce(jsonResponse([session]))
-			.mockResolvedValueOnce(jsonResponse([]))
-			.mockResolvedValueOnce(
-				jsonResponse({ id: 9, status: "booked", session: 7 }),
-			);
-		vi.stubGlobal("fetch", fetchMock);
+		const fetchMock = mockApi({
+			sessions: [session],
+			bookings: [],
+			post: { status: 200, body: { id: 9, status: "booked", session: 7 } },
+		});
 		renderSchedule();
 		const user = userEvent.setup();
 
 		await user.click(await screen.findByTestId(/book-button-/));
 
 		await waitFor(() => {
-			const [, init] = fetchMock.mock.calls[2] as [string, RequestInit];
-			expect(JSON.parse(init.body as string).session).toBe(7);
+			expect(postBodies(fetchMock)).toEqual([{ session: 7 }]);
 		});
 	});
 
@@ -83,18 +127,56 @@ describe("Schedule", () => {
 			capacity: 1,
 			spots_left: 0,
 		};
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce(jsonResponse([klass]))
-			.mockResolvedValueOnce(jsonResponse([]))
-			.mockResolvedValueOnce(new Response(null, { status: 409 }));
-		vi.stubGlobal("fetch", fetchMock);
+		const fetchMock = mockApi({
+			sessions: [klass],
+			bookings: [],
+			post: { status: 409 },
+		});
 		renderSchedule();
 		const user = userEvent.setup();
 
 		await user.click(await screen.findByTestId(/book-button-/));
 
 		await screen.findByTestId(/waitlist-button-/);
+		expect(postBodies(fetchMock)).toEqual([{ session: 7 }]);
+	});
+
+	it("hides booking controls for a teacher without a member role", async () => {
+		const klass = {
+			id: 7,
+			venue: 1,
+			offering: 1,
+			offering_title: "Spin",
+			category: "group",
+			teacher: 1,
+			teacher_name: "Wanjiku",
+			starts_at: new Date(Date.now() + 86400000).toISOString(),
+			ends_at: new Date(Date.now() + 90000000).toISOString(),
+			capacity: 20,
+			spots_left: 19,
+		};
+		const teacherMe = {
+			id: 7,
+			username: "coach",
+			memberships: [{ organization: "o", venue: null, role: "teacher" }],
+			venues: [
+				{
+					organization: "o",
+					slug: "main",
+					name: "Main",
+					time_zone: "UTC",
+				},
+			],
+		};
+		localStorage.setItem("bookr.refresh", "refresh-token");
+		mockApi({ me: teacherMe, sessions: [klass], bookings: [] });
+		renderSchedule();
+
+		await screen.findByTestId("class-row");
+		expect(screen.queryByTestId(/book-button-/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId(/waitlist-button-/)).not.toBeInTheDocument();
+		expect(screen.queryByText("1 credit")).not.toBeInTheDocument();
+		expect(screen.queryByText("Only bookable")).not.toBeInTheDocument();
 	});
 
 	it("shows spots pills and groups classes by day", async () => {
@@ -130,13 +212,7 @@ describe("Schedule", () => {
 				spots_left: 0,
 			},
 		];
-		vi.stubGlobal(
-			"fetch",
-			vi
-				.fn()
-				.mockResolvedValueOnce(jsonResponse(classes))
-				.mockResolvedValueOnce(jsonResponse([])),
-		);
+		mockApi({ sessions: classes, bookings: [] });
 		renderSchedule();
 		const user = userEvent.setup();
 

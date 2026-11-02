@@ -47,6 +47,16 @@ export function canTeach(me: Me | null, venue: string | null): boolean {
 	);
 }
 
+export function canBook(me: Me | null, venue: string | null): boolean {
+	return (
+		me?.memberships.some(
+			(membership) =>
+				membership.role === "member" &&
+				(membership.venue === venue || membership.venue === null),
+		) ?? false
+	);
+}
+
 export function isDeskStaff(me: Me | null, venue: string | null): boolean {
 	return (
 		me?.memberships.some(
