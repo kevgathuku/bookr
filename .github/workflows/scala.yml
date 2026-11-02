@@ -33,4 +33,7 @@ jobs:
         run: sbt -batch scalafmtCheckAll
 
       - name: Test
-        run: sbt -batch test
+        # sbt 2.x `test` only runs tests that failed before, were not run
+        # before, or whose dependencies changed - on a cold CI checkout that
+        # is zero tests, reported as success. `testOnly *` runs them all.
+        run: sbt -batch 'Test / testOnly *'
