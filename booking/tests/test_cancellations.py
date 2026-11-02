@@ -12,6 +12,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils import timezone
 
 from booking.cancellations import (
+    _member_outcome,
     cancel_booking,
     cancel_session,
     check_in,
@@ -250,6 +251,101 @@ class TestResolution:
 
         assert CancellationPolicy.objects.filter(organization=org).count() == 2
         assert baseline.pk is not None
+
+
+# Late, unwaived, penalized: the policy enforcement applies. A new
+# Enforcement member breaks test_late_matrix_covers_every_enforcement
+# until its row is added here.
+LATE_MATRIX = (
+    (NONE, NONE, 2),
+    (LATE, LATE, 0),
+    (STRIKE, STRIKE, 2),
+)
+
+
+class TestMemberOutcome:
+    """Direct matrix for the pure late x enforcement x waive decision."""
+
+    def _matrix_policy(self, enforcement):
+        return _policy(_venue().organization, enforcement)
+
+    @pytest.mark.parametrize(("enforcement", "applied", "refund"), LATE_MATRIX)
+    def test_late_unwaived_applies_policy(self, enforcement, applied, refund):
+        policy = self._matrix_policy(enforcement)
+
+        outcome = _member_outcome(policy, True, True, False, 2, False, "overslept")
+
+        assert (outcome.applied, outcome.refund) == (applied, refund)
+        assert (outcome.cause, outcome.status) == (
+            CancellationRecord.Cause.MEMBER_CANCEL,
+            Booking.Status.LATE_CANCELLED,
+        )
+        assert outcome.policy is policy
+
+    def test_late_matrix_covers_every_enforcement(self):
+        assert {row[0] for row in LATE_MATRIX} == set(CancellationPolicy.Enforcement)
+
+    def test_early_cancel_is_free(self):
+        policy = self._matrix_policy(LATE)
+
+        outcome = _member_outcome(
+            policy, False, True, False, 2, False, "change of plans"
+        )
+
+        assert (outcome.applied, outcome.refund, outcome.cause, outcome.status) == (
+            NONE,
+            2,
+            CancellationRecord.Cause.MEMBER_CANCEL,
+            Booking.Status.CANCELLED,
+        )
+
+    def test_waived_late_cancel_is_free_but_stays_late(self):
+        policy = self._matrix_policy(LATE)
+
+        outcome = _member_outcome(policy, True, True, True, 2, False, "waived")
+
+        assert (outcome.applied, outcome.refund, outcome.cause, outcome.status) == (
+            NONE,
+            2,
+            CancellationRecord.Cause.MEMBER_CANCEL,
+            Booking.Status.LATE_CANCELLED,
+        )
+
+    def test_waived_early_cancel_is_free(self):
+        policy = self._matrix_policy(STRIKE)
+
+        outcome = _member_outcome(policy, False, True, True, 2, False, "waived")
+
+        assert (outcome.applied, outcome.refund, outcome.cause, outcome.status) == (
+            NONE,
+            2,
+            CancellationRecord.Cause.MEMBER_CANCEL,
+            Booking.Status.CANCELLED,
+        )
+
+    @pytest.mark.parametrize("late", [False, True])
+    def test_staff_decision_ignores_lateness(self, late):
+        policy = self._matrix_policy(STRIKE)
+
+        outcome = _member_outcome(policy, late, False, False, 2, True, "desk call")
+
+        assert (outcome.applied, outcome.refund, outcome.cause, outcome.status) == (
+            NONE,
+            2,
+            CancellationRecord.Cause.STAFF_DECISION,
+            Booking.Status.CANCELLED,
+        )
+        assert outcome.on_behalf_of is False
+        assert outcome.reason == "desk call"
+
+    def test_member_path_passes_through_context(self):
+        policy = self._matrix_policy(NONE)
+
+        outcome = _member_outcome(policy, False, True, False, 2, True, "for sam")
+
+        assert outcome.policy is policy
+        assert outcome.on_behalf_of is True
+        assert outcome.reason == "for sam"
 
 
 class TestMemberCancel:
