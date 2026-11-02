@@ -3,7 +3,7 @@ and map typed errors to HTTP (SeatFull/DuplicateBooking → 409,
 CreditInsufficient → 402). Waitlist promotion and the hold-expiry sweep
 live here too; booking/tasks.py wraps them as shared tasks."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -173,7 +173,7 @@ def _join_or_refuse(locked, member, membership, waitlist):
     )
 
 
-def promote_next(session, now=None):
+def promote_next(session: ClassSession, now: datetime | None = None) -> Booking | None:
     """Promote the longest-waiting queued member into a free seat.
 
     Spend is written here, never at join; the seat is held until

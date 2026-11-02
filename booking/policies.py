@@ -5,11 +5,19 @@ back empty: uncovered contexts cancel free by design.
 """
 
 from booking.models import CancellationPolicy
+from organizations.ids import OrgId, VenueId
+from passes.models import PlanType
+from scheduling.models import ClassCategory
 
 BASELINE_PRIORITY = -1
 
 
-def resolve_policy(organization_id, venue_id, class_category, plan_type):
+def resolve_policy(
+    organization_id: OrgId,
+    venue_id: VenueId | None,
+    class_category: ClassCategory | None,
+    plan_type: PlanType | None,
+) -> CancellationPolicy:
     """Return the winning rule for a booking context."""
     _ensure_baseline(organization_id)
     candidates = CancellationPolicy.objects.filter(organization_id=organization_id)

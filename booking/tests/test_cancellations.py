@@ -23,6 +23,7 @@ from booking.cancellations import (
 from booking.errors import AlreadyCancelled, InvalidWaiver, SessionStarted
 from booking.models import Booking, CancellationPolicy, CancellationRecord
 from booking.services import book_session
+from organizations.ids import OrgId, VenueId
 from organizations.models import OrgRole
 from passes.models import CreditLedger, PlanType
 from scheduling.models import ClassCategory
@@ -136,7 +137,12 @@ class TestResolution:
         specific = _policy(org, STRIKE, venue=venue)
 
         assert (
-            resolve_policy(org.pk, venue.pk, ClassCategory.GROUP, PlanType.CREDIT_PACK)
+            resolve_policy(
+                OrgId(org.pk),
+                VenueId(venue.pk),
+                ClassCategory.GROUP,
+                PlanType.CREDIT_PACK,
+            )
             == specific
         )
         assert base.pk is not None
@@ -148,7 +154,12 @@ class TestResolution:
         both = _policy(org, STRIKE, venue=venue, class_category=ClassCategory.GROUP)
 
         assert (
-            resolve_policy(org.pk, venue.pk, ClassCategory.GROUP, PlanType.CREDIT_PACK)
+            resolve_policy(
+                OrgId(org.pk),
+                VenueId(venue.pk),
+                ClassCategory.GROUP,
+                PlanType.CREDIT_PACK,
+            )
             == both
         )
 
@@ -159,7 +170,12 @@ class TestResolution:
         high = _policy(org, STRIKE, class_category=ClassCategory.GROUP, priority=5)
 
         assert (
-            resolve_policy(org.pk, venue.pk, ClassCategory.GROUP, PlanType.CREDIT_PACK)
+            resolve_policy(
+                OrgId(org.pk),
+                VenueId(venue.pk),
+                ClassCategory.GROUP,
+                PlanType.CREDIT_PACK,
+            )
             == high
         )
         assert low.pk is not None
@@ -183,7 +199,10 @@ class TestResolution:
         org = venue.organization
 
         policy = resolve_policy(
-            org.pk, venue.pk, ClassCategory.GROUP, PlanType.CREDIT_PACK
+            OrgId(org.pk),
+            VenueId(venue.pk),
+            ClassCategory.GROUP,
+            PlanType.CREDIT_PACK,
         )
 
         assert policy.enforcement == NONE
@@ -193,8 +212,12 @@ class TestResolution:
     def test_baseline_created_once(self):
         venue = _venue()
         org = venue.organization
-        resolve_policy(org.pk, venue.pk, ClassCategory.GROUP, PlanType.CREDIT_PACK)
-        resolve_policy(org.pk, venue.pk, ClassCategory.PRIVATE, PlanType.MONTHLY)
+        resolve_policy(
+            OrgId(org.pk), VenueId(venue.pk), ClassCategory.GROUP, PlanType.CREDIT_PACK
+        )
+        resolve_policy(
+            OrgId(org.pk), VenueId(venue.pk), ClassCategory.PRIVATE, PlanType.MONTHLY
+        )
 
         assert CancellationPolicy.objects.filter(organization=org).count() == 1
 
@@ -202,7 +225,10 @@ class TestResolution:
         venue = _venue()
         org = venue.organization
         only = resolve_policy(
-            org.pk, venue.pk, ClassCategory.GROUP, PlanType.CREDIT_PACK
+            OrgId(org.pk),
+            VenueId(venue.pk),
+            ClassCategory.GROUP,
+            PlanType.CREDIT_PACK,
         )
 
         with pytest.raises(ValidationError):
@@ -213,7 +239,10 @@ class TestResolution:
         org = venue.organization
         _policy(org, STRIKE, venue=venue)
         baseline = resolve_policy(
-            org.pk, venue.pk, ClassCategory.GROUP, PlanType.CREDIT_PACK
+            OrgId(org.pk),
+            VenueId(venue.pk),
+            ClassCategory.GROUP,
+            PlanType.CREDIT_PACK,
         )
         extra = _policy(org, NONE, class_category=ClassCategory.PRIVATE, priority=5)
 
@@ -391,8 +420,8 @@ class TestMemberCancel:
         old = _policy(venue.organization, STRIKE, late_cancel_hours=12)
         booking = _book(member, session)
         resolve_policy(
-            venue.organization.pk,
-            venue.pk,
+            OrgId(venue.organization.pk),
+            VenueId(venue.pk),
             ClassCategory.GROUP,
             PlanType.CREDIT_PACK,
         )

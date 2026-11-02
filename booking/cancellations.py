@@ -10,6 +10,7 @@ import dataclasses
 from datetime import timedelta
 from typing import assert_never
 
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -29,6 +30,7 @@ from organizations.capabilities import (
     can_staff_door,
     can_waive,
 )
+from organizations.ids import OrgId, VenueId
 from organizations.models import OrgRole
 from passes.models import CreditLedger, Membership
 from scheduling.models import ClassSession
@@ -113,8 +115,8 @@ def _apply_cancel(
         actor, booking, organization, on_behalf_of, waive_penalty, reason
     )
     policy = resolve_policy(
-        organization.pk,
-        venue.pk,
+        OrgId(organization.pk),
+        VenueId(venue.pk),
         session.offering.category,
         booking.membership.plan.plan_type,
     )
@@ -223,7 +225,7 @@ def check_in(*, booking_id, actor):
         return booking
 
 
-def waive_record(*, record_id, actor, reason=""):
+def waive_record(*, record_id: int, actor: User, reason: str = "") -> CreditLedger:
     """Retroactive waiver: a compensating ADJUSTMENT for forfeited credits,
     linked to the record. Idempotent per record; the record itself is never
     edited. Strike records carry no money, so there is nothing to
@@ -393,8 +395,8 @@ def _cancel_one_for_session(booking, session, venue, organization, actor):
     if stamp:
         _refund(booking, stamp, actor)
     policy = resolve_policy(
-        organization.pk,
-        venue.pk,
+        OrgId(organization.pk),
+        VenueId(venue.pk),
         session.offering.category,
         booking.membership.plan.plan_type,
     )

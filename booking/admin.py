@@ -95,12 +95,13 @@ def _coverage_combos(org):
 
 def _coverage_row(org, venue, category, plan):
     from booking.policies import resolve_policy
+    from organizations.ids import OrgId, VenueId
 
     if venue is None:
         venue_id, venue_slug = None, "any"
     else:
-        venue_id, venue_slug = venue.pk, venue.slug
-    policy = resolve_policy(org.pk, venue_id, category, plan)
+        venue_id, venue_slug = VenueId(venue.pk), venue.slug
+    policy = resolve_policy(OrgId(org.pk), venue_id, category, plan)
     return {
         "organization": org.slug,
         "venue": venue_slug,
