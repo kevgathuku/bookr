@@ -66,6 +66,9 @@ no API key, $0).
 
 ## Project memory (mempal, wing `bookr`) — mandatory
 
+Access path: `docs/memory-mcp.md` (MCP gateway + connect dance — read it
+first; it exists so no session re-discovers the store setup).
+
 A mempal store is initialized for this folder (wing `bookr`). It exists so
 no agent ever re-discovers what a prior session already learned. These are
 requirements, not suggestions:
