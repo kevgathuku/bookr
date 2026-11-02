@@ -38,7 +38,10 @@ describe("Claim", () => {
 		await user.click(screen.getByTestId("claim-request-button"));
 
 		expect(fetchMock).toHaveBeenCalledOnce();
-		const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
 		expect(url).toBe("/api/v1/auth/password-reset/");
 		expect(JSON.parse(init.body as string)).toEqual({
 			email: "m@example.com",
@@ -58,7 +61,10 @@ describe("Claim", () => {
 		await user.click(screen.getByTestId("claim-submit-button"));
 
 		expect(fetchMock).toHaveBeenCalledOnce();
-		const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
 		expect(url).toBe("/api/v1/auth/password-reset-confirm/");
 		expect(JSON.parse(init.body as string)).toEqual({
 			uid: "abc",

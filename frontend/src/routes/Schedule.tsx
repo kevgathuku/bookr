@@ -344,19 +344,17 @@ export default function Schedule({ venue }: { venue: string | null }) {
 						))}
 					</select>
 				</label>
-				<label className="ml-auto flex items-center gap-2 text-slate-600">
-					{canBook(me, resolvedVenue) ? (
-						<>
-							<input
-								type="checkbox"
-								checked={onlyBookable}
-								onChange={(change) => setOnlyBookable(change.target.checked)}
-								className="h-4 w-4 accent-[#4f46e5]"
-							/>
-							Only bookable
-						</>
-					) : null}
-				</label>
+				{canBook(me, resolvedVenue) ? (
+					<label className="ml-auto flex items-center gap-2 text-slate-600">
+						<input
+							type="checkbox"
+							checked={onlyBookable}
+							onChange={(change) => setOnlyBookable(change.target.checked)}
+							className="h-4 w-4 accent-[#4f46e5]"
+						/>
+						Only bookable
+					</label>
+				) : null}
 			</div>
 
 			{visible.length === 0 ? (

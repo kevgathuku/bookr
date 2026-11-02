@@ -59,11 +59,20 @@ def test_member_journey(frontend_url):
         page.get_by_test_id(f"book-button-{tiny_id}").click()
         page.get_by_test_id("booked-badge").first.wait_for()
 
-        # Booker finds it full, waitlists, sees it in bookings.
+        # Booker finds it full, waitlists, sees it in bookings. The
+        # waitlist POST must commit before leaving Schedule: Bookings
+        # always shows the booker's seeded Spin row, so a GET that beats
+        # the POST commit passes the row wait yet fails the text assert.
         page.get_by_text("Log out").click()
         _login(page, frontend_url, BOOKER)
         page.get_by_test_id(f"book-button-{tiny_id}").click()
-        page.get_by_test_id(f"waitlist-button-{tiny_id}").click()
+        with page.expect_response(
+            lambda response: (
+                "waitlist=true" in response.url and response.request.method == "POST"
+            )
+        ) as waitlisted:
+            page.get_by_test_id(f"waitlist-button-{tiny_id}").click()
+        assert waitlisted.value.status == 201
         page.get_by_text("My bookings").click()
         page.get_by_test_id("booking-row").first.wait_for()
         assert "waitlisted" in page.content().lower()
