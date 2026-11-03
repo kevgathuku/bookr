@@ -6,6 +6,7 @@ import {
 	adjustPass,
 	cancelBookingOverride,
 	checkinBooking,
+	grantPass,
 	type MemberHit,
 	noShowBooking,
 	type RosterRow,
@@ -93,7 +94,31 @@ export function MemberLookup() {
 	const [reason, setReason] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [done, setDone] = useState<string | null>(null);
+	const [grantCredits, setGrantCredits] = useState("2");
+	const [grantDays, setGrantDays] = useState("30");
+	const [grantNote, setGrantNote] = useState("");
+	const [grantKey, setGrantKey] = useState("");
+	const [grantDone, setGrantDone] = useState<string | null>(null);
 	const passes = useMemberMemberships(member?.id ?? null);
+	const grant = useMutation({
+		mutationFn: () =>
+			member === null
+				? Promise.reject(new Error("no member"))
+				: grantPass({
+						member: member.id,
+						credits: Number(grantCredits),
+						duration_days: Number(grantDays),
+						note: grantNote,
+						incident_key: grantKey,
+					}),
+		onSuccess: () => {
+			setGrantDone("Grant saved as a new pass.");
+			void queryClient.invalidateQueries({ queryKey: ["desk", "passes"] });
+		},
+		onError: () => {
+			setGrantDone(null);
+		},
+	});
 	const adjust = useMutation({
 		mutationFn: () => adjustPass(Number(passId), Number(delta), reason),
 		onSuccess: () => {
@@ -167,7 +192,11 @@ export function MemberLookup() {
 								<option value="">Pick a pass</option>
 								{passes.data.map((pass) => (
 									<option key={pass.id} value={pass.id}>
-										{pass.plan_name} ({pass.credits_remaining} left)
+										{pass.plan_name} (
+										{pass.credits_remaining === null
+											? "unlimited"
+											: `${pass.credits_remaining} left`}
+										)
 									</option>
 								))}
 							</select>{" "}
@@ -199,6 +228,55 @@ export function MemberLookup() {
 					) : (
 						<EmptyState message="No passes for this member." />
 					)}
+					<form
+						className="mt-3"
+						onSubmit={(event) => {
+							event.preventDefault();
+							grant.mutate();
+						}}
+					>
+						<p className="text-sm font-semibold">
+							Goodwill grant (mints a new pass)
+						</p>
+						<input
+							data-testid="grant-credits"
+							type="number"
+							placeholder="Credits"
+							value={grantCredits}
+							onChange={(change) => setGrantCredits(change.target.value)}
+						/>{" "}
+						<input
+							data-testid="grant-days"
+							type="number"
+							placeholder="Days valid"
+							value={grantDays}
+							onChange={(change) => setGrantDays(change.target.value)}
+						/>{" "}
+						<input
+							data-testid="grant-note"
+							placeholder="Note"
+							value={grantNote}
+							onChange={(change) => setGrantNote(change.target.value)}
+						/>{" "}
+						<input
+							data-testid="grant-key"
+							placeholder="Incident key"
+							value={grantKey}
+							onChange={(change) => setGrantKey(change.target.value)}
+						/>{" "}
+						<Button
+							testId="grant-button"
+							type="submit"
+							disabled={
+								grant.isPending ||
+								Number(grantCredits) <= 0 ||
+								grantKey.trim() === ""
+							}
+						>
+							Grant
+						</Button>
+					</form>
+					{grantDone ? <p>{grantDone}</p> : null}
 					{error ? <ErrorText message={error} /> : null}
 					{done ? <p>{done}</p> : null}
 				</div>

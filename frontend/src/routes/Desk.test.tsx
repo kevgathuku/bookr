@@ -51,6 +51,14 @@ function deskFetch(
 			return Promise.resolve(jsonResponse(doors));
 		if (path.includes("/checkin/"))
 			return Promise.resolve(jsonResponse({ id: 1 }));
+		if (path.includes("/ledger/grants/"))
+			return Promise.resolve(
+				jsonResponse({
+					id: 7,
+					credits_remaining: 2,
+					plan_type: "complimentary",
+				}),
+			);
 		if (path.includes("/ledger/adjust/"))
 			return Promise.resolve(jsonResponse({ id: 2 }));
 		return Promise.resolve(jsonResponse({}));
@@ -104,7 +112,8 @@ describe("Desk", () => {
 					plan_type: "credit_pack",
 					credits_remaining: 8,
 					starts_on: "2026-01-01",
-					ends_on: "2026-01-31",
+					valid_until: "2026-01-31",
+					payment_ref: "",
 				},
 			],
 			[],
@@ -129,6 +138,35 @@ describe("Desk", () => {
 				membership: 4,
 				delta: 1,
 				reason: "goodwill",
+			});
+		});
+	});
+
+	it("grants a goodwill membership with an incident key", async () => {
+		const fetchMock = deskFetch([], [], []);
+		renderDesk(fetchMock);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId("member-search-button"));
+		await user.click(await screen.findByTestId("member-hit-9"));
+		await user.clear(screen.getByTestId("grant-credits"));
+		await user.type(screen.getByTestId("grant-credits"), "2");
+		await user.type(screen.getByTestId("grant-note"), "late cancel comp");
+		await user.type(screen.getByTestId("grant-key"), "grant-1");
+		await user.click(screen.getByTestId("grant-button"));
+
+		await waitFor(() => {
+			const call = fetchMock.mock.calls.find(([url]) =>
+				String(url).includes("/ledger/grants/"),
+			);
+			expect(call).toBeDefined();
+			const init = call?.[1];
+			const body = JSON.parse((init?.body ?? "") as string);
+			expect(body).toMatchObject({
+				member: 9,
+				credits: 2,
+				note: "late cancel comp",
+				incident_key: "grant-1",
 			});
 		});
 	});

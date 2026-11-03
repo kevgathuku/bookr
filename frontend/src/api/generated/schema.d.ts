@@ -286,6 +286,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ledger/grants/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Desk grant flow: mint one goodwill membership, idempotent per key. */
+        post: operations["v1_ledger_grants_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ledger/adjust/": {
         parameters: {
             query?: never;
@@ -682,11 +699,12 @@ export interface components {
             plan: number;
             readonly plan_name: string;
             readonly plan_type: string;
-            credits_remaining?: number;
+            credits_remaining: number | null;
             /** Format: date */
             starts_on: string;
             /** Format: date */
-            ends_on: string;
+            valid_until: string | null;
+            payment_ref: string;
         };
         /** @enum {unknown} */
         NullEnum: null;
@@ -1231,6 +1249,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    v1_ledger_grants_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Membership"];
+                };
             };
         };
     };

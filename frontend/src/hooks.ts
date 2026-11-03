@@ -79,9 +79,10 @@ export interface MembershipItem {
 	plan: number;
 	plan_name: string;
 	plan_type: string;
-	credits_remaining: number;
+	credits_remaining: number | null;
 	starts_on: string;
-	ends_on: string;
+	valid_until: string | null;
+	payment_ref: string;
 }
 
 export interface LedgerEntryItem {
@@ -208,6 +209,20 @@ export async function adjustPass(
 	await apiJson("/api/v1/ledger/adjust/", {
 		method: "POST",
 		body: JSON.stringify({ membership: passId, delta, reason }),
+	});
+}
+
+export async function grantPass(body: {
+	member: number;
+	credits: number;
+	duration_days?: number;
+	note?: string;
+	incident_key: string;
+	name?: string;
+}): Promise<MembershipItem> {
+	return apiJson<MembershipItem>("/api/v1/ledger/grants/", {
+		method: "POST",
+		body: JSON.stringify(body),
 	});
 }
 

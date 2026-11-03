@@ -23,24 +23,26 @@ export default function Passes() {
 				Each class spends one credit; unlimited passes spend nothing.
 			</p>
 			<ul className="mt-5 space-y-3">
-				{passes.data.map((pass) => {
-					const left = pass.credits_remaining;
-					return (
-						<li
-							key={pass.id}
-							data-testid="pass-row"
-							className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-						>
-							<p className="font-semibold">
-								{pass.plan_name} <Pill tone="ok">{pass.plan_type}</Pill>
-							</p>
-							<p className="mt-0.5 text-sm text-slate-500">
-								{left} credits left · expires{" "}
-								{formatInVenueTimeZone(pass.ends_on, timeZone)}
-							</p>
-						</li>
-					);
-				})}
+				{passes.data.map((pass) => (
+					<li
+						key={pass.id}
+						data-testid="pass-row"
+						className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+					>
+						<p className="font-semibold">
+							{pass.plan_name} <Pill tone="ok">{pass.plan_type}</Pill>
+						</p>
+						<p className="mt-0.5 text-sm text-slate-500">
+							{pass.credits_remaining === null
+								? "Unlimited"
+								: `${pass.credits_remaining} credits left`}{" "}
+							·{" "}
+							{pass.valid_until === null
+								? "never expires"
+								: `expires ${formatInVenueTimeZone(pass.valid_until, timeZone)}`}
+						</p>
+					</li>
+				))}
 			</ul>
 		</main>
 	);
