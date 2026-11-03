@@ -9,7 +9,12 @@ class PlanType(models.TextChoices):
     MONTHLY = "monthly", "Monthly"
     CREDIT_PACK = "credit_pack", "Credit pack"
     DROP_IN = "drop_in", "Drop-in"
+    # House-granted: goodwill compensation, staff comps. Never the partner
+    # vehicle — that is AGGREGATOR below.
     COMPLIMENTARY = "complimentary", "Complimentary"
+    # The aggregator partner vehicle only, created solely by
+    # _partner_membership. Carries no money and no ledger rows.
+    AGGREGATOR = "aggregator", "Aggregator"
 
 
 class CreditLedger(models.Model):

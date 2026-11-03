@@ -730,9 +730,10 @@ export interface components {
          *     * `credit_pack` - Credit pack
          *     * `drop_in` - Drop-in
          *     * `complimentary` - Complimentary
+         *     * `aggregator` - Aggregator
          * @enum {string}
          */
-        PlanTypeEnum: "monthly" | "credit_pack" | "drop_in" | "complimentary";
+        PlanTypeEnum: "monthly" | "credit_pack" | "drop_in" | "complimentary" | "aggregator";
         Policy: {
             readonly id: number;
             readonly organization: number;

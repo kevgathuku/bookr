@@ -13,12 +13,12 @@ from booking.services import book_session
 from passes.models import Membership, Plan, PlanType
 
 
-def _comp_membership(partner, organization):
+def _partner_membership(partner, organization):
     """The pass-free membership partner seats book through."""
     plan, _ = Plan.objects.get_or_create(
         organization=organization,
-        name="Aggregator complimentary",
-        defaults={"plan_type": PlanType.COMPLIMENTARY, "validity_days": 365},
+        plan_type=PlanType.AGGREGATOR,
+        defaults={"name": "Aggregator allotment", "validity_days": 365},
     )
     membership, _ = Membership.objects.get_or_create(
         user=partner.service_user,
@@ -44,7 +44,7 @@ def book_partner_seat(partner, session, external_id):
             raise DuplicateBooking("external_id already books another session.")
         return link.booking, False
     with transaction.atomic():
-        membership = _comp_membership(partner, session.offering.venue.organization)
+        membership = _partner_membership(partner, session.offering.venue.organization)
         booking = book_session(
             session=session,
             member=partner.service_user,

@@ -9,7 +9,7 @@ from aggregators.models import AggregatorBooking, AggregatorEventLog
 from aggregators.tokens import new_token, rotate, verify
 from booking.models import Booking
 from organizations.models import OrgRole
-from passes.models import CreditLedger
+from passes.models import CreditLedger, Membership, PlanType
 from tests.factories import (
     AggregatorFactory,
     ClassOfferingFactory,
@@ -125,6 +125,16 @@ class TestPartnerBookings:
         assert first.status_code == 201
         assert second.status_code == 200
         assert first.json()["id"] == second.json()["id"]
+
+    def test_partner_seat_rides_aggregator_vehicle(self):
+        session, partner, client = _setup_partner()
+        url = "/api/v1/aggregators/gymhopper/bookings/"
+
+        response = client.post(url, {"session": session.pk, "external_id": "v"})
+
+        assert response.status_code == 201
+        vehicle = Membership.objects.get(user=partner.service_user)
+        assert vehicle.plan.plan_type == PlanType.AGGREGATOR
 
     def test_over_allotment_is_409(self):
         session, partner, client = _setup_partner()
