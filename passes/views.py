@@ -1,6 +1,6 @@
 from typing import ClassVar
 
-from django.db import models, transaction
+from django.db import models
 from rest_framework import generics, serializers
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
@@ -109,21 +109,19 @@ class AdjustSerializer(serializers.Serializer):
 
 
 def _apply_adjust(actor, membership, delta, reason):
-    with transaction.atomic():
-        locked = Membership.objects.select_for_update().get(pk=membership.pk)
-        balance = locked.credits_remaining + delta
-        if balance < 0:
-            raise ValidationError("Adjustment would empty the balance.")
-        row = CreditLedger.objects.create(
-            membership=locked,
-            delta=delta,
-            reason=CreditLedger.Reason.ADJUSTMENT,
+    from booking.errors import CreditInsufficient
+    from passes.services import post_entry
+
+    try:
+        return post_entry(
+            membership,
+            delta,
+            CreditLedger.Reason.ADJUSTMENT,
             note=reason,
             created_by=actor,
         )
-        locked.credits_remaining = balance
-        locked.save(update_fields=["credits_remaining"])
-    return row
+    except CreditInsufficient:
+        raise ValidationError("Adjustment would empty the balance.")
 
 
 class LedgerAdjustView(APIView):

@@ -12,7 +12,7 @@ from typing import assert_never
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from booking.errors import AlreadyCancelled, InvalidWaiver, SessionStarted
@@ -264,23 +264,26 @@ def waive_record(
             # forbidden). Strike forgiveness is inline-only for the same
             # reason.
             raise InvalidWaiver("Record carries no standing forfeit to waive.")
-        adjustment, created = CreditLedger.objects.get_or_create(
-            cancellation_record=record,
-            defaults={
-                "membership_id": record.snapshot["membership_id"],
-                "booking": record.booking,
-                "delta": owed,
-                "reason": CreditLedger.Reason.ADJUSTMENT,
-                "note": f"retroactive waiver of record #{record.pk}: {reason}",
-                "created_by": actor,
-            },
-        )
-        if created:
-            locked = Membership.objects.select_for_update().get(
-                pk=adjustment.membership_id
+        adjustment = CreditLedger.objects.filter(cancellation_record=record).first()
+        if adjustment is None:
+            from passes.services import post_entry
+
+            membership = Membership.objects.get(
+                pk=record.snapshot["membership_id"],
             )
-            locked.credits_remaining += owed
-            locked.save(update_fields=["credits_remaining"])
+            try:
+                adjustment = post_entry(
+                    membership,
+                    owed,
+                    CreditLedger.Reason.ADJUSTMENT,
+                    booking=record.booking,
+                    note=f"retroactive waiver of record #{record.pk}: {reason}",
+                    created_by=actor,
+                    cancellation_record=record,
+                )
+            except IntegrityError:
+                # Lost the race with a concurrent waiver: its row wins.
+                adjustment = CreditLedger.objects.get(cancellation_record=record)
         return adjustment
 
 
@@ -467,16 +470,14 @@ def _cancel_one_for_session(booking, session, venue, organization, actor):
 
 
 def _refund(booking, amount, actor, note=""):
-    # Lock the membership: two concurrent cancels refunding the same
-    # member must serialize, or one credit-back is silently lost.
-    membership = Membership.objects.select_for_update().get(pk=booking.membership_id)
-    membership.credits_remaining += amount
-    membership.save(update_fields=["credits_remaining"])
-    CreditLedger.objects.create(
-        membership=membership,
+    from passes.services import post_entry
+
+    membership = Membership.objects.get(pk=booking.membership_id)
+    post_entry(
+        membership,
+        amount,
+        CreditLedger.Reason.REFUND,
         booking=booking,
-        delta=amount,
-        reason=CreditLedger.Reason.REFUND,
         note=note,
         created_by=actor,
     )

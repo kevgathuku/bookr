@@ -470,3 +470,129 @@ class TestPlanAxes:
                 starts_on=timezone.now().date(),
                 valid_until=timezone.now().date() - timedelta(days=1),
             )
+
+
+class TestPostEntry:
+    """post_entry: the single choke-point for every credit movement."""
+
+    def test_posts_row_and_bumps_cache(self):
+        from passes.services import post_entry
+
+        _, membership = _member_plan(_venue("pe-ok"), "ok", credits=10)
+        row = post_entry(
+            membership,
+            -3,
+            CreditLedger.Reason.BOOKING,
+            booking=None,
+        )
+
+        assert row.delta == -3
+        membership.refresh_from_db()
+        assert membership.credits_remaining == 7
+        assert membership.ledger_entries.count() == 1
+
+    def test_zero_delta_refused(self):
+        from django.core.exceptions import ValidationError
+
+        from passes.services import post_entry
+
+        _, membership = _member_plan(_venue("pe-zero"), "zero", credits=10)
+
+        with pytest.raises(ValidationError):
+            post_entry(membership, 0, CreditLedger.Reason.BOOKING, booking=None)
+
+    def test_floor_breach_raises_insufficient(self):
+        from booking.errors import CreditInsufficient
+        from passes.services import post_entry
+
+        _, membership = _member_plan(_venue("pe-floor"), "floor", credits=2)
+
+        with pytest.raises(CreditInsufficient):
+            post_entry(membership, -3, CreditLedger.Reason.BOOKING, booking=None)
+        membership.refresh_from_db()
+        assert membership.credits_remaining == 2
+        assert membership.ledger_entries.count() == 0
+
+    def test_unlimited_takes_no_rows(self):
+        from django.core.exceptions import ValidationError
+
+        from passes.models import Entitlement, Validity
+        from passes.services import post_entry
+
+        venue = _venue("pe-unl")
+        from passes.models import Plan
+
+        plan = Plan.objects.create(
+            organization=venue.organization,
+            name="Monthly",
+            plan_type="monthly",
+            entitlement=Entitlement.UNLIMITED,
+            validity=Validity.RECURRING,
+            duration_days=30,
+        )
+        membership = PlanMembership.objects.create(
+            user=_user("unlimited"),
+            plan=plan,
+            credits_remaining=None,
+            starts_on=plan_starts_today(),
+            valid_until=None,
+        )
+
+        with pytest.raises(ValidationError):
+            post_entry(membership, -1, CreditLedger.Reason.BOOKING, booking=None)
+        assert membership.ledger_entries.count() == 0
+
+    def test_duplicate_spend_for_one_booking_rejected(self):
+        from django.db import IntegrityError
+
+        from passes.services import post_entry
+
+        _, membership = _member_plan(_venue("pe-dupe"), "dupe", credits=10)
+        booking = _booking_for(membership)
+
+        post_entry(membership, -1, CreditLedger.Reason.BOOKING, booking=booking)
+        with pytest.raises(IntegrityError):
+            post_entry(membership, -1, CreditLedger.Reason.BOOKING, booking=booking)
+
+
+def plan_starts_today():
+    from django.utils import timezone
+
+    return timezone.now().date()
+
+
+def _booking_for(membership):
+    from tests.factories import ClassOfferingFactory, ClassSessionFactory, VenueFactory
+
+    venue = VenueFactory(organization=membership.plan.organization)
+    offering = ClassOfferingFactory(venue=venue)
+    session = ClassSessionFactory(offering=offering)
+    from booking.models import Booking
+
+    return Booking.objects.create(
+        session=session,
+        member=membership.user,
+        membership=membership,
+        credits_spent=1,
+    )
+
+
+class TestReconcileLedger:
+    def test_agrees_on_clean_data(self):
+        from django.core.management import call_command
+
+        from passes.services import post_entry
+
+        _, membership = _member_plan(_venue("rec-ok"), "ok", credits=0)
+        post_entry(membership, 10, CreditLedger.Reason.PURCHASE)
+
+        call_command("reconcile_ledger")
+
+    def test_fails_on_drift(self):
+        from django.core.management import CommandError, call_command
+
+        _, membership = _member_plan(_venue("rec-drift"), "drift", credits=10)
+        PlanMembership.objects.filter(pk=membership.pk).update(credits_remaining=99)
+
+        with pytest.raises(CommandError):
+            call_command("reconcile_ledger")

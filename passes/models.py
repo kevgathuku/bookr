@@ -87,6 +87,11 @@ class CreditLedger(models.Model):
                 fields=["cancellation_record"],
                 name="one_waiver_per_record",
             ),
+            models.UniqueConstraint(
+                fields=["booking", "reason"],
+                condition=models.Q(booking__isnull=False),
+                name="one_spend_and_refund_per_booking",
+            ),
         ]
 
     def delete(self, *args, **kwargs):

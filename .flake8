@@ -35,6 +35,9 @@
 # Per-file: access/services.py ignores WPS202 — the door decision needs one
 # predicate per grant path (pass, booking, staff) plus shared helpers;
 # splitting it would scatter a single verdict.
+# Per-file: passes/services.py ignores WPS211 — post_entry() takes the
+# full ledger-row shape in one call by design; bundling the row extras
+# would obscure the choke-point signature every writer funnels through.
 # Per-file: test_browser.py ignores WPS202/WPS210/WPS213 — linear E2E scripts;
 # splitting further would be helpers that exist only to shorten.
 # Per-file: booking/views.py, aggregators/views.py ignore WPS201;
@@ -162,6 +165,8 @@ per-file-ignores =
         WPS221,
     access/services.py:
         WPS202,
+    passes/services.py:
+        WPS211,
     config/__init__.py:
         WPS300,
         WPS410,
