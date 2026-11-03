@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bookr — Implementation Map (onboarding)</title>
+<style>
+  :root { --ink: #1e293b; --muted: #64748b; --line: #cbd5e1; --bg: #f8fafc;
+          --card: #ffffff; --accent: #0f766e; --money: #92400e; --audit: #5b21b6; }
+  * { box-sizing: border-box; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+         color: var(--ink); background: var(--bg); margin: 0; line-height: 1.55; }
+  header, main { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  header { padding-top: 40px; padding-bottom: 8px; }
+  h1 { font-size: 2rem; margin: 0 0 4px; }
+  h2 { font-size: 1.35rem; margin: 44px 0 8px; padding-top: 20px;
+       border-top: 2px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 24px 0 6px; }
+  p.sub { color: var(--muted); margin-top: 0; }
+  nav.toc { background: var(--card); border: 1px solid var(--line);
+            border-radius: 12px; padding: 16px 20px; margin: 20px 0; }
+  nav.toc ol { margin: 0; padding-left: 20px; }
+  nav.toc a { color: var(--accent); }
+  section.card { background: var(--card); border: 1px solid var(--line);
+                 border-radius: 12px; padding: 20px 22px; margin: 16px 0; }
+  code, .fn { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+              font-size: 0.86em; background: #f1f5f9; padding: 1px 6px;
+              border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left;
+           vertical-align: top; font-size: 0.93rem; }
+  th { background: #f1f5f9; }
+  svg.map { width: 100%; height: auto; background: var(--card);
+            border: 1px solid var(--line); border-radius: 12px; margin: 12px 0; }
+  .node { fill: #fff; stroke: var(--ink); stroke-width: 1.5; rx: 8; }
+  .node-t { font-size: 12px; font-weight: 700; }
+  .node-s { font-size: 10.5px; fill: var(--muted); }
+  .edge { stroke: var(--ink); stroke-width: 1.2; marker-end: url(#arr); }
+  .edge-l { font-size: 10.5px; fill: #334155; }
+  .money { stroke: var(--money); } .money-t { fill: var(--money); }
+  .auditc { stroke: var(--audit); } .auditc-t { fill: var(--audit); }
+  ol.flow li { margin-bottom: 8px; }
+  .inv { border-left: 4px solid var(--accent); padding: 6px 12px; margin: 8px 0;
+         background: #f0fdfa; border-radius: 0 8px 8px 0; }
+  footer { max-width: 1080px; margin: 40px auto 60px; padding: 0 24px;
+           color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bookr — Implementation Map</h1>
+  <p class="sub">What the code actually does, where it lives, and which rules
+  you must not break. Start with §1, then follow one credit through §4.</p>
+</header>
+<main>
+<nav class="toc" aria-label="Contents">
+  <ol>
+    <li><a href="#tenancy">Tenancy: Organization → Venue, duties in OrgRole</a></li>
+    <li><a href="#money">Money: Plan × Entitlement × Validity → Membership → CreditLedger</a></li>
+    <li><a href="#booking">Booking flow: one transaction, one payer, one stamp</a></li>
+    <li><a href="#cancel">Cancellation, refunds, waivers</a></li>
+    <li><a href="#waitlist">Waitlist: join → promote (hold) → confirm / sweep</a></li>
+    <li><a href="#aggregators">Aggregators: the partner channel</a></li>
+    <li><a href="#door">Door: the read-only verdict</a></li>
+    <li><a href="#invariants">Invariants (do not break)</a></li>
+    <li><a href="#next">Where to read next</a></li>
+  </ol>
+</nav>
+
+<h2 id="tenancy">1. Tenancy: Organization → Venue, duties in OrgRole</h2>
+<section class="card">
+<p><strong>Organization</strong> is the tenant root (the business).
+<strong>Venue</strong> is one location under it (<span class="fn">organizations/models.py</span>;
+slugs unique per org). There is no per-venue database: every tenant-scoped row
+carries its venue/organization FK, and middleware + <span class="fn">VenueScopedManager</span>
+scope each request to one venue.</p>
+<p><strong>Duties live in <span class="fn">OrgRole</span>, never on User.</strong>
+One user holds many rows: member at venue A, teacher at venue B.
+<span class="fn">venue=None</span> means the role applies org-wide.
+Roles: <span class="fn">member, teacher, frontdesk, manager, owner</span>.
+Django Groups are never consulted (ADR-0005); capabilities derive from roles
+(<span class="fn">organizations/capabilities.py</span>, <span class="fn">permissions.py</span>).</p>
+<svg class="map" viewBox="0 0 1000 240" role="img" aria-label="Tenancy diagram">
+  <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="none" stroke="#1e293b" stroke-width="1.2"/></marker></defs>
+  <rect class="node" x="20" y="60" width="170" height="64"/><text class="node-t" x="32" y="86">Organization</text><text class="node-s" x="32" y="104">slug (unique), name</text><text class="node-s" x="32" y="119">tenant root</text>
+  <rect class="node" x="280" y="60" width="170" height="64"/><text class="node-t" x="292" y="86">Venue</text><text class="node-s" x="292" y="104">slug unique per org</text><text class="node-s" x="292" y="119">time_zone</text>
+  <rect class="node" x="540" y="20" width="170" height="64"/><text class="node-t" x="552" y="46">User (auth)</text><text class="node-s" x="552" y="64">no custom fields in v1</text>
+  <rect class="node" x="540" y="140" width="220" height="80"/><text class="node-t" x="552" y="166">OrgRole</text><text class="node-s" x="552" y="184">user · organization · venue?</text><text class="node-s" x="552" y="199">role: member…owner</text><text class="node-s" x="552" y="214">venue=None ⇒ org-wide</text>
+  <line class="edge" x1="190" y1="92" x2="276" y2="92"/><text class="edge-l" x="196" y="84">has many</text>
+  <line class="edge" x1="625" y1="84" x2="625" y2="136"/><text class="edge-l" x="632" y="114">holds many</text>
+  <line class="edge" x1="540" y1="180" x2="446" y2="180"/><text class="edge-l" x="452" y="172">pins venue?</text>
+  <line class="edge" x1="540" y1="160" x2="300" y2="40"/><text class="edge-l" x="360" y="80">scoped to org</text>
+</svg>
+<table>
+<tr><th>App</th><th>Owns</th><th>Boundary</th></tr>
+<tr><td><span class="fn">organizations</span></td><td>Who exists where, and what they may do</td><td>Never touches money or seats; exposes roles/capabilities others query</td></tr>
+<tr><td><span class="fn">scheduling</span></td><td>What happens when: <span class="fn">ClassOffering</span> (venue, teacher, price) → <span class="fn">ClassSession</span> (starts_at, capacity)</td><td>Knows nothing about payment; sessions are the lockable resource</td></tr>
+<tr><td><span class="fn">passes</span></td><td>Products (<span class="fn">Plan</span>) and per-user balances (<span class="fn">Membership</span>, <span class="fn">CreditLedger</span>)</td><td>Only app that moves credits, via <span class="fn">post_entry()</span></td></tr>
+<tr><td><span class="fn">booking</span></td><td>The seat transaction + cancellation rules</td><td>Never edits balances directly; spends through <span class="fn">passes.services</span></td></tr>
+<tr><td><span class="fn">access</span></td><td>Read-only door verdict + event log</td><td>Moves no credits, changes no bookings (fail-closed on DB error)</td></tr>
+<tr><td><span class="fn">aggregators</span></td><td>The partner channel (auth, allotment, webhooks)</td><td>Books through the same <span class="fn">book_session()</span> as members</td></tr>
+</table>
+</section>
+
+<h2 id="money">2. Money: Plan × Entitlement × Validity → Membership → CreditLedger</h2>
+<section class="card">
+<p><strong>Plan</strong> is the product definition.
+<span class="fn">plan_type</span> (monthly/credit_pack/drop_in/complimentary/aggregator/staff)
+is a sales label only — <strong>behavior comes from two axes</strong>:</p>
+<ul>
+<li><strong>Entitlement</strong>: <span class="fn">unlimited</span> (never charged, balance is NULL)
+or <span class="fn">credits</span> (charged per booking, positive <span class="fn">credits_included</span>).</li>
+<li><strong>Validity</strong>: <span class="fn">open_ended</span> (NULL expiry),
+<span class="fn">fixed_duration</span> or <span class="fn">recurring</span> (both need
+<span class="fn">duration_days &gt; 0</span>; renewal is manual re-purchase).</li>
+</ul>
+<p>Both axes are DB check constraints (<span class="fn">plan_credits_match_entitlement</span>,
+<span class="fn">plan_duration_match_validity</span>) mirrored in <span class="fn">Plan.clean()</span>
+for friendly admin errors.</p>
+<p><strong>Membership</strong> = one user × one plan × one date window.
+<strong>One purchase = one membership — never top up</strong>: a second purchase mints a new row
+(topping up would inherit the old expiry and hide what was bought when).
+<span class="fn">credits_remaining</span> is a cached balance (NULL = unlimited);
+<span class="fn">valid_until</span> NULL = never expires.
+<span class="fn">payment_ref</span> carries the incident key for grants.</p>
+<p><strong>CreditLedger</strong> is the append-only truth (ADR-0002): every movement is a row
+(<span class="fn">purchase, booking, refund, forfeit, expiry, adjustment</span>);
+rows are never edited or deleted (<span class="fn">save()</span> guards).
+The balance is whatever the rows sum to — <span class="fn">reconcile_ledger</span>
+fails loudly on drift. All writes funnel through
+<span class="fn">passes/services.post_entry()</span>, which locks the row, refuses
+zero deltas and unlimited rows, and enforces the floor.</p>
+<svg class="map" viewBox="0 0 1000 250" role="img" aria-label="Money diagram">
+  <defs><marker id="arr2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="none" stroke="#1e293b" stroke-width="1.2"/></marker></defs>
+  <rect class="node" x="20" y="70" width="190" height="100"/><text class="node-t" x="32" y="96">Plan</text><text class="node-s" x="32" y="114">plan_type (label only)</text><text class="node-s" x="32" y="129">entitlement + credits_included</text><text class="node-s" x="32" y="144">validity + duration_days</text><text class="node-s" x="32" y="159">2 check constraints</text>
+  <rect class="node" x="300" y="70" width="220" height="100"/><text class="node-t" x="312" y="96">Membership</text><text class="node-s" x="312" y="114">user · plan · starts_on</text><text class="node-s" x="312" y="129">credits_remaining? (NULL=∞)</text><text class="node-s" x="312" y="144">valid_until? · payment_ref</text><text class="node-s" x="312" y="159">1 purchase = 1 row</text>
+  <rect class="node" x="610" y="70" width="220" height="100"/><text class="node-t" x="622" y="96">CreditLedger</text><text class="node-s" x="622" y="114">membership · booking?</text><text class="node-s" x="622" y="129">delta ≠ 0 · reason · note</text><text class="node-s" x="622" y="144">append-only · 1 spend +</text><text class="node-s" x="622" y="159">1 refund per booking</text>
+  <rect class="node" x="300" y="195" width="220" height="40"/><text class="node-s" x="312" y="219">sole writer: post_entry() (locks row)</text>
+  <line class="edge" x1="210" y1="120" x2="296" y2="120"/><text class="edge-l" x="214" y="112">instantiates</text>
+  <line class="edge" x1="520" y1="120" x2="606" y2="120"/><text class="edge-l" x="524" y="112">rows sum to cache</text>
+</svg>
+<h3>Plan types, by who bears the cost</h3>
+<table>
+<tr><th>Type</th><th>Meaning</th><th>Typical axes</th></tr>
+<tr><td>monthly / credit_pack / drop_in</td><td>Commercial (customer paid)</td><td>unlimited/recurring · credits/fixed · credits(1)/fixed/1d</td></tr>
+<tr><td>complimentary</td><td>House goodwill (foregone income): capped grants</td><td>credits(N)/fixed/short — one plan <em>per grant</em></td></tr>
+<tr><td>staff</td><td>Employment benefit (compensation cost)</td><td>credits or unlimited; never mixed with goodwill in policy scope</td></tr>
+<tr><td>aggregator</td><td>Partner vehicle only — no money, no rows</td><td>unlimited/open-ended; created solely by <span class="fn">_partner_membership</span></td></tr>
+</table>
+</section>
+
+<h2 id="booking">3. Booking flow: one transaction, one payer, one stamp</h2>
+<section class="card">
+<p>Entry: <span class="fn">booking/services.book_session()</span>. Everything happens inside
+one <span class="fn">SELECT … FOR UPDATE</span> on the session row, so concurrent requests
+serialize per session. Retries are safe: one active booking per member+session
+(partial unique <span class="fn">one_active_session_booking</span>), so a repeated
+request raises <span class="fn">DuplicateBooking</span>, never a double charge.</p>
+<ol class="flow">
+<li><strong>Lock + validate</strong> — session open (not started/cancelled), no duplicate, seats left
+(full GROUP sessions queue instead when <span class="fn">waitlist=True</span>; private sessions raise).</li>
+<li><strong>Pick the payer</strong> — <span class="fn">_paying_membership()</span>: unlimited first,
+else first-expiring credit pack covering the price (<span class="fn">valid_until</span> nulls-last).
+Explicit memberships are validated (owner, org, dates).</li>
+<li><strong>Stamp the price</strong> — <span class="fn">credits_spent</span> on the booking
+(0 for unlimited/comped; waitlisted and held rows always stamp 0).</li>
+<li><strong>Spend once</strong> — <span class="fn">spend_for_booking()</span> →
+<span class="fn">post_entry()</span> writes the <span class="fn">BOOKING</span> row and bumps the cache
+in the same transaction. <span class="fn">CreditInsufficient</span> rolls everything back.</li>
+</ol>
+<p>A same-member double-submit race is mapped to <span class="fn">DuplicateBooking</span>
+(the unique <span class="fn">one_spend_and_refund_per_booking</span> guard turns a would-be
+double spend into an <span class="fn">IntegrityError</span> first).</p>
+</section>
+
+<h2 id="cancel">4. Cancellation, refunds, waivers</h2>
+<section class="card">
+<p>Entry: <span class="fn">booking/cancellations.cancel_booking()</span>.
+Every exit writes one immutable <span class="fn">CancellationRecord</span> pinning session,
+member, plan, policy, actor and cause — history is never rewritten.</p>
+<ol class="flow">
+<li><strong>Resolve the policy</strong> — <span class="fn">booking/policies.resolve_policy()</span>
+picks the most specific <span class="fn">CancellationPolicy</span> (venue → category → plan_type);
+late = inside <span class="fn">late_cancel_hours</span> of start.</li>
+<li><strong>Apply the outcome</strong> —
+on-time (or waived, or staff override): <strong>full refund</strong> via <span class="fn">_refund()</span>
+(exact stamp, same transaction);
+late + <span class="fn">LOSE_CREDIT</span>: <strong>forfeit</strong> (no rows — forfeit <em>is</em> the absence of a refund);
+late + <span class="fn">STRIKE</span>: stamp stands, strike counted (30-day window).</li>
+<li><strong>Held seats</strong> release as <span class="fn">UNCLAIMED</span> (nothing was charged,
+nothing returns) and <strong>session cancels</strong> refund every active stamp.</li>
+</ol>
+<p><strong>Forgiveness never rewrites:</strong> inline waivers stamp the record at creation;
+retroactive waivers post a compensating <span class="fn">ADJUSTMENT</span> row linked to the
+record (<span class="fn">waive_record()</span>, idempotent per record), capped at
+<span class="fn">credits_spent − already refunded</span>. Zero-owed records (monthly/comped seats)
+raise — there is nothing to compensate. Desk corrections use
+<span class="fn">POST /ledger/adjust/</span> (reason required, floor enforced);
+<strong>grants are not adjustments</strong> — the desk mints a new complimentary
+membership via <span class="fn">POST /ledger/grants/</span> (idempotent per incident key),
+never tops up.</p>
+</section>
+
+<h2 id="waitlist">5. Waitlist: join → promote (hold) → confirm / sweep</h2>
+<section class="card">
+<ol class="flow">
+<li><strong>Join</strong> needs a valid membership but moves no money and writes no ledger row.</li>
+<li><strong>Promote</strong> (<span class="fn">promote_next()</span>, head-only, FIFO) seats the
+longest waiter as <span class="fn">HELD</span> with a deadline (<span class="fn">HOLD_WINDOW_MINUTES = 60</span>);
+lapsed heads stay queued and the seat stays open.</li>
+<li><strong>Confirm</strong> (<span class="fn">confirm_booking()</span>) charges the pass and flips
+Held → Booked. <strong>Sweep</strong> (<span class="fn">sweep_expired_holds</span>) releases
+lapsed holds as unclaimed and passes the seat on. Promotion and the sweep are shared
+tasks (<span class="fn">booking/tasks.py</span>) so workers and the web process share them.</li>
+</ol>
+</section>
+
+<h2 id="aggregators">6. Aggregators: the partner channel</h2>
+<section class="card">
+<p>Partners authenticate by API token (<span class="fn">AggregatorAuthentication</span>),
+never as users. Each partner owns a machine account (<span class="fn">svc-&lt;slug&gt;</span>:
+unusable password, blank email, no roles) and exactly one comp <strong>vehicle</strong>
+membership that carries no money and no rows.</p>
+<ol class="flow">
+<li><strong>Book</strong> (<span class="fn">book_partner_seat()</span>): idempotent on
+<span class="fn">(aggregator, external_id)</span> via <span class="fn">AggregatorBooking</span>;
+books through the same <span class="fn">book_session(spend_credits=False)</span> as members
+(amount 0, no ledger rows). The real gate is the <strong>seat allotment</strong>, counted
+after the seat lock so over-limit raises roll the booking back too.</li>
+<li><strong>Cancel</strong> delegates to <span class="fn">cancel_booking()</span> (same unified record);
+moves no money (late partner cancels assert zero ledger rows).</li>
+<li>Every call is logged to <span class="fn">AggregatorEventLog</span>; webhooks fire on create.</li>
+</ol>
+<p>The vehicle reuses one membership forever (the documented exception to one-per-purchase:
+reuse corrupts nothing — no balance, no rows). It is also the reason the door has two arms (below).</p>
+</section>
+
+<h2 id="door">7. Door: the read-only verdict</h2>
+<section class="card">
+<p>Entry: <span class="fn">access/services.decide()</span>. Read-only: moves no credits, changes no
+bookings. Per-attempt logging, 60s verdict cache, fail-closed on DB outage.</p>
+<ol class="flow">
+<li><strong>Active pass</strong> — unlimited valid within dates, or credit balance &gt; 0 within dates.</li>
+<li><strong>Live booking</strong> — a BOOKED seat in the entry window (this is how partner guests
+and zero-balance members get in).</li>
+<li><strong>Staff</strong> — duty roles via capabilities.</li>
+<li>Otherwise: <span class="fn">no_access</span>. Passback replays the last verdict inside the window.</li>
+</ol>
+</section>
+
+<h2 id="invariants">8. Invariants (do not break)</h2>
+<section class="card">
+<div class="inv"><strong>No guest path.</strong> Every booking holds a paying membership FK (PROTECT) — drop-ins, comps and partner seats included.</div>
+<div class="inv"><strong>One purchase = one membership.</strong> Never add credits to an existing row; mint a new membership (+ plan if terms differ) with its own PURCHASE row.</div>
+<div class="inv"><strong>One writer for money.</strong> All balance moves go through <span class="fn">post_entry()</span>; the cache is derived, and <span class="fn">reconcile_ledger</span> proves it.</div>
+<div class="inv"><strong>NULL means unlimited / never-expires</strong> — on balances and on dates. Every comparison must be NULL-safe.</div>
+<div class="inv"><strong>History is append-only.</strong> Ledger rows and cancellation records are never edited or deleted; forgiveness is a linked row.</div>
+<div class="inv"><strong>Refunds return the stamp.</strong> Exactly <span class="fn">credits_spent</span>, never a fresh price lookup — repricing mid-sale stays correct.</div>
+<div class="inv"><strong>Forfeit is the absence of a row.</strong> Do not invent FORFEIT rows; waiver math depends on the gap.</div>
+<div class="inv"><strong>Zero-amount bookings write zero rows</strong> (monthly, comped, held, waitlisted). The audit trail for those lives in status transitions, not the ledger.</div>
+</section>
+
+<h2 id="next">9. Where to read next</h2>
+<section class="card">
+<table>
+<tr><th>Question</th><th>Read</th></tr>
+<tr><td>How does a booking really work?</td><td><span class="fn">booking/services.py</span> (~260 lines, linear)</td></tr>
+<tr><td>How do cancels/refunds/waivers work?</td><td><span class="fn">booking/cancellations.py</span>, <span class="fn">booking/policies.py</span></td></tr>
+<tr><td>Where does money move?</td><td><span class="fn">passes/services.py</span> (<span class="fn">post_entry</span>, <span class="fn">grant_goodwill</span>)</td></tr>
+<tr><td>Who can do what?</td><td><span class="fn">organizations/capabilities.py</span>, <span class="fn">organizations/permissions.py</span>, ADR-0005/0007</td></tr>
+<tr><td>Why is the ledger append-only?</td><td><span class="fn">docs/adr/0002-append-only-ledger.md</span>, <span class="fn">docs/adr/0008-plan-membership-ledger.md</span></td></tr>
+<tr><td>Why plan_type is a label?</td><td><span class="fn">docs/adr/</span> + beads <span class="fn">bookr-4ig</span> (Entitlement), <span class="fn">bookr-c61</span> (Validity)</td></tr>
+<tr><td>How do I run the gates?</td><td><span class="fn">AGENTS.md</span> (ruff, flake8, mypy, pytest, frontend build)</td></tr>
+</table>
+</section>
+</main>
+<footer>
+Built from the implementation (models, services, constraints) — not from the spec.
+If code and page disagree, the code wins; please fix the page.
+</footer>
+</body>
+</html>
