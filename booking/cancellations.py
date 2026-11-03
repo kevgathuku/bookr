@@ -10,7 +10,7 @@ import dataclasses
 from datetime import timedelta
 from typing import assert_never
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -34,6 +34,8 @@ from organizations.ids import OrgId, VenueId
 from organizations.models import OrgRole
 from passes.models import CreditLedger, Membership
 from scheduling.models import ClassSession
+
+User = get_user_model()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -235,7 +237,12 @@ def check_in(*, booking_id, actor):
         return booking
 
 
-def waive_record(*, record_id: int, actor: User, reason: str = "") -> CreditLedger:
+def waive_record(
+    *,
+    record_id: int,
+    actor: User,  # type: ignore[valid-type]
+    reason: str = "",
+) -> CreditLedger:
     """Retroactive waiver: a compensating ADJUSTMENT for forfeited credits,
     linked to the record. Idempotent per record; the record itself is never
     edited. Strike records carry no money, so there is nothing to
