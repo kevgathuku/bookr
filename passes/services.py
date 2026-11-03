@@ -78,7 +78,6 @@ def grant_goodwill(
     note="",
     created_by=None,
     incident_key,
-    name=None,
 ):
     """Mint one goodwill grant: plan + membership + PURCHASE, atomically.
 
@@ -103,7 +102,7 @@ def grant_goodwill(
             return existing, False
         plan, _ = Plan.objects.get_or_create(
             organization=organization,
-            name=name or f"Goodwill — {incident_key}",
+            name=f"Goodwill — {incident_key}",
             defaults={
                 "plan_type": PlanType.COMPLIMENTARY,
                 "entitlement": Entitlement.CREDITS,
@@ -113,16 +112,18 @@ def grant_goodwill(
             },
         )
         try:
-            membership = Membership.objects.create(
-                user=user,
-                plan=plan,
-                credits_remaining=credits,
-                starts_on=timezone.now().date(),
-                valid_until=timezone.now().date() + timedelta(days=duration_days),
-                payment_ref=incident_key,
-            )
+            with transaction.atomic():
+                membership = Membership.objects.create(
+                    user=user,
+                    plan=plan,
+                    credits_remaining=credits,
+                    starts_on=timezone.now().date(),
+                    valid_until=timezone.now().date() + timedelta(days=duration_days),
+                    payment_ref=incident_key,
+                )
         except IntegrityError:
             # Lost a same-incident race: the winner's membership is the answer.
+            # (Inner atomic above keeps this outer transaction usable.)
             return (
                 Membership.objects.get(user=user, payment_ref=incident_key),
                 False,

@@ -162,7 +162,12 @@ def book_session(
             _validate_membership(membership, member, locked, timezone.now().date())
         amount = _charge_for(membership, price, spend_credits)
         booking = _create_booking(locked, member, membership, amount)
-        spend_for_booking(membership, amount, booking)
+        try:
+            spend_for_booking(membership, amount, booking)
+        except IntegrityError:
+            # Lost a same-member double-submit race: the winner's spend
+            # stands, so this attempt is a duplicate, not a new booking.
+            raise DuplicateBooking(f"{member} already booked {locked}.")
     return booking
 
 

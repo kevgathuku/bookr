@@ -164,7 +164,10 @@ class LedgerGrantView(APIView):
 
 
 class LedgerAdjustView(APIView):
-    """Desk goodwill path: move credits with a reason, append-only."""
+    """Desk corrections path: fix a balance with a reason, append-only.
+
+    Positive deltas here are corrections only — grants mint a new
+    membership through the grants endpoint (one purchase = one membership)."""
 
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
         permissions.IsVenueMember,

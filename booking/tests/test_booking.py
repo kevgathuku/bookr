@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from datetime import timedelta
 
 import pytest
@@ -10,7 +11,7 @@ from booking.errors import CreditInsufficient, DuplicateBooking, SeatFull
 from booking.models import Booking
 from booking.services import book_session
 from organizations.models import OrgRole
-from passes.models import Entitlement, PlanType, Validity
+from passes.models import CreditLedger, Entitlement, PlanType, Validity
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -369,6 +370,41 @@ class TestLastSeatRace:
         assert outcomes.count(Booking.Status.BOOKED) == 1
         assert outcomes.count("full") == 19
         assert session.bookings.filter(status=Booking.Status.BOOKED).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDoubleSubmitRace:
+    def test_same_member_double_submit_charges_once(self):
+        venue = _venue("double-submit")
+        session = _session(venue, capacity=2)
+        member = _member("double", venue, credits=10)
+        outcomes = []
+        gate = Barrier(2)
+
+        def attempt(_i):
+            gate.wait(timeout=10)
+            try:
+                booking = book_session(session=session, member=member)
+                return booking.status
+            except DuplicateBooking:
+                return "duplicate"
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(attempt, range(2)))
+
+        assert outcomes.count(Booking.Status.BOOKED) == 1
+        assert outcomes.count("duplicate") == 1
+        assert (
+            CreditLedger.objects.filter(
+                booking__session=session,
+                reason=CreditLedger.Reason.BOOKING,
+            ).count()
+            == 1
+        )
+        member.plan_memberships.get().refresh_from_db()
+        assert member.plan_memberships.get().credits_remaining == 9
 
 
 class TestBookingApi:

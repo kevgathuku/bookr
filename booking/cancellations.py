@@ -272,17 +272,19 @@ def waive_record(
                 pk=record.snapshot["membership_id"],
             )
             try:
-                adjustment = post_entry(
-                    membership,
-                    owed,
-                    CreditLedger.Reason.ADJUSTMENT,
-                    booking=record.booking,
-                    note=f"retroactive waiver of record #{record.pk}: {reason}",
-                    created_by=actor,
-                    cancellation_record=record,
-                )
+                with transaction.atomic():
+                    adjustment = post_entry(
+                        membership,
+                        owed,
+                        CreditLedger.Reason.ADJUSTMENT,
+                        booking=record.booking,
+                        note=f"retroactive waiver of record #{record.pk}: {reason}",
+                        created_by=actor,
+                        cancellation_record=record,
+                    )
             except IntegrityError:
                 # Lost the race with a concurrent waiver: its row wins.
+                # (Inner atomic above keeps this outer transaction usable.)
                 adjustment = CreditLedger.objects.get(cancellation_record=record)
         return adjustment
 
