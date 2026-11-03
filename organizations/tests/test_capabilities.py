@@ -9,6 +9,7 @@ from organizations.capabilities import (  # noqa: WPS235 — capability matrix t
     can_staff_door,
     can_waive,
     is_duty_staff,
+    is_staff,
     roles_for,
 )
 from organizations.models import OrgRole
@@ -153,3 +154,10 @@ class TestCapabilities:
     @pytest.mark.parametrize("role", OrgRole.Role.values)
     def test_duty_staff_matches_door_operators_for_every_role(self, role):
         assert is_duty_staff({role}) == can_staff_door({role})
+
+    @pytest.mark.parametrize("role", OrgRole.Role.values)
+    def test_is_staff_is_everything_but_member(self, role):
+        assert is_staff({role}) == (role != OrgRole.Role.MEMBER)
+
+    def test_is_staff_empty_is_not_staff(self):
+        assert not is_staff(set())

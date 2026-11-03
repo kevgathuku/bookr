@@ -29,6 +29,7 @@ from organizations.capabilities import (
     can_operate_desk,
     can_staff_door,
     can_waive,
+    is_staff,
 )
 from organizations.ids import OrgId, VenueId
 from organizations.models import OrgRole
@@ -496,11 +497,7 @@ def _roles(actor, organization):
 def _require_staff(actor, organization, reason):
     if not reason:
         raise ValidationError("Staff cancellations require a reason.")
-    if (
-        not OrgRole.objects.filter(user=actor, organization=organization)
-        .exclude(role=OrgRole.Role.MEMBER)
-        .exists()
-    ):
+    if not is_staff(_roles(actor, organization)):
         raise PermissionDenied("Staff only.")
 
 

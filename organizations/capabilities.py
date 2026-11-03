@@ -31,6 +31,13 @@ def roles_for(user, venue) -> set[str]:
     )
 
 
+def is_staff(roles) -> bool:
+    """Any non-member role. The broadest gate: prefer a specific
+    capability (desk, door, waive) and reach for this only when the
+    check genuinely precedes a narrower one."""
+    return any(role != OrgRole.Role.MEMBER for role in roles)
+
+
 def can_operate_desk(roles) -> bool:
     return bool(set(roles) & OPERATE_DESK_ROLES)
 
