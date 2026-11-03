@@ -5,10 +5,13 @@ Django Groups are never consulted."""
 from django.contrib import admin
 from django.db.models import Q
 
+from organizations.capabilities import (
+    MANAGE_ROLES,
+    OPERATE_DESK_ROLES,
+    can_manage_staff,
+    can_operate_desk,
+)
 from organizations.models import OrgRole, Venue
-
-BACK_OFFICE_ROLES = ("owner", "manager", "frontdesk")
-MANAGE_ROLES = ("owner", "manager")
 
 
 class BookrAdminSite(admin.AdminSite):
@@ -22,7 +25,7 @@ class BookrAdminSite(admin.AdminSite):
         if not request.user.is_active:
             return False
         return OrgRole.objects.filter(
-            user=request.user, role__in=BACK_OFFICE_ROLES
+            user=request.user, role__in=OPERATE_DESK_ROLES
         ).exists()
 
 
@@ -69,20 +72,17 @@ class VenueScopedAdmin(admin.ModelAdmin):
         return qs.filter(self.scope_q(request))
 
     def has_view_permission(self, request, obj=None):
-        return bool(set(staff_roles(request)) & set(BACK_OFFICE_ROLES))
+        return can_operate_desk(staff_roles(request))
 
     def has_add_permission(self, request):
-        return bool(set(staff_roles(request)) & set(MANAGE_ROLES))
+        return can_manage_staff(staff_roles(request))
 
     def has_change_permission(self, request, obj=None):
-        roles = set(staff_roles(request))
-        if roles & set(MANAGE_ROLES):
-            return True
-        # Frontdesk fallback: view + change, never add/delete.
-        return "frontdesk" in roles
+        # Desk fallback: view + change, never add/delete.
+        return can_operate_desk(staff_roles(request))
 
     def has_delete_permission(self, request, obj=None):
-        return bool(set(staff_roles(request)) & set(MANAGE_ROLES))
+        return can_manage_staff(staff_roles(request))
 
     def scope_q(self, request):
         return Q(**{f"{self.venue_path}__in": scoped_venues(request)})

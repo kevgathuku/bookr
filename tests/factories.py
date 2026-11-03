@@ -88,17 +88,25 @@ class ClassOfferingFactory(factory.django.DjangoModelFactory):
     duration_minutes = 60
     credit_cost = 1
 
-    @factory.post_generation
-    def teacher_role(offering, create, _extracted, **kwargs):
-        """The named teacher holds the teacher role at the venue."""
-        if not create:
-            return
-        OrgRole.objects.get_or_create(
-            organization=offering.venue.organization,
-            venue=offering.venue,
-            user=offering.teacher,
-            role=OrgRole.Role.TEACHER,
-        )
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        # Role before save: offering.save() enforces the covering-teacher
+        # invariant, and post-generation hooks run too late to satisfy it.
+        teacher = kwargs.get("teacher")
+        venue = kwargs.get("venue")
+        if (
+            teacher is not None
+            and venue is not None
+            and getattr(teacher, "pk", None)
+            and getattr(venue, "pk", None)
+        ):
+            OrgRole.objects.get_or_create(
+                organization=venue.organization,
+                venue=venue,
+                user=teacher,
+                role=OrgRole.Role.TEACHER,
+            )
+        return super()._create(model_class, *args, **kwargs)
 
 
 class ClassSessionFactory(factory.django.DjangoModelFactory):

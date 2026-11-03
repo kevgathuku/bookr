@@ -10,6 +10,8 @@ session users; permissions lazily resolve for the rest via ensure_venue.
 
 from django.db import models
 
+from organizations.capabilities import OPERATE_DESK_ROLES
+
 VENUE_HEADER = "X-Venue-Slug"
 
 
@@ -37,16 +39,10 @@ def _match_spanning(rows, slug):
 
 def _default_venue(rows):
     pinned = [row for row in rows if row.venue_id is not None]
-    pinned.sort(key=lambda row: row.role not in _staff_values())
+    pinned.sort(key=lambda row: row.role not in set(OPERATE_DESK_ROLES))
     if pinned:
         return pinned[0].venue, pinned[0].venue.organization
     return None, None
-
-
-def _staff_values():
-    from organizations.models import OrgRole
-
-    return {OrgRole.Role.OWNER, OrgRole.Role.MANAGER, OrgRole.Role.FRONTDESK}
 
 
 def resolve_venue(user, slug):

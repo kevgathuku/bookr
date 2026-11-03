@@ -50,6 +50,13 @@ class ClassOffering(models.Model):
     duration_minutes = models.PositiveIntegerField(default=60)
     credit_cost = models.PositiveIntegerField(default=1)
 
+    def save(self, *args, **kwargs):
+        # Offerings are single-row domain objects: validate on every ORM
+        # write so the teacher-role invariant holds. Bulk writes and raw
+        # SQL skip save() and must call full_clean() themselves.
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
     def clean(self):
         super().clean()
         if self.teacher_id is None or self.venue_id is None:

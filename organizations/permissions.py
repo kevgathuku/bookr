@@ -4,20 +4,16 @@ from rest_framework import permissions
 from rest_framework.exceptions import NotFound, PermissionDenied
 
 from organizations.capabilities import can_operate_desk
-from organizations.models import OrgRole
 from organizations.tenancy import covers, ensure_venue
 
 
 def staff_covering(request, venue):
-    """True when the user holds a staff role covering the venue.
+    """True when the user holds a desk role covering the venue.
 
-    OrgRole rows are the single source: any non-member role counts as
-    staff here; desk-only gates use can_operate_desk directly.
+    Rank interpretation lives in capabilities: desk-only gates and this
+    back-office gate alike go through the predicates, never role values.
     """
-    return any(
-        row.role != OrgRole.Role.MEMBER and covers(row, venue)
-        for row in getattr(request, "org_roles", ())
-    )
+    return _capability_covering(request, venue, can_operate_desk)
 
 
 class IsVenueMember(permissions.BasePermission):

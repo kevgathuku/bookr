@@ -29,7 +29,9 @@ from booking.serializers import (
     WaiveSerializer,
 )
 from booking.services import book_session, confirm_booking
-from organizations.permissions import IsStaff, IsVenueMember, staff_covering
+from organizations.capabilities import can_staff_door
+from organizations.permissions import IsStaff, IsVenueMember
+from organizations.tenancy import covers
 
 
 class BookingsView(APIView):
@@ -140,7 +142,10 @@ class MineView(APIView):
         return Response(BookingSerializer(bookings, many=True).data)
 
 
-def _owned(request, pk):
+def _visible_booking(request, pk):
+    """Visibility gate: venue-scoped load, 404 unless the booking is
+    yours, you teach its session, or you hold a door capability covering
+    the venue. Authorization stays in the services (403s unchanged)."""
     booking = (
         Booking.objects.filter(pk=pk, session__offering__venue=request.venue)
         .select_related("session", "session__offering")
@@ -148,9 +153,18 @@ def _owned(request, pk):
     )
     if booking is None:
         raise NotFound("No such venue.")
-    if booking.member != request.user and not staff_covering(request, request.venue):
-        raise NotFound("No such venue.")
-    return booking
+    if booking.member_id == request.user.pk:
+        return booking
+    if booking.session.offering.teacher_id == request.user.pk:
+        return booking
+    covered = [
+        row.role
+        for row in getattr(request, "org_roles", ())
+        if covers(row, request.venue)
+    ]
+    if can_staff_door(covered):
+        return booking
+    raise NotFound("No such venue.")
 
 
 class PolicyListView(generics.ListAPIView):
@@ -176,7 +190,7 @@ class PolicyListView(generics.ListAPIView):
 
 
 def _record_response(request, pk, call):
-    booking = _owned(request, pk)
+    booking = _visible_booking(request, pk)
     with mapped_errors():
         record = call(booking)
     return Response(RecordSerializer(record).data)
@@ -217,7 +231,7 @@ class BookingConfirmView(APIView):
 
     @extend_schema(request=None, responses=BookingSerializer)
     def post(self, request, pk):
-        booking = _owned(request, pk)
+        booking = _visible_booking(request, pk)
         with mapped_errors():
             booking = confirm_booking(booking_id=booking.pk, actor=request.user)
         return Response(BookingSerializer(booking).data)
@@ -248,7 +262,7 @@ class CheckInView(APIView):
 
     @extend_schema(request=None, responses=BookingSerializer)
     def post(self, request, pk):
-        booking = _owned(request, pk)
+        booking = _visible_booking(request, pk)
         with mapped_errors():
             booking = check_in(booking_id=booking.pk, actor=request.user)
         return Response(BookingSerializer(booking).data)
