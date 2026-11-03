@@ -596,3 +596,89 @@ class TestReconcileLedger:
 
         with pytest.raises(CommandError):
             call_command("reconcile_ledger")
+
+
+class TestGrantGoodwill:
+    """grant_goodwill: one atomic mint of plan + membership + PURCHASE."""
+
+    def test_mints_all_three_rows(self):
+        from datetime import timedelta
+
+        from passes.models import PlanType
+        from passes.services import grant_goodwill
+
+        venue = _venue("grant-ok")
+        member = _user("granted")
+        membership, created = grant_goodwill(
+            organization=venue.organization,
+            user=member,
+            credits=2,
+            duration_days=30,
+            note="late cancel comp",
+            created_by=member,
+            incident_key="incident-1",
+        )
+
+        assert created is True
+        assert membership.credits_remaining == 2
+        assert membership.payment_ref == "incident-1"
+        assert membership.plan.plan_type == PlanType.COMPLIMENTARY
+        assert membership.plan.credits_included == 2
+        assert membership.valid_until == membership.starts_on + timedelta(days=30)
+        purchase = membership.ledger_entries.get(
+            reason=CreditLedger.Reason.PURCHASE,
+        )
+        assert purchase.delta == 2
+
+    def test_same_incident_key_returns_existing(self):
+        from passes.services import grant_goodwill
+
+        venue = _venue("grant-idem")
+        member = _user("idem")
+        first, _ = grant_goodwill(
+            organization=venue.organization,
+            user=member,
+            credits=2,
+            note="comp",
+            created_by=member,
+            incident_key="incident-9",
+        )
+        second, created = grant_goodwill(
+            organization=venue.organization,
+            user=member,
+            credits=2,
+            note="comp",
+            created_by=member,
+            incident_key="incident-9",
+        )
+
+        assert created is False
+        assert second.pk == first.pk
+        assert (
+            CreditLedger.objects.filter(
+                membership=first, reason=CreditLedger.Reason.PURCHASE
+            ).count()
+            == 1
+        )
+
+    def test_duplicate_payment_ref_rejected_at_db(self):
+        from django.db import IntegrityError
+
+        from tests.factories import PlanMembershipFactory
+
+        venue = _venue("grant-dupe")
+        member = _user("dupe")
+        PlanMembershipFactory(
+            user=member,
+            plan=_plan(venue),
+            credits_remaining=0,
+            payment_ref="incident-x",
+        )
+
+        with pytest.raises(IntegrityError):
+            PlanMembershipFactory(
+                user=member,
+                plan=_plan(venue),
+                credits_remaining=0,
+                payment_ref="incident-x",
+            )

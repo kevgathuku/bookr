@@ -46,7 +46,7 @@
 # endpoint files grow one view per staff ticket by design; splitting by
 # ticket would scatter the API surface across modules.
 # Per-file: endpoint files grow one view/serializer per staff ticket by
-# design — booking/views.py, scheduling/views.py and
+# design — booking/views.py, passes/views.py, scheduling/views.py and
 # scheduling/serializers.py ignore WPS202 (splitting by ticket would
 # scatter the API surface across modules).
 # Per-file: booking/admin.py ignores WPS221 — the coverage matrix is one
@@ -108,6 +108,8 @@ per-file-ignores =
         WPS235,
     booking/views.py:
         WPS201,
+        WPS202,
+    passes/views.py:
         WPS202,
     organizations/views.py:
         WPS201,

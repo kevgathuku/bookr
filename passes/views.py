@@ -1,12 +1,12 @@
 from typing import ClassVar
 
-from django.db import models
+from django.contrib.auth import get_user_model
 from rest_framework import generics, serializers
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from organizations.permissions import IsDesk, IsVenueMember, staff_covering
+from organizations import permissions
 from passes.models import CreditLedger, Membership
 
 
@@ -32,7 +32,7 @@ class LedgerView(generics.ListAPIView):
     serializer_class = CreditLedgerSerializer
     # ClassVar is runtime-truth; DRF stubs declare these as instance vars.
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
-        IsVenueMember,
+        permissions.IsVenueMember,
     ]
 
     def get_queryset(self):
@@ -44,12 +44,12 @@ class LedgerView(generics.ListAPIView):
 
             venues = scoped_venues(self.request)
             return entries.filter(
-                models.Q(membership__bookings__session__offering__venue__in=venues)
+                membership__bookings__session__offering__venue__in=venues
             ).distinct()
         return entries.filter(membership__user=self.request.user)
 
     def _is_staff(self):
-        return staff_covering(self.request, self.request.venue)
+        return permissions.staff_covering(self.request, self.request.venue)
 
 
 class MembershipSerializer(serializers.ModelSerializer):
@@ -66,6 +66,7 @@ class MembershipSerializer(serializers.ModelSerializer):
             "credits_remaining",
             "starts_on",
             "valid_until",
+            "payment_ref",
         ]
 
 
@@ -74,7 +75,7 @@ class MembershipListView(generics.ListAPIView):
 
     serializer_class = MembershipSerializer
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
-        IsVenueMember,
+        permissions.IsVenueMember,
     ]
 
     def get_queryset(self):
@@ -87,7 +88,7 @@ class MembershipListView(generics.ListAPIView):
         member_id = self.request.query_params.get("member")
         if member_id is None:
             return rows.filter(user=self.request.user)
-        if not staff_covering(self.request, venue):
+        if not permissions.staff_covering(self.request, venue):
             raise NotFound("No such venue.")
         return rows.filter(user_id=member_id)
 
@@ -124,12 +125,50 @@ def _apply_adjust(actor, membership, delta, reason):
         raise ValidationError("Adjustment would empty the balance.")
 
 
+class GrantSerializer(serializers.Serializer):
+    member = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.all(),
+    )
+    credits = serializers.IntegerField(min_value=1)
+    duration_days = serializers.IntegerField(min_value=1, default=30)
+    note = serializers.CharField(default="", allow_blank=True)
+    incident_key = serializers.CharField(max_length=100)
+
+
+class LedgerGrantView(APIView):
+    """Desk grant flow: mint one goodwill membership, idempotent per key."""
+
+    permission_classes: ClassVar[list] = [  # type: ignore[misc]
+        permissions.IsVenueMember,
+        permissions.IsDesk,
+    ]
+
+    def post(self, request):
+        from passes.services import grant_goodwill
+
+        form = GrantSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+        membership, created = grant_goodwill(
+            organization=request.venue.organization,
+            user=form.validated_data["member"],
+            credits=form.validated_data["credits"],
+            duration_days=form.validated_data["duration_days"],
+            note=form.validated_data["note"],
+            created_by=request.user,
+            incident_key=form.validated_data["incident_key"],
+        )
+        return Response(
+            MembershipSerializer(membership).data,
+            status=201 if created else 200,
+        )
+
+
 class LedgerAdjustView(APIView):
     """Desk goodwill path: move credits with a reason, append-only."""
 
     permission_classes: ClassVar[list] = [  # type: ignore[misc]
-        IsVenueMember,
-        IsDesk,
+        permissions.IsVenueMember,
+        permissions.IsDesk,
     ]
 
     def post(self, request):

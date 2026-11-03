@@ -67,3 +67,71 @@ def spend_for_booking(membership, amount, booking):
         CreditLedger.Reason.BOOKING,
         booking=booking,
     )
+
+
+def grant_goodwill(
+    *,
+    organization,
+    user,
+    credits,
+    duration_days=30,
+    note="",
+    created_by=None,
+    incident_key,
+    name=None,
+):
+    """Mint one goodwill grant: plan + membership + PURCHASE, atomically.
+
+    One Membership per grant (never top up): the plan row is the grant's
+    terms sheet, the incident lives in payment_ref, and the same key
+    twice returns the existing membership instead of double-granting.
+    """
+    from datetime import timedelta
+
+    from django.db import IntegrityError
+    from django.utils import timezone
+
+    from passes.models import Entitlement, Membership, Plan, PlanType, Validity
+
+    if credits <= 0:
+        raise ValidationError("Goodwill grants move a positive credit count.")
+    with transaction.atomic():
+        existing = Membership.objects.filter(
+            user=user, payment_ref=incident_key
+        ).first()
+        if existing is not None:
+            return existing, False
+        plan, _ = Plan.objects.get_or_create(
+            organization=organization,
+            name=name or f"Goodwill — {incident_key}",
+            defaults={
+                "plan_type": PlanType.COMPLIMENTARY,
+                "entitlement": Entitlement.CREDITS,
+                "credits_included": credits,
+                "validity": Validity.FIXED_DURATION,
+                "duration_days": duration_days,
+            },
+        )
+        try:
+            membership = Membership.objects.create(
+                user=user,
+                plan=plan,
+                credits_remaining=credits,
+                starts_on=timezone.now().date(),
+                valid_until=timezone.now().date() + timedelta(days=duration_days),
+                payment_ref=incident_key,
+            )
+        except IntegrityError:
+            # Lost a same-incident race: the winner's membership is the answer.
+            return (
+                Membership.objects.get(user=user, payment_ref=incident_key),
+                False,
+            )
+        post_entry(
+            membership,
+            credits,
+            CreditLedger.Reason.PURCHASE,
+            note=note,
+            created_by=created_by,
+        )
+        return membership, True

@@ -140,3 +140,59 @@ class TestLedgerAdjust:
         )
 
         assert response.status_code in (403, 404)
+
+
+class TestLedgerGrants:
+    """POST /api/v1/ledger/grants/ mints one grant; same key twice is one."""
+
+    def test_desk_grant_mints_membership(self):
+        venue, member = _world("grant-ok")
+        staffer = _staff(venue, "grant-ok")
+
+        response = _client(staffer, slug="grant-ok").post(
+            "/api/v1/ledger/grants/",
+            {
+                "member": member.pk,
+                "credits": 2,
+                "duration_days": 30,
+                "note": "late cancel comp",
+                "incident_key": "grant-1",
+            },
+        )
+
+        assert response.status_code == 201, response.content
+        body = response.json()
+        assert body["credits_remaining"] == 2
+        assert body["payment_ref"] == "grant-1"
+        assert body["plan_type"] == "complimentary"
+
+    def test_grant_is_idempotent_on_incident_key(self):
+        venue, member = _world("grant-idem")
+        staffer = _staff(venue, "grant-idem")
+        payload = {
+            "member": member.pk,
+            "credits": 2,
+            "note": "comp",
+            "incident_key": "grant-9",
+        }
+
+        first = _client(staffer, slug="grant-idem").post(
+            "/api/v1/ledger/grants/", payload
+        )
+        second = _client(staffer, slug="grant-idem").post(
+            "/api/v1/ledger/grants/", payload
+        )
+
+        assert first.status_code == 201
+        assert second.status_code == 200
+        assert first.json()["id"] == second.json()["id"]
+
+    def test_member_cannot_grant(self):
+        _, member = _world("grant-member")
+
+        response = _client(member, slug="grant-member").post(
+            "/api/v1/ledger/grants/",
+            {"member": member.pk, "credits": 2, "incident_key": "grant-x"},
+        )
+
+        assert response.status_code in (403, 404)

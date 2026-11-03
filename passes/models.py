@@ -207,6 +207,13 @@ class Membership(models.Model):
                 | models.Q(valid_until__gte=models.F("starts_on")),
                 name="membership_dates_ordered",
             ),
+            # Grant idempotency: one membership per (member, incident).
+            # Blank refs (ordinary purchases) are exempt.
+            models.UniqueConstraint(
+                fields=["user", "payment_ref"],
+                condition=~models.Q(payment_ref=""),
+                name="one_membership_per_incident",
+            ),
         ]
 
     def clean(self):
