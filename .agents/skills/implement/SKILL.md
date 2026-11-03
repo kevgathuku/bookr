@@ -31,6 +31,7 @@ Any turn touching `frontend/` runs all three before committing:
 - `uv run flake8 <touched files>` (config in `.flake8`). Gate only files the ticket creates or modifies.
 - Six repo-wide ignores for Django-declarative collisions; tests get relaxed rules via `per-file-ignores`. Fix every other finding.
 - If a rule fights a framework-mandated pattern, prefer a small documented ignore over contorting the code.
+- Before committing: `uv run ruff check .` repo-wide (CI fails on this).
 
 Once done, call the Skill tool with "code-review" to review the work.
 The code-review skill lives at `.agents/skills/code-review/` — read its
