@@ -16,34 +16,21 @@ Where no Skill/subagent tool exists in the environment, run the
 referenced skill inline (read its SKILL.md, follow its loop, report in
 its format) and say so in one line.
 
-Run typechecking regularly (if the repo configures it — if not, note
-the absence once and move on; do not silently skip every time), single
-test files regularly, and the full test suite once at the end.
+Run typechecking regularly, single test files regularly, and the full test suite once at the end.
 
-## Frontend gates: lint, build, tests
+## Frontend gates
 
 Any turn touching `frontend/` runs all three before committing:
 
-- `pnpm --dir frontend run lint` (biome; exit code is the gate — its
-  stdout has a known JSON-parse quirk, ignore the noise, read the code).
-- `pnpm --dir frontend run build` (`tsc -b && vite build`) — the full
-gate: typecheck plus bundle.
-- `pnpm --dir frontend run typecheck` — both tsconfigs, no emit.
-  Safe for quick loops.
-- `pnpm --dir frontend run test` (vitest run) once at the end; single
-  files (`vitest run <path>`) during the loop.
+- `pnpm --dir frontend run lint`
+- `pnpm --dir frontend run build` (`tsc -b && vite build`)
+- `pnpm --dir frontend run test` (vitest run)
 
 ## Python style: wemake-python-styleguide
 
-All new Python code follows wemake (`uv run flake8 <touched files>` —
-config in `.flake8`). Legacy files are out of scope: gate only the files
-the ticket creates or modifies, never the whole repo. Six rules are off
-repo-wide for Django-declarative collisions (`objects`, nested TextChoices,
-field literals, `Q`/`F` imports — reasons in `.flake8`); tests get relaxed
-naming/structure rules via `per-file-ignores`. Fix every other finding in
-new code — the guide has repeatedly caught real issues (bloated services,
-mutable constants, dead test locals). If a rule fights a framework-mandated
-pattern, prefer a small documented ignore over contorting the code.
+- `uv run flake8 <touched files>` (config in `.flake8`). Gate only files the ticket creates or modifies.
+- Six repo-wide ignores for Django-declarative collisions; tests get relaxed rules via `per-file-ignores`. Fix every other finding.
+- If a rule fights a framework-mandated pattern, prefer a small documented ignore over contorting the code.
 
 Once done, call the Skill tool with "code-review" to review the work.
 The code-review skill lives at `.agents/skills/code-review/` — read its
@@ -60,11 +47,10 @@ Then always close out the ticket, every time, in this order:
 ## Session discipline (prevents lost work)
 
 - End every turn with the tree committed, or say plainly what is
-  uncommitted and why. Never let done work sit uncommitted across an
-  interruption: when a new instruction arrives mid-ticket, finish the
-  current atomic step, commit the ticket's done files (message cites the
-  ticket), then switch.
-- If blocked on an approval, commit everything done first, then ask —
-  the question must never hold the work hostage.
+  uncommitted and why.
+- When a new instruction arrives mid-ticket, finish the current atomic
+  step, commit the ticket's done files (message cites the ticket), then
+  switch.
+- If blocked on an approval, commit everything done first, then ask.
 - Start each turn by stating the active ticket + gate status
-  (tests/lint/wemake) in one line, so drift is visible immediately.
+  (tests/lint/wemake) in one line.
