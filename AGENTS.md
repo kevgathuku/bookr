@@ -81,7 +81,9 @@ requirements, not suggestions:
   about to work in, query memory first: `mempal_search` scoped to wing
   `bookr` (past decisions, rationale, bug history, why things are shaped
   as they are), or `mempal_brief` for a citation-first brief on the topic.
-  If you haven't seen the memory protocol this session, call
+  Cap `top_k` at 3-5 — the wing holds tens of thousands of drawers and
+  uncapped searches dump noise. If you haven't seen the memory protocol
+  this session, call
   `mempal_status` once first. Never reason from files alone when memory
   may hold the rationale — the files show what, memory shows why.
 - **Record every decision.** When a decision is reached — naming, model
@@ -94,6 +96,8 @@ requirements, not suggestions:
   verification results — if a future agent would benefit, ingest it.
 - **Cite, don't duplicate.** Memory results carry `drawer_id`/`source_file`
   citations; reference them instead of re-recording the same fact.
+- **`bd memories` is retired.** The 27 legacy keys were removed (content
+  already lives in mempal); do not create new keys — mempal is the store.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:46cd31e7 -->
 ## Beads Issue Tracker
