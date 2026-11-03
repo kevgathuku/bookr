@@ -20,6 +20,19 @@ Run typechecking regularly (if the repo configures it — if not, note
 the absence once and move on; do not silently skip every time), single
 test files regularly, and the full test suite once at the end.
 
+## Frontend gates: lint, build, tests
+
+Any turn touching `frontend/` runs all three before committing:
+
+- `pnpm --dir frontend run lint` (biome; exit code is the gate — its
+  stdout has a known JSON-parse quirk, ignore the noise, read the code).
+- `pnpm --dir frontend run build` (`tsc -b && vite build`) — this is
+  the typecheck. Never substitute `pnpm --dir frontend run typecheck`
+  (`tsc --noEmit`): the root tsconfig has `files: []`, so it checks
+  nothing and always exits 0.
+- `pnpm --dir frontend run test` (vitest run) once at the end; single
+  files (`vitest run <path>`) during the loop.
+
 ## Python style: wemake-python-styleguide
 
 All new Python code follows wemake (`uv run flake8 <touched files>` —
