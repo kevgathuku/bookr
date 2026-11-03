@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
 from datetime import timedelta
+from threading import Barrier
 
 import pytest
 from django.core.exceptions import ValidationError
