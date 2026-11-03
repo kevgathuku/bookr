@@ -26,10 +26,12 @@ Any turn touching `frontend/` runs all three before committing:
 
 - `pnpm --dir frontend run lint` (biome; exit code is the gate — its
   stdout has a known JSON-parse quirk, ignore the noise, read the code).
-- `pnpm --dir frontend run build` (`tsc -b && vite build`) — this is
-  the typecheck. Never substitute `pnpm --dir frontend run typecheck`
-  (`tsc --noEmit`): the root tsconfig has `files: []`, so it checks
-  nothing and always exits 0.
+- `pnpm --dir frontend run build` (`tsc -b && vite build`) — the full
+gate: typecheck plus bundle. `pnpm --dir frontend run typecheck`
+checks both tsconfigs without emitting and is safe for quick loops;
+it was fixed in Nov 2026 after a stint where bare `tsc --noEmit`
+checked nothing (root tsconfig has `files: []`) — if it ever goes
+quiet on an obvious type error again, suspect the script, not the code.
 - `pnpm --dir frontend run test` (vitest run) once at the end; single
   files (`vitest run <path>`) during the loop.
 

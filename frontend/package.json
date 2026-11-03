@@ -7,7 +7,7 @@
 		"dev": "vite",
 		"build": "tsc -b && vite build",
 		"preview": "vite preview --port 4173",
-		"typecheck": "tsc --noEmit",
+		"typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
 		"lint": "biome check .",
 		"test": "vitest run",
 		"generate:api": "openapi-typescript ${BACKEND_URL:-http://localhost:8000}/api/schema/ -o src/api/generated/schema.d.ts"
