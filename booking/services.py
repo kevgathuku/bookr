@@ -7,13 +7,14 @@ from datetime import datetime, timedelta
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import F, Q
 from django.utils import timezone
 
 from booking.cancellations import release_unclaimed
 from booking.errors import CreditInsufficient, DuplicateBooking, NotHeld, SeatFull
 from booking.models import ACTIVE_STATUSES, Booking
 from booking.notifications import notify_hold_expired, notify_promoted
-from passes.models import Membership, PlanType
+from passes.models import Entitlement, Membership
 from passes.services import spend_for_booking
 from scheduling.models import ClassCategory, ClassSession
 
@@ -30,25 +31,30 @@ def _valid_memberships(member, organization_id, today):
             plan__organization_id=organization_id,
             starts_on__lte=today,
         )
-        .filter(ends_on__gte=today)
+        .filter(
+            Q(valid_until__gte=today) | Q(valid_until__isnull=True),
+        )
         .select_related("plan")
-        .order_by("starts_on")
+        .order_by(F("valid_until").asc(nulls_last=True))
     )
 
 
 def _paying_membership(member, session, price):
-    """Monthly-valid first, else oldest credit pack that covers the price."""
+    """Unlimited first, else first-expiring credit pack that covers the price."""
     today = timezone.now().date()
     organization_id = session.offering.venue.organization_id
     candidates = list(_valid_memberships(member, organization_id, today))
-    monthly = next(
-        (mem for mem in candidates if mem.plan.plan_type == PlanType.MONTHLY),
+    unlimited = next(
+        (mem for mem in candidates if mem.plan.entitlement == Entitlement.UNLIMITED),
         None,
     )
-    if monthly is not None:
-        return monthly
+    if unlimited is not None:
+        return unlimited
     for membership in candidates:
-        if membership.credits_remaining >= price:
+        if (
+            membership.credits_remaining is not None
+            and membership.credits_remaining >= price
+        ):
             return membership
     raise CreditInsufficient("No valid membership covers this booking.")
 
@@ -58,7 +64,9 @@ def _validate_membership(membership, member, session, today):
         raise ValidationError("Booking membership belongs to another user.")
     if membership.plan.organization_id != session.offering.venue.organization_id:
         raise ValidationError("Booking plan belongs to another organization.")
-    if membership.starts_on > today or membership.ends_on < today:
+    if membership.starts_on > today or (
+        membership.valid_until is not None and membership.valid_until < today
+    ):
         raise ValidationError("Booking membership is not currently valid.")
 
 
@@ -105,7 +113,7 @@ def _next_waiter(locked):
 
 
 def _charge_for(membership, price, spend_credits):
-    if membership.plan.plan_type == PlanType.MONTHLY or not spend_credits:
+    if membership.plan.entitlement == Entitlement.UNLIMITED or not spend_credits:
         return 0
     return price
 

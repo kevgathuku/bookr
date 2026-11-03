@@ -10,7 +10,7 @@ from aggregators.models import AggregatorBooking
 from booking.errors import AllotmentExhausted, DuplicateBooking
 from booking.models import ACTIVE_STATUSES, Booking
 from booking.services import book_session
-from passes.models import Membership, Plan, PlanType
+from passes.models import Entitlement, Membership, Plan, PlanType, Validity
 
 
 def _partner_membership(partner, organization):
@@ -18,15 +18,20 @@ def _partner_membership(partner, organization):
     plan, _ = Plan.objects.get_or_create(
         organization=organization,
         plan_type=PlanType.AGGREGATOR,
-        defaults={"name": "Aggregator allotment", "validity_days": 365},
+        defaults={
+            "name": "Aggregator allotment",
+            "entitlement": Entitlement.UNLIMITED,
+            "validity": Validity.OPEN_ENDED,
+            "duration_days": None,
+        },
     )
     membership, _ = Membership.objects.get_or_create(
         user=partner.service_user,
         plan=plan,
         defaults={
-            "credits_remaining": 0,
+            "credits_remaining": None,
             "starts_on": timezone.now().date(),
-            "ends_on": timezone.now().date() + timedelta(days=365),
+            "valid_until": None,
         },
     )
     return membership

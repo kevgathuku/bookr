@@ -11,7 +11,7 @@ from access.services import decide
 from booking.models import Booking
 from booking.services import book_session
 from organizations.models import OrgRole
-from passes.models import PlanType
+from passes.models import Entitlement, PlanType, Validity
 from tests.factories import (  # noqa: WPS235 — access tests build every domain object via factories
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -167,8 +167,9 @@ class TestGrantDeny:
         book_session(member=member, session=session)
         # Expire the plan after booking: the live booking alone must grant.
         membership = member.plan_memberships.get()
-        membership.ends_on = timezone.now().date() - timedelta(days=1)
-        membership.save(update_fields=["ends_on"])
+        membership.starts_on = timezone.now().date() - timedelta(days=60)
+        membership.valid_until = timezone.now().date() - timedelta(days=1)
+        membership.save(update_fields=["starts_on", "valid_until"])
 
         response = _check(token, member.pk, point.pk)
 
@@ -385,8 +386,15 @@ class TestDoorPlanMemberships:
     def test_monthly_plan_grants_without_balance(self):
         venue = _venue()
         member = _user("monthly")
-        plan = PlanFactory(organization=venue.organization, plan_type=PlanType.MONTHLY)
-        PlanMembershipFactory(user=member, plan=plan, credits_remaining=0)
+        plan = PlanFactory(
+            organization=venue.organization,
+            plan_type=PlanType.MONTHLY,
+            entitlement=Entitlement.UNLIMITED,
+            credits_included=None,
+            validity=Validity.RECURRING,
+            duration_days=30,
+        )
+        PlanMembershipFactory(user=member, plan=plan, credits_remaining=None)
 
         granted, reason, _booking = self._check_decide(venue, member)
 

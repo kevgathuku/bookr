@@ -108,31 +108,35 @@ def seed_new_graph(venue, people):
     return session
 
 
-def booker_membership(venue, user, name="Credits", credits=10, validity_days=30):
-    """Get-or-create a credit-pack membership for API/seed booking flows."""
+def booker_membership(venue, user, name="Credits", credits=10, duration_days=30):
+    """Create a credit-pack membership for API/seed booking flows.
+
+    Always a fresh membership (one purchase = one membership; never top
+    up), mirroring what the desk sell flow does."""
+    from passes.models import CreditLedger, Entitlement, Plan, PlanType, Validity
     from passes.models import Membership as PlanMembership
-    from passes.models import Plan, PlanType
 
     plan, _ = Plan.objects.get_or_create(
         organization=venue.organization,
         name=name,
-        defaults={"plan_type": PlanType.CREDIT_PACK, "validity_days": validity_days},
-    )
-    membership, created = PlanMembership.objects.get_or_create(
-        user=user,
-        plan=plan,
         defaults={
-            "credits_remaining": credits,
-            "starts_on": timezone.now().date(),
-            "ends_on": timezone.now().date() + timedelta(days=validity_days),
+            "plan_type": PlanType.CREDIT_PACK,
+            "entitlement": Entitlement.CREDITS,
+            "credits_included": credits,
+            "validity": Validity.FIXED_DURATION,
+            "duration_days": duration_days,
         },
     )
-    if created:
-        from passes.models import CreditLedger
-
-        CreditLedger.objects.create(
-            membership=membership,
-            delta=credits,
-            reason=CreditLedger.Reason.PURCHASE,
-        )
+    membership = PlanMembership.objects.create(
+        user=user,
+        plan=plan,
+        credits_remaining=credits,
+        starts_on=timezone.now().date(),
+        valid_until=timezone.now().date() + timedelta(days=duration_days),
+    )
+    CreditLedger.objects.create(
+        membership=membership,
+        delta=credits,
+        reason=CreditLedger.Reason.PURCHASE,
+    )
     return membership

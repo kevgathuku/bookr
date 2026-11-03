@@ -27,7 +27,7 @@ from booking.models import Booking, CancellationPolicy, CancellationRecord
 from booking.services import book_session
 from organizations.ids import OrgId, VenueId
 from organizations.models import OrgRole
-from passes.models import CreditLedger, PlanType
+from passes.models import CreditLedger, Entitlement, PlanType, Validity
 from scheduling.models import ClassCategory, ClassSession
 from tests.factories import (
     CancellationPolicyFactory,
@@ -80,8 +80,15 @@ def _monthly(username, venue):
         user=user,
         role=OrgRole.Role.MEMBER,
     )
-    plan = PlanFactory(organization=venue.organization, plan_type=PlanType.MONTHLY)
-    PlanMembershipFactory(user=user, plan=plan, credits_remaining=0)
+    plan = PlanFactory(
+        organization=venue.organization,
+        plan_type=PlanType.MONTHLY,
+        entitlement=Entitlement.UNLIMITED,
+        credits_included=None,
+        validity=Validity.RECURRING,
+        duration_days=30,
+    )
+    PlanMembershipFactory(user=user, plan=plan, credits_remaining=None)
     return user
 
 

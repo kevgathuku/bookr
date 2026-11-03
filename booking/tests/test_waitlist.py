@@ -34,7 +34,7 @@ from booking.services import (
     sweep_expired_holds,
 )
 from organizations.models import OrgRole
-from passes.models import CreditLedger, Membership, PlanType
+from passes.models import CreditLedger, Entitlement, Membership, PlanType, Validity
 from scheduling.models import ClassCategory, ClassSession
 from tests.factories import (
     CancellationPolicyFactory,
@@ -65,7 +65,7 @@ def _world(category=ClassCategory.GROUP, capacity=1, credits=10):
         organization=venue.organization,
         name="wait-pack",
         plan_type=PlanType.CREDIT_PACK,
-        validity_days=30,
+        duration_days=30,
     )
 
     def member(username, member_credits=credits):
@@ -214,7 +214,8 @@ class TestPromoteNext:
         book_session(session=session, member=queued, waitlist=True)
         Booking.objects.filter(pk=seated.pk).update(status=Booking.Status.CANCELLED)
         queued.plan_memberships.update(
-            ends_on=timezone.now().date() - timedelta(days=1)
+            starts_on=timezone.now().date() - timedelta(days=60),
+            valid_until=timezone.now().date() - timedelta(days=1),
         )
 
         promoted = promote_next(session)
@@ -381,8 +382,12 @@ class TestConfirmHold:
         plan = PlanFactory(
             organization=session.offering.venue.organization,
             plan_type=PlanType.MONTHLY,
+            entitlement=Entitlement.UNLIMITED,
+            credits_included=None,
+            validity=Validity.RECURRING,
+            duration_days=30,
         )
-        PlanMembershipFactory(user=monthly_user, plan=plan, credits_remaining=0)
+        PlanMembershipFactory(user=monthly_user, plan=plan, credits_remaining=None)
         book_session(session=session, member=seated)
         waiting = book_session(session=session, member=monthly_user, waitlist=True)
         Booking.objects.filter(member=seated).update(status=Booking.Status.CANCELLED)
@@ -413,7 +418,8 @@ class TestConfirmHold:
     def test_confirm_lapsed_pass_raises(self):
         _session, queued, waiting = self._held_world()
         queued.plan_memberships.update(
-            ends_on=timezone.now().date() - timedelta(days=1)
+            starts_on=timezone.now().date() - timedelta(days=60),
+            valid_until=timezone.now().date() - timedelta(days=1),
         )
 
         with pytest.raises(CreditInsufficient):

@@ -10,7 +10,7 @@ from booking.errors import CreditInsufficient, DuplicateBooking, SeatFull
 from booking.models import Booking
 from booking.services import book_session
 from organizations.models import OrgRole
-from passes.models import PlanType
+from passes.models import Entitlement, PlanType, Validity
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -41,12 +41,12 @@ def _venue(slug):
     return VenueFactory(slug=slug, name=slug.title())
 
 
-def _pack(venue, name, validity_days=30):
+def _pack(venue, name, duration_days=30):
     return PlanFactory(
         organization=venue.organization,
         name=name,
         plan_type=PlanType.CREDIT_PACK,
-        validity_days=validity_days,
+        duration_days=duration_days,
     )
 
 
@@ -75,10 +75,13 @@ def _monthly(username, venue):
         organization=venue.organization,
         name=f"{username}-monthly",
         plan_type=PlanType.MONTHLY,
-        validity_days=30,
+        entitlement=Entitlement.UNLIMITED,
+        credits_included=None,
+        validity=Validity.RECURRING,
+        duration_days=30,
     )
     PlanMembershipFactory(
-        user=user, plan=plan, credits_remaining=0, starts_on=timezone.now().date()
+        user=user, plan=plan, credits_remaining=None, starts_on=timezone.now().date()
     )
     return user
 
@@ -237,7 +240,7 @@ class TestBookSession:
         assert booking.status == Booking.Status.BOOKED
         assert booking.credits_spent == 0
         membership = member.plan_memberships.get()
-        assert membership.credits_remaining == 0
+        assert membership.credits_remaining is None
 
     def test_monthly_preferred_over_pack(self):
         venue = _venue("prefer")
@@ -329,14 +332,14 @@ def _user_expired(venue):
         organization=venue.organization,
         name="expired-pack",
         plan_type=PlanType.CREDIT_PACK,
-        validity_days=30,
+        duration_days=30,
     )
     PlanMembershipFactory(
         user=user,
         plan=plan,
         credits_remaining=10,
         starts_on=timezone.now().date() - timedelta(days=60),
-        ends_on=timezone.now().date() - timedelta(days=30),
+        valid_until=timezone.now().date() - timedelta(days=30),
     )
     return user
 

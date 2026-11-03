@@ -15,6 +15,22 @@ class PlanType(models.TextChoices):
     # The aggregator partner vehicle only, created solely by
     # _partner_membership. Carries no money and no ledger rows.
     AGGREGATOR = "aggregator", "Aggregator"
+    # Employment benefit (compensation cost), never a sale: free classes
+    # for staff. Distinct from COMPLIMENTARY so finance and future
+    # plan_type-scoped policies never confuse the two.
+    STAFF = "staff", "Staff"
+
+
+class Entitlement(models.TextChoices):
+    UNLIMITED = "unlimited", "Unlimited"
+    CREDITS = "credits", "Credits"
+
+
+class Validity(models.TextChoices):
+    OPEN_ENDED = "open_ended", "Open-ended"
+    FIXED_DURATION = "fixed_duration", "Fixed duration"
+    # Manual re-purchase per period; no billing machinery (SPEC non-goal).
+    RECURRING = "recurring", "Recurring"
 
 
 class CreditLedger(models.Model):
@@ -94,11 +110,73 @@ class Plan(models.Model):
         "organizations.Organization", on_delete=models.CASCADE, related_name="plans"
     )
     name = models.CharField(max_length=200)
+    # Product label only: charge and window behavior come from
+    # entitlement/validity below, never from this field.
     plan_type = models.CharField(max_length=20, choices=PlanType.choices)
-    validity_days = models.PositiveIntegerField(default=30)
+    entitlement = models.CharField(max_length=10, choices=Entitlement.choices)
+    credits_included = models.PositiveIntegerField(null=True, blank=True)
+    validity = models.CharField(max_length=20, choices=Validity.choices)
+    duration_days = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    entitlement=Entitlement.UNLIMITED,
+                    credits_included__isnull=True,
+                )
+                | models.Q(
+                    entitlement=Entitlement.CREDITS,
+                    credits_included__isnull=False,
+                    credits_included__gt=0,
+                ),
+                name="plan_credits_match_entitlement",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    validity=Validity.OPEN_ENDED,
+                    duration_days__isnull=True,
+                )
+                | models.Q(
+                    validity__in=[
+                        Validity.FIXED_DURATION,
+                        Validity.RECURRING,
+                    ],
+                    duration_days__isnull=False,
+                    duration_days__gt=0,
+                ),
+                name="plan_duration_match_validity",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        errors.update(self._entitlement_errors())
+        errors.update(self._validity_errors())
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         return f"{self.name} ({self.plan_type})"
+
+    def _entitlement_errors(self):
+        if self.entitlement == Entitlement.UNLIMITED:
+            if self.credits_included is not None:
+                return {"credits_included": "Unlimited plans carry no credit count."}
+            return {}
+        if self.credits_included is None or self.credits_included <= 0:
+            return {"credits_included": "Credit plans need a positive count."}
+        return {}
+
+    def _validity_errors(self):
+        if self.validity == Validity.OPEN_ENDED:
+            if self.duration_days is not None:
+                return {"duration_days": "Open-ended plans carry no duration."}
+            return {}
+        if self.duration_days is None or self.duration_days <= 0:
+            return {"duration_days": "Fixed and recurring plans need a duration."}
+        return {}
 
 
 class Membership(models.Model):
@@ -110,22 +188,34 @@ class Membership(models.Model):
         related_name="plan_memberships",
     )
     plan = models.ForeignKey(Plan, on_delete=models.PROTECT, related_name="memberships")
-    credits_remaining = models.PositiveIntegerField(default=0)
+    # NULL = unlimited (no balance to track); credit memberships hold a count.
+    credits_remaining = models.PositiveIntegerField(null=True, blank=True, default=0)
     starts_on = models.DateField()
-    # Every membership has a known end: packs expire per plan validity,
-    # monthlies at the billing period end. No open-ended memberships.
-    ends_on = models.DateField()
+    # NULL = never expires (open-ended plans, the partner vehicle).
+    # Fixed/recurring memberships always carry a known end.
+    valid_until = models.DateField(null=True, blank=True)
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=models.Q(valid_until__isnull=True)
+                | models.Q(valid_until__gte=models.F("starts_on")),
+                name="membership_dates_ordered",
+            ),
+        ]
 
     def clean(self):
         super().clean()
         if (
             self.starts_on is not None
-            and self.ends_on is not None
-            and self.ends_on < self.starts_on
+            and self.valid_until is not None
+            and self.valid_until < self.starts_on
         ):
-            raise ValidationError("ends_on is before starts_on.")
+            raise ValidationError("valid_until is before starts_on.")
 
     payment_ref = models.CharField(max_length=100, blank=True)
 
     def __str__(self):
+        if self.credits_remaining is None:
+            return f"{self.user} → {self.plan} (unlimited)"
         return f"{self.user} → {self.plan} ({self.credits_remaining} left)"

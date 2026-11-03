@@ -101,7 +101,7 @@ def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, boo
     from booking.models import CancellationPolicy
     from booking.services import book_session
     from organizations.models import OrgRole
-    from passes.models import CreditLedger, Plan, PlanType
+    from passes.models import CreditLedger, Entitlement, Plan, PlanType, Validity
     from passes.models import Membership as PlanMembership
     from scheduling.models import ClassCategory, ClassOffering, ClassSession
 
@@ -128,30 +128,31 @@ def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, boo
     plan, _ = Plan.objects.get_or_create(
         organization=org,
         name=plan_name,
-        defaults={"plan_type": PlanType.CREDIT_PACK, "validity_days": 30},
+        defaults={
+            "plan_type": PlanType.CREDIT_PACK,
+            "entitlement": Entitlement.CREDITS,
+            "credits_included": 10,
+            "validity": Validity.FIXED_DURATION,
+            "duration_days": 30,
+        },
     )
     users = {}
     today = timezone.now().date()
     for username, credits in roster.items():
         user = create_user(username)
         users[username] = user
-        membership, created = PlanMembership.objects.get_or_create(
+        membership = PlanMembership.objects.create(
             user=user,
             plan=plan,
-            defaults={
-                "credits_remaining": credits,
-                "starts_on": today,
-                # Every membership has a known window: packs expire per plan
-                # validity, monthlies at the billing period end.
-                "ends_on": today + timedelta(days=plan.validity_days),
-            },
+            credits_remaining=credits,
+            starts_on=today,
+            valid_until=today + timedelta(days=30),
         )
-        if created:
-            CreditLedger.objects.create(
-                membership=membership,
-                delta=credits,
-                reason=CreditLedger.Reason.PURCHASE,
-            )
+        CreditLedger.objects.create(
+            membership=membership,
+            delta=credits,
+            reason=CreditLedger.Reason.PURCHASE,
+        )
     offering, _ = ClassOffering.objects.get_or_create(
         venue=venue,
         teacher=teacher,

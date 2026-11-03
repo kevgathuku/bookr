@@ -6,8 +6,15 @@ from passes.models import CreditLedger, Plan
 
 @admin.register(Plan, site=bookr_site)
 class PlanAdmin(VenueScopedAdmin):
-    list_display = ("name", "organization", "plan_type", "validity_days")
-    list_filter = ("plan_type",)
+    list_display = (
+        "name",
+        "organization",
+        "plan_type",
+        "entitlement",
+        "validity",
+        "duration_days",
+    )
+    list_filter = ("plan_type", "entitlement", "validity")
 
     def scope_q(self, request):
         # Plans are org-wide; visible when their org is visible.

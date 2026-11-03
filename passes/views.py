@@ -65,7 +65,7 @@ class MembershipSerializer(serializers.ModelSerializer):
             "plan_type",
             "credits_remaining",
             "starts_on",
-            "ends_on",
+            "valid_until",
         ]
 
 

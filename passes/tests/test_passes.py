@@ -50,12 +50,18 @@ def _member_with_plan(venue, username, credits=10):
 
 
 def _plan(venue, name="Pack"):
-    from passes.models import Plan
+    from passes.models import Entitlement, Plan, Validity
 
     return Plan.objects.get_or_create(
         organization=venue.organization,
         name=name,
-        defaults={"plan_type": "credit_pack", "validity_days": 30},
+        defaults={
+            "plan_type": "credit_pack",
+            "entitlement": Entitlement.CREDITS,
+            "credits_included": 10,
+            "validity": Validity.FIXED_DURATION,
+            "duration_days": 30,
+        },
     )[0]
 
 
@@ -152,7 +158,7 @@ class TestLedgerModel:
 
         _, membership = _member_plan(_venue("member-dates"), "dates")
         membership.starts_on = date(2026, 2, 1)
-        membership.ends_on = date(2026, 1, 1)
+        membership.valid_until = date(2026, 1, 1)
 
         with pytest.raises(ValidationError):
             membership.clean()
@@ -333,3 +339,134 @@ class TestLedgerUnion:
 
         assert response.status_code == 200
         assert response.data == []
+
+
+class TestPlanAxes:
+    """Entitlement x Validity (bookr-4ig/c61): axis-internal states that
+    must never persist, plus the NULL-balance/NULL-date acceptances."""
+
+    def _plan(self, venue, **overrides):
+        from passes.models import Plan
+
+        base = {
+            "organization": venue.organization,
+            "name": "Pack",
+            "plan_type": "credit_pack",
+            "entitlement": "credits",
+            "credits_included": 10,
+            "validity": "fixed_duration",
+            "duration_days": 30,
+        }
+        base.update(overrides)
+        return Plan.objects.create(**base)
+
+    def test_unlimited_with_count_rejected(self):
+        with pytest.raises(IntegrityError):
+            self._plan(_venue("ax-unl"), entitlement="unlimited", credits_included=10)
+
+    def test_credits_without_count_rejected(self):
+        with pytest.raises(IntegrityError):
+            self._plan(_venue("ax-cred"), credits_included=None)
+
+    def test_open_ended_with_duration_rejected(self):
+        with pytest.raises(IntegrityError):
+            self._plan(
+                _venue("ax-open"),
+                entitlement="unlimited",
+                credits_included=None,
+                validity="open_ended",
+                duration_days=30,
+            )
+
+    def test_fixed_without_duration_rejected(self):
+        with pytest.raises(IntegrityError):
+            self._plan(_venue("ax-fix"), duration_days=None)
+
+    def test_recurring_without_duration_rejected(self):
+        with pytest.raises(IntegrityError):
+            self._plan(
+                _venue("ax-rec"),
+                entitlement="unlimited",
+                credits_included=None,
+                validity="recurring",
+                duration_days=None,
+            )
+
+    def test_staff_and_aggregator_types_accepted(self):
+        venue = _venue("ax-types")
+        self._plan(
+            venue,
+            name="Staff",
+            plan_type="staff",
+            entitlement="unlimited",
+            credits_included=None,
+            validity="recurring",
+            duration_days=30,
+        )
+        self._plan(
+            venue,
+            name="Vehicle",
+            plan_type="aggregator",
+            entitlement="unlimited",
+            credits_included=None,
+            validity="fixed_duration",
+            duration_days=365,
+        )
+
+    def test_unlimited_membership_holds_null_balance(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        venue = _venue("ax-null")
+        plan = self._plan(
+            venue,
+            entitlement="unlimited",
+            credits_included=None,
+            validity="recurring",
+            duration_days=30,
+        )
+        membership = PlanMembership.objects.create(
+            user=_user("null-bal"),
+            plan=plan,
+            credits_remaining=None,
+            starts_on=timezone.now().date(),
+            valid_until=timezone.now().date() + timedelta(days=30),
+        )
+        assert membership.credits_remaining is None
+
+    def test_open_ended_membership_holds_null_date(self):
+        from django.utils import timezone
+
+        venue = _venue("ax-nodate")
+        plan = self._plan(
+            venue,
+            entitlement="unlimited",
+            credits_included=None,
+            validity="open_ended",
+            duration_days=None,
+        )
+        membership = PlanMembership.objects.create(
+            user=_user("nodate"),
+            plan=plan,
+            credits_remaining=None,
+            starts_on=timezone.now().date(),
+            valid_until=None,
+        )
+        assert membership.valid_until is None
+
+    def test_inverted_dates_rejected(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        venue = _venue("ax-inv")
+        plan = self._plan(venue)
+        with pytest.raises(IntegrityError):
+            PlanMembership.objects.create(
+                user=_user("inv"),
+                plan=plan,
+                credits_remaining=5,
+                starts_on=timezone.now().date(),
+                valid_until=timezone.now().date() - timedelta(days=1),
+            )

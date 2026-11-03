@@ -13,8 +13,10 @@ from booking.models import CancellationPolicy
 from organizations.models import Organization, OrgRole, Venue
 from passes.models import (
     CreditLedger,
+    Entitlement,
     Plan,
     PlanType,
+    Validity,
 )
 from passes.models import (
     Membership as PlanMembership,
@@ -125,7 +127,10 @@ class PlanFactory(factory.django.DjangoModelFactory):
     organization = factory.SubFactory(OrganizationFactory)
     name = factory.Sequence(lambda n: f"Plan {n}")
     plan_type = PlanType.CREDIT_PACK
-    validity_days = 30
+    entitlement = Entitlement.CREDITS
+    credits_included = 10
+    validity = Validity.FIXED_DURATION
+    duration_days = 30
 
 
 class PlanMembershipFactory(factory.django.DjangoModelFactory):
@@ -136,9 +141,11 @@ class PlanMembershipFactory(factory.django.DjangoModelFactory):
     plan = factory.SubFactory(PlanFactory)
     credits_remaining = 0
     starts_on = factory.LazyFunction(lambda: timezone.now().date())
-    ends_on = factory.LazyAttribute(
+    valid_until = factory.LazyAttribute(
         lambda membership: (
-            membership.starts_on + timedelta(days=membership.plan.validity_days)
+            None
+            if membership.plan.duration_days is None
+            else membership.starts_on + timedelta(days=membership.plan.duration_days)
         )
     )
     payment_ref = ""
