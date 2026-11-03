@@ -61,7 +61,7 @@ function Shell() {
 		["booked", "waitlisted"].includes(b.status),
 	).length;
 	const creditsLeft = (passes.data ?? []).reduce(
-		(sum, p) => sum + p.credits_remaining,
+		(sum, p) => sum + (p.credits_remaining ?? 0),
 		0,
 	);
 	const activePasses = passes.data ?? [];
