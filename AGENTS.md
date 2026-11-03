@@ -56,9 +56,13 @@ no API key, $0).
   `uv run flake8 <touched files>` (wemake, config in `.flake8`),
   `uv run pytest -q` (+ CI in `.github/`). Parallel unit run (live-server
   smoke/e2e stay serial): `uv run pytest -q -n auto -m "not e2e and not smoke"`.
+  Test DBs are reused: after editing an already-applied migration, rebuild
+  once with `--create-db` or constraint changes silently won't apply.
 - Conventions: explicit names with units (`class_late_cancel_hours`, not
   `_h`); `condition=` (Django 6.1, never `check=`); `ClassVar` on Meta
   constraint lists (RUF012); no code before its lesson.
+- CHECK constraints: NULL satisfies a check, so nullable columns need
+  explicit `isnull` conjuncts (`Q(plan=..., field__isnull=False, field__gt=0)`).
 - Tests build rows via `tests/factories.py` (bare factory for boilerplate,
   explicit kwargs where the field is the assertion subject); direct
   `objects.create` only with a why-comment (uniqueness tests, `get_or_create`
