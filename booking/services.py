@@ -7,15 +7,14 @@ from datetime import datetime, timedelta
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
 from django.utils import timezone
 
 from booking.cancellations import release_unclaimed
 from booking.errors import CreditInsufficient, DuplicateBooking, NotHeld, SeatFull
 from booking.models import ACTIVE_STATUSES, Booking
 from booking.notifications import notify_hold_expired, notify_promoted
-from passes.models import Entitlement, Membership
-from passes.services import spend_for_booking
+from passes.models import Entitlement
+from passes.services import spend_for_booking, valid_memberships
 from scheduling.models import ClassCategory, ClassSession
 
 # Promotion reserves the seat this long; the sweep releases lapsed holds.
@@ -24,26 +23,11 @@ from scheduling.models import ClassCategory, ClassSession
 HOLD_WINDOW_MINUTES = 60
 
 
-def _valid_memberships(member, organization_id, today):
-    return (
-        Membership.objects.filter(
-            user=member,
-            plan__organization_id=organization_id,
-            starts_on__lte=today,
-        )
-        .filter(
-            Q(valid_until__gte=today) | Q(valid_until__isnull=True),
-        )
-        .select_related("plan")
-        .order_by(F("valid_until").asc(nulls_last=True))
-    )
-
-
 def _paying_membership(member, session, price):
     """Unlimited first, else first-expiring credit pack that covers the price."""
     today = timezone.now().date()
     organization_id = session.offering.venue.organization_id
-    candidates = list(_valid_memberships(member, organization_id, today))
+    candidates = list(valid_memberships(member, organization_id, today))
     unlimited = next(
         (mem for mem in candidates if mem.plan.entitlement == Entitlement.UNLIMITED),
         None,

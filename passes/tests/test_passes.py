@@ -24,7 +24,12 @@ from passes.models import (
 from passes.models import (
     Membership as PlanMembership,
 )
-from passes.services import grant_goodwill, post_entry, spend_for_booking
+from passes.services import (
+    grant_goodwill,
+    post_entry,
+    refund_for_booking,
+    spend_for_booking,
+)
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -202,6 +207,17 @@ class TestSpend:
         _, membership = _member_with_plan(venue, "m1", 10)
 
         assert spend_for_booking(membership, 0, None) is None
+
+        membership.refresh_from_db()
+        assert membership.credits_remaining == 10
+        assert membership.ledger_entries.count() == 0
+
+    def test_zero_refund_writes_no_row(self):
+
+        venue = _venue()
+        _, membership = _member_with_plan(venue, "m1", 10)
+
+        assert refund_for_booking(membership, 0, None) is None
 
         membership.refresh_from_db()
         assert membership.credits_remaining == 10

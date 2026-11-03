@@ -6,9 +6,10 @@ directly.
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import F, Q
 
 from booking.errors import CreditInsufficient
-from passes.models import CreditLedger
+from passes.models import CreditLedger, Membership
 
 
 def post_entry(
@@ -52,6 +53,22 @@ def post_entry(
     return row
 
 
+def valid_memberships(user, organization, today):
+    """Date-valid memberships, first-expiring first. Organization takes
+    an instance or id. Validity only: price coverage (booking) and
+    balance checks (door) stay with the readers."""
+    return (
+        Membership.objects.filter(
+            user=user,
+            plan__organization=organization,
+            starts_on__lte=today,
+        )
+        .filter(Q(valid_until__gte=today) | Q(valid_until__isnull=True))
+        .select_related("plan")
+        .order_by(F("valid_until").asc(nulls_last=True))
+    )
+
+
 def spend_for_booking(membership, amount, booking):
     """Debit a plan membership for one booking; write the BOOKING ledger row.
 
@@ -66,6 +83,21 @@ def spend_for_booking(membership, amount, booking):
         -amount,
         CreditLedger.Reason.BOOKING,
         booking=booking,
+    )
+
+
+def refund_for_booking(membership, amount, booking, created_by=None, note=""):
+    """Return a booking's spent stamp. Zero spends nothing and writes
+    nothing, mirroring spend_for_booking."""
+    if amount <= 0:
+        return None
+    return post_entry(
+        membership,
+        amount,
+        CreditLedger.Reason.REFUND,
+        booking=booking,
+        note=note,
+        created_by=created_by,
     )
 
 

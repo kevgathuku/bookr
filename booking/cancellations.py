@@ -473,16 +473,15 @@ def _cancel_one_for_session(booking, session, venue, organization, actor):
 
 
 def _refund(booking, amount, actor, note=""):
-    from passes.services import post_entry
+    from passes.services import refund_for_booking
 
     membership = Membership.objects.get(pk=booking.membership_id)
-    post_entry(
+    refund_for_booking(
         membership,
         amount,
-        CreditLedger.Reason.REFUND,
-        booking=booking,
-        note=note,
+        booking,
         created_by=actor,
+        note=note,
     )
 
 

@@ -14,7 +14,8 @@ from prometheus_client import Counter
 from access.models import AccessEvent
 from booking.models import ACTIVE_STATUSES, Booking
 from organizations.capabilities import is_duty_staff, roles_for
-from passes.models import Entitlement, Membership
+from passes.models import Entitlement
+from passes.services import valid_memberships
 
 grants_total = Counter("door_grants_total", "Granted door checks", ["venue_id"])
 
@@ -85,14 +86,8 @@ def _evaluate(access_point, member):
 
 def _has_valid_plan_membership(member, venue, now):
     """Unlimited valid within dates, or credit balance remaining within dates."""
-    today = now.date()
     return (
-        Membership.objects.filter(
-            user=member,
-            plan__organization=venue.organization,
-            starts_on__lte=today,
-        )
-        .filter(Q(valid_until__gte=today) | Q(valid_until__isnull=True))
+        valid_memberships(member, venue.organization, now.date())
         .filter(
             Q(plan__entitlement=Entitlement.UNLIMITED) | Q(credits_remaining__gt=0),
         )
