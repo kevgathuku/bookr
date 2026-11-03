@@ -15,7 +15,8 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from booking.errors import AlreadyCancelled, InvalidWaiver, SessionStarted
+from booking._core import committed, load_open_booking, lock_session
+from booking.errors import AlreadyCancelled, InvalidWaiver
 from booking.models import (
     ACTIVE_STATUSES,
     Booking,
@@ -34,7 +35,6 @@ from organizations.capabilities import (
 from organizations.ids import OrgId, VenueId
 from organizations.models import OrgRole
 from passes.models import CreditLedger, Membership
-from scheduling.models import ClassSession
 
 User = get_user_model()
 
@@ -64,21 +64,25 @@ def cancel_booking(
     """Cancel one booking, applying the resolved rule. Returns the record."""
     moment = now or timezone.now()
     with transaction.atomic():
-        loaded = _load_open_booking(booking_id, moment)
-        record = _committed(
-            _apply_cancel(*loaded, actor, on_behalf_of, waive_penalty, moment, reason),
+        loaded = load_open_booking(booking_id, moment)
+        record = committed(
+            _apply_cancel(
+                loaded.booking,
+                loaded.session,
+                loaded.venue,
+                loaded.venue.organization,
+                actor,
+                on_behalf_of,
+                waive_penalty,
+                moment,
+                reason,
+            ),
             notify_member_cancel,
         )
         # A freed seat passes to the queue head (member, late, and
         # staff-on-behalf cancels all free exactly one seat here).
-        promote_waitlist.delay(session_id=loaded[1].pk)
+        promote_waitlist.delay(session_id=loaded.session.pk)
         return record
-
-
-def _committed(record, notify):
-    """Register a post-commit notice; the write itself already happened."""
-    transaction.on_commit(lambda: notify(record))
-    return record
 
 
 def _check_actor(actor, booking, organization, behalf, waive, reason):
@@ -147,7 +151,7 @@ def cancel_session(*, session_id, actor, reason=""):
     if not reason:
         raise ValidationError("Session cancellations require a reason.")
     with transaction.atomic():
-        session = ClassSession.objects.select_for_update().get(pk=session_id)
+        session = lock_session(session_id)
         venue = session.offering.venue
         organization = venue.organization
         _require_session_cancel(actor, organization, session)
@@ -165,7 +169,7 @@ def cancel_session(*, session_id, actor, reason=""):
             for booking in _live_session_bookings(session)
         ]
     for record in records:
-        _committed(record, notify_session_cancelled)
+        committed(record, notify_session_cancelled)
     return records
 
 
@@ -181,9 +185,9 @@ def _live_session_bookings(session):
 def mark_no_show(*, booking_id, actor):
     """Door-observed absence: status flips, stamp stays spent, no strike."""
     with transaction.atomic():
-        booking, session, _venue, organization = _load_open_booking(
-            booking_id, timezone.now(), allow_started=True
-        )
+        loaded = load_open_booking(booking_id, timezone.now(), allow_started=True)
+        booking, session = loaded.booking, loaded.session
+        organization = loaded.venue.organization
         if session.starts_at > timezone.now():
             # No-show is observed absence. A future booking cannot be
             # absent, and the flip is irreversible — refuse the fat finger.
@@ -226,9 +230,9 @@ def _write_no_show_record(booking, session, organization, actor):
 def check_in(*, booking_id, actor):
     """Status-only attendance mark: no record, no money moves."""
     with transaction.atomic():
-        booking, _session, _venue, organization = _load_open_booking(
-            booking_id, timezone.now(), allow_started=True
-        )
+        loaded = load_open_booking(booking_id, timezone.now(), allow_started=True)
+        booking = loaded.booking
+        organization = loaded.venue.organization
         if booking.status != Booking.Status.BOOKED:
             raise AlreadyCancelled("Only confirmed bookings can check in.")
         _require_door(actor, organization)
@@ -313,26 +317,6 @@ def strike_count(member, organization, now=None):
         .exclude(pk__in=waived_ids)
         .count()
     )
-
-
-def _load_open_booking(booking_id, moment, allow_started=False):
-    booking = (
-        Booking.objects.select_for_update()
-        .select_related("session__offering__venue", "membership__plan", "member")
-        .get(pk=booking_id)
-    )
-    session = booking.session
-    if booking.status not in (Booking.Status.BOOKED, Booking.Status.HELD):
-        raise AlreadyCancelled("Booking is no longer active.")
-    if session.cancelled_at is not None:
-        raise SessionStarted("Session has been cancelled.")
-    started = session.starts_at <= moment
-    if started and not allow_started:
-        raise SessionStarted(
-            "Session has already started; record attendance with no-show."
-        )
-    venue = session.offering.venue
-    return booking, session, venue, venue.organization
 
 
 def release_unclaimed(booking, session, organization, actor, reason):

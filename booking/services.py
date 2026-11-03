@@ -9,8 +9,15 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from booking._core import committed, load_open_booking, lock_session
 from booking.cancellations import release_unclaimed
-from booking.errors import CreditInsufficient, DuplicateBooking, NotHeld, SeatFull
+from booking.errors import (
+    AlreadyCancelled,
+    CreditInsufficient,
+    DuplicateBooking,
+    NotHeld,
+    SeatFull,
+)
 from booking.models import ACTIVE_STATUSES, Booking
 from booking.notifications import notify_hold_expired, notify_promoted
 from passes.models import Entitlement
@@ -52,14 +59,6 @@ def _validate_membership(membership, member, session, today):
         membership.valid_until is not None and membership.valid_until < today
     ):
         raise ValidationError("Booking membership is not currently valid.")
-
-
-def _lock_session(session):
-    return (
-        ClassSession.objects.select_for_update()
-        .select_related("offering", "offering__venue")
-        .get(pk=session.pk)
-    )
 
 
 def _ensure_open(locked):
@@ -134,7 +133,7 @@ def book_session(
     sessions never queue: they book or raise SeatFull.
     """
     with transaction.atomic():
-        locked = _lock_session(session)
+        locked = lock_session(session.pk)
         _ensure_open(locked)
         _ensure_no_duplicate(locked, member)
         if _is_full(locked):
@@ -182,7 +181,7 @@ def promote_next(session: ClassSession, now: datetime | None = None) -> Booking 
     """
     moment = now or timezone.now()
     with transaction.atomic():
-        locked = _lock_session(session)
+        locked = lock_session(session.pk)
         if _is_full(locked):
             return None
         head = _next_waiter(locked)
@@ -197,24 +196,14 @@ def _seat_head(locked, head, moment):
     head.status = Booking.Status.HELD
     head.hold_expires_at = moment + timedelta(minutes=HOLD_WINDOW_MINUTES)
     head.save(update_fields=["status", "hold_expires_at"])
-    transaction.on_commit(lambda: notify_promoted(head))
-    return head
+    return committed(head, notify_promoted)
 
 
 def confirm_booking(*, booking_id, actor, membership=None):
     """Claim a held seat: charge the pass, flip Held to Booked."""
     with transaction.atomic():
-        booking = (
-            Booking.objects.select_for_update()
-            .select_related(
-                "session",
-                "session__offering",
-                "session__offering__venue",
-                "member",
-            )
-            .get(pk=booking_id)
-        )
-        session = booking.session
+        loaded = load_open_booking(booking_id, timezone.now())
+        booking, session = loaded.booking, loaded.session
         if booking.status != Booking.Status.HELD:
             raise NotHeld("Booking holds no confirmable seat.")
         if booking.hold_expires_at is None or booking.hold_expires_at <= timezone.now():
@@ -222,12 +211,7 @@ def confirm_booking(*, booking_id, actor, membership=None):
         if booking.member_id != actor.pk:
             raise PermissionDenied("Only the holding member can confirm.")
         _ensure_open(session)
-        price = session.offering.credit_cost
-        if membership is None:
-            membership = _paying_membership(actor, session, price)
-        else:
-            _validate_membership(membership, actor, session, timezone.now().date())
-        amount = _charge_for(membership, price, True)
+        membership, amount = _confirmed_charge(actor, session, membership)
         booking.membership = membership
         booking.credits_spent = amount
         booking.status = Booking.Status.BOOKED
@@ -242,6 +226,16 @@ def confirm_booking(*, booking_id, actor, membership=None):
         )
         spend_for_booking(membership, amount, booking)
     return booking
+
+
+def _confirmed_charge(actor, session, membership):
+    """Price a held-seat confirmation: pick or validate the payer."""
+    price = session.offering.credit_cost
+    if membership is None:
+        membership = _paying_membership(actor, session, price)
+    else:
+        _validate_membership(membership, actor, session, timezone.now().date())
+    return membership, _charge_for(membership, price, True)
 
 
 def sweep_expired_holds(now=None):
@@ -261,22 +255,21 @@ def sweep_expired_holds(now=None):
 
 def _lapse_hold(pk, moment):
     with transaction.atomic():
-        booking = (
-            Booking.objects.select_for_update()
-            .select_related("session", "session__offering", "session__offering__venue")
-            .get(pk=pk)
-        )
+        try:
+            loaded = load_open_booking(pk, moment, allow_started=True)
+        except AlreadyCancelled:
+            # Member cancelled first, or another worker won.
+            return False
+        booking, session = loaded.booking, loaded.session
+        organization = loaded.venue.organization
         if (
             booking.status != Booking.Status.HELD
             or booking.hold_expires_at is None
             or booking.hold_expires_at > moment
         ):
-            # Member confirmed or cancelled first, or another worker won.
+            # Member confirmed first, or another worker won.
             return False
-        session = booking.session
-        release_unclaimed(
-            booking, session, session.offering.venue.organization, None, ""
-        )
-        transaction.on_commit(lambda: notify_hold_expired(booking))
+        release_unclaimed(booking, session, organization, None, "")
+        committed(booking, notify_hold_expired)
     promote_next(session)
     return True

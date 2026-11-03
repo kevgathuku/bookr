@@ -20,10 +20,12 @@ from rest_framework.test import APIClient
 
 from booking.cancellations import cancel_booking, cancel_session, mark_no_show
 from booking.errors import (
+    AlreadyCancelled,
     CreditInsufficient,
     DuplicateBooking,
     NotHeld,
     SeatFull,
+    SessionStarted,
 )
 from booking.models import Booking, CancellationPolicy, CancellationRecord
 from booking.services import (
@@ -323,6 +325,27 @@ class TestSweepExpiredHolds:
         promoted.refresh_from_db()
         assert promoted.status == Booking.Status.HELD
 
+    def test_sweep_lapses_hold_after_session_start(self):
+        session, member = _world(capacity=1)
+        book_session(session=session, member=member("seated"))
+        book_session(session=session, member=member("queued"), waitlist=True)
+        Booking.objects.filter(member__username="seated").update(
+            status=Booking.Status.CANCELLED
+        )
+        promote_next(session)
+        Booking.objects.filter(member__username="queued").update(
+            hold_expires_at=timezone.now() - timedelta(minutes=1)
+        )
+        ClassSession.objects.filter(pk=session.pk).update(
+            starts_at=timezone.now() - timedelta(minutes=1)
+        )
+
+        assert sweep_expired_holds() == 1
+        assert (
+            Booking.objects.get(member__username="queued").status
+            == Booking.Status.CANCELLED
+        )
+
     def test_sweep_passes_the_seat_to_next_in_line(self):
         session, member = _world(capacity=1)
         book_session(session=session, member=member("seated"))
@@ -405,6 +428,23 @@ class TestConfirmHold:
 
         with pytest.raises(NotHeld):
             confirm_booking(booking_id=booking.pk, actor=booking.member)
+
+    def test_confirm_cancelled_booking_raises(self):
+        session, member = _world(capacity=1)
+        booking = book_session(session=session, member=member("seated"))
+        cancel_booking(booking_id=booking.pk, actor=booking.member)
+
+        with pytest.raises(AlreadyCancelled):
+            confirm_booking(booking_id=booking.pk, actor=booking.member)
+
+    def test_confirm_after_session_start_raises(self):
+        session, queued, waiting = self._held_world()
+        ClassSession.objects.filter(pk=session.pk).update(
+            starts_at=timezone.now() - timedelta(minutes=1)
+        )
+
+        with pytest.raises(SessionStarted):
+            confirm_booking(booking_id=waiting.pk, actor=queued)
 
     def test_confirm_expired_hold_raises(self):
         _session, queued, waiting = self._held_world()
