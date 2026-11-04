@@ -4,6 +4,7 @@ Cache is latency only (TTL 60s): every identified attempt still logs,
 passback replays excepted. Any DB failure denies (fail-closed).
 """
 
+import dataclasses
 from datetime import timedelta
 
 from django.core.cache import cache
@@ -23,20 +24,34 @@ CACHE_TTL_SECONDS = 60
 ENTRY_WINDOW_MINUTES = 15
 
 
+@dataclasses.dataclass(frozen=True)
+class DoorVerdict:
+    """One door decision: open or not, why, and the booking behind a
+    booking-based grant (None for pass, staff, and deny reasons)."""
+
+    granted: bool
+    reason: str
+    booking: Booking | None
+
+
 def decide(access_point, member):
-    """(granted, reason, booking_or_None). Raises on DB outage."""
+    """Decide the door. Raises on DB outage."""
     replay = _passback(access_point, member)
     if replay is not None:
-        return replay[0], "passback_replay", None
+        return DoorVerdict(granted=replay[0], reason="passback_replay", booking=None)
     key = f"door:{access_point.pk}:{member.pk}"
     cached = cache.get(key)
     if cached is None:
         return _store(access_point, member, key)
     if cached["booking_id"] is None:
-        return cached["granted"], cached["reason"], None
+        return DoorVerdict(
+            granted=cached["granted"], reason=cached["reason"], booking=None
+        )
     booking = Booking.objects.filter(pk=cached["booking_id"]).first()
     if booking is None or booking.status in ACTIVE_STATUSES:
-        return cached["granted"], cached["reason"], booking
+        return DoorVerdict(
+            granted=cached["granted"], reason=cached["reason"], booking=booking
+        )
     # Grant went stale (booking cancelled inside the TTL): re-evaluate.
     cache.delete(key)
     return _store(access_point, member, key)
@@ -44,12 +59,12 @@ def decide(access_point, member):
 
 def _store(access_point, member, key):
     verdict = _evaluate(access_point, member)
-    booking = verdict[2]
+    booking = verdict.booking
     cache.set(
         key,
         {
-            "granted": verdict[0],
-            "reason": verdict[1],
+            "granted": verdict.granted,
+            "reason": verdict.reason,
             "booking_id": booking.pk if booking else None,
         },
         CACHE_TTL_SECONDS,
@@ -75,13 +90,13 @@ def _evaluate(access_point, member):
     venue = access_point.venue
     now = timezone.now()
     if _has_valid_plan_membership(member, venue, now):
-        return True, "active_pass", None
+        return DoorVerdict(granted=True, reason="active_pass", booking=None)
     booking = _live_booking(member, venue, now)
     if booking is not None:
-        return True, "live_booking", booking
+        return DoorVerdict(granted=True, reason="live_booking", booking=booking)
     if _is_staff(member, venue):
-        return True, "staff", None
-    return False, "no_access", None
+        return DoorVerdict(granted=True, reason="staff", booking=None)
+    return DoorVerdict(granted=False, reason="no_access", booking=None)
 
 
 def _has_valid_plan_membership(member, venue, now):

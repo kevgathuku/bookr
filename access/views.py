@@ -15,7 +15,7 @@ from access.serializers import (
     CheckResultSerializer,
     CheckSerializer,
 )
-from access.services import decide, grants_total
+from access.services import DoorVerdict, decide, grants_total
 from organizations.permissions import IsStaff, IsVenueMember
 
 logger = logging.getLogger(__name__)
@@ -44,18 +44,18 @@ class CheckView(APIView):
         return self._verdict(point, member)
 
     def _verdict(self, point, member):
-        granted, reason, booking = self._decide(point, member)
-        if reason != "passback_replay":
-            self._log(point, member, granted, reason, booking)
-        if granted:
+        verdict = self._decide(point, member)
+        if verdict.reason != "passback_replay":
+            self._log(point, member, verdict.granted, verdict.reason, verdict.booking)
+        if verdict.granted:
             grants_total.labels(venue_id=point.venue_id).inc()
-        return Response({"granted": granted, "reason": reason})
+        return Response({"granted": verdict.granted, "reason": verdict.reason})
 
     def _decide(self, point, member):
         try:
             return decide(point, member)
         except Exception:  # noqa: BLE001 — any outage denies (fail-closed)
-            return False, "system_error", None
+            return DoorVerdict(granted=False, reason="system_error", booking=None)
 
     def _log(self, point, member, granted, reason, booking):
         try:

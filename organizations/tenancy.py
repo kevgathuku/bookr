@@ -8,11 +8,25 @@ middleware only ever sees AnonymousUser. The middleware resolves for
 session users; permissions lazily resolve for the rest via ensure_venue.
 """
 
+import dataclasses
+
 from django.db import models
 
 from organizations.capabilities import OPERATE_DESK_ROLES
+from organizations.models import Organization, OrgRole, Venue
 
 VENUE_HEADER = "X-Venue-Slug"
+
+
+@dataclasses.dataclass(frozen=True)
+class ResolvedVenue:
+    """Venue resolution: the venue, its organization, and the user's
+    role rows behind the decision. Venue and organization are None
+    when nothing the user holds covers the request."""
+
+    venue: Venue | None
+    organization: Organization | None
+    org_roles: list
 
 
 def _match_pinned(rows, slug):
@@ -23,8 +37,6 @@ def _match_pinned(rows, slug):
 
 
 def _match_spanning(rows, slug):
-    from organizations.models import Venue
-
     for row in rows:
         if row.venue is None:
             venue = (
@@ -46,9 +58,7 @@ def _default_venue(rows):
 
 
 def resolve_venue(user, slug):
-    """Return (venue, organization, org_roles)."""
-    from organizations.models import OrgRole
-
+    """Resolve the request venue and the role rows behind the decision."""
     org_roles = list(
         OrgRole.objects.filter(user=user).select_related(
             "venue",
@@ -60,22 +70,22 @@ def resolve_venue(user, slug):
         venue, organization = _match_pinned(org_roles, slug)
         if venue is None:
             venue, organization = _match_spanning(org_roles, slug)
-        return venue, organization, org_roles
+        return ResolvedVenue(
+            venue=venue, organization=organization, org_roles=org_roles
+        )
     venue, organization = _default_venue(org_roles)
-    return venue, organization, org_roles
+    return ResolvedVenue(venue=venue, organization=organization, org_roles=org_roles)
 
 
 def ensure_venue(request):
     """Request venue, resolving late for DRF-authenticated users."""
     venue = getattr(request, "venue", None)
     if venue is None and request.user.is_authenticated:
-        venue, organization, org_roles = resolve_venue(
-            request.user, request.headers.get(VENUE_HEADER)
-        )
-        request.venue = venue
-        request.organization = organization
-        request.org_roles = org_roles
-        return venue
+        resolved = resolve_venue(request.user, request.headers.get(VENUE_HEADER))
+        request.venue = resolved.venue
+        request.organization = resolved.organization
+        request.org_roles = resolved.org_roles
+        return resolved.venue
     return venue
 
 

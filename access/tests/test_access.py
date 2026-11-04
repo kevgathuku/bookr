@@ -316,14 +316,14 @@ class TestStaleGrant:
         session = _session(venue)
         booking = book_session(member=member, session=session)
 
-        granted, _reason, _booking = decide(point, member)
-        assert granted is True
+        verdict = decide(point, member)
+        assert verdict.granted is True
         booking.status = Booking.Status.CANCELLED
         booking.save(update_fields=["status"])
 
-        granted, _stale_reason, _stale_recheck = decide(point, member)
+        verdict = decide(point, member)
 
-        assert granted is False
+        assert verdict.granted is False
 
 
 class TestRoleBasedAccess:
@@ -396,9 +396,9 @@ class TestDoorPlanMemberships:
         )
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=None)
 
-        granted, reason, _booking = self._check_decide(venue, member)
+        verdict = self._check_decide(venue, member)
 
-        assert (granted, reason) == (True, "active_pass")
+        assert (verdict.granted, verdict.reason) == (True, "active_pass")
 
     def test_pack_with_balance_grants(self):
         venue = _venue()
@@ -408,9 +408,9 @@ class TestDoorPlanMemberships:
         )
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=3)
 
-        granted, _reason, _booking = self._check_decide(venue, member)
+        verdict = self._check_decide(venue, member)
 
-        assert granted is True
+        assert verdict.granted is True
 
     def test_depleted_pack_denies(self):
         venue = _venue()
@@ -420,9 +420,9 @@ class TestDoorPlanMemberships:
         )
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=0)
 
-        granted, _reason, _booking = self._check_decide(venue, member)
+        verdict = self._check_decide(venue, member)
 
-        assert granted is False
+        assert verdict.granted is False
 
     def test_org_role_teacher_opens_staff_door(self):
 
@@ -436,9 +436,9 @@ class TestDoorPlanMemberships:
             role=OrgRole.Role.TEACHER,
         )
 
-        granted, reason, _booking = decide(point, teacher)
+        verdict = decide(point, teacher)
 
-        assert (granted, reason) == (True, "staff")
+        assert (verdict.granted, verdict.reason) == (True, "staff")
 
     def test_org_role_plain_member_door_denied(self):
 
@@ -452,6 +452,6 @@ class TestDoorPlanMemberships:
             role=OrgRole.Role.MEMBER,
         )
 
-        granted, _reason, _booking = decide(point, member)
+        verdict = decide(point, member)
 
-        assert granted is False
+        assert verdict.granted is False
