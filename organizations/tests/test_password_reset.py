@@ -109,3 +109,43 @@ class TestConfirmReset:
         )
 
         assert response.status_code == 400
+
+
+class TestRefreshRotation:
+    def test_refresh_rotates_and_blacklists_the_presented_token(self):
+        member = UserFactory(username="rot", email="rot@example.com")
+        member.set_password("s3cure-pass!")
+        member.save()
+        client = APIClient()
+        pair = client.post(
+            "/api/v1/auth/token/",
+            {"username": member.username, "password": "s3cure-pass!"},
+        )
+        assert pair.status_code == 200
+
+        rotated = client.post(
+            "/api/v1/auth/refresh/", {"refresh": pair.data["refresh"]}
+        )
+        assert rotated.status_code == 200
+        assert "refresh" in rotated.data
+
+        replay = client.post("/api/v1/auth/refresh/", {"refresh": pair.data["refresh"]})
+        assert replay.status_code == 401
+
+
+class TestAnonThrottling:
+    def test_anonymous_bucket_enforces_the_configured_rate(self):
+        # Fills the bucket instead of overriding rates: DRF binds
+        # THROTTLE_RATES at import, so override_settings cannot change
+        # them. A dedicated IP keeps this off the shared 127.0.0.1 bucket
+        # the rest of the suite draws from.
+        client = APIClient()
+        for _ in range(100):
+            response = client.post(
+                RESET_URL, {"email": "a@example.com"}, REMOTE_ADDR="10.9.9.9"
+            )
+            assert response.status_code == 200
+        throttled = client.post(
+            RESET_URL, {"email": "a@example.com"}, REMOTE_ADDR="10.9.9.9"
+        )
+        assert throttled.status_code == 429
