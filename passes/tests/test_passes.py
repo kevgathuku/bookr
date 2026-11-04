@@ -39,7 +39,8 @@ from tests.factories import (  # noqa: WPS235
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
-    member_with_credit_pack,
+    user_with_role,
+    with_credit_pack,
 )
 
 pytestmark = pytest.mark.django_db
@@ -183,7 +184,8 @@ class TestSpend:
     def test_spend_debits_and_links_booking(self):
 
         venue = _venue()
-        _, membership = member_with_credit_pack(venue, "m1", 10)
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
+        membership = with_credit_pack(member, venue, 10)
 
         spend_for_booking(membership, 3, booking=None)
 
@@ -195,7 +197,8 @@ class TestSpend:
     def test_zero_spend_writes_no_row(self):
 
         venue = _venue()
-        _, membership = member_with_credit_pack(venue, "m1", 10)
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
+        membership = with_credit_pack(member, venue, 10)
 
         assert spend_for_booking(membership, 0, None) is None
 
@@ -206,7 +209,8 @@ class TestSpend:
     def test_zero_refund_writes_no_row(self):
 
         venue = _venue()
-        _, membership = member_with_credit_pack(venue, "m1", 10)
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
+        membership = with_credit_pack(member, venue, 10)
 
         assert refund_for_booking(membership, 0, None) is None
 
@@ -217,7 +221,8 @@ class TestSpend:
     def test_insufficient_raises_and_writes_nothing(self):
 
         venue = _venue()
-        _, membership = member_with_credit_pack(venue, "m1", credits=2)
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
+        membership = with_credit_pack(member, venue, credits=2)
 
         with pytest.raises(CreditInsufficient):
             spend_for_booking(membership, 3, booking=None)
@@ -229,7 +234,13 @@ class TestSpend:
     def test_ledger_invariant_on_seed(self):
         venue = _venue()
         for name in ("a", "b", "c"):
-            member_with_credit_pack(venue, f"{name}-holder", credits=5)
+            with_credit_pack(
+                user_with_role(
+                    venue, OrgRole.Role.MEMBER, f"{name}-holder", org_wide=True
+                ),
+                venue,
+                credits=5,
+            )
 
         for membership in PlanMembership.objects.all():
             summed = membership.ledger_entries.aggregate(total=Sum("delta"))["total"]
@@ -247,12 +258,8 @@ class TestLedgerUnion:
     def test_member_sees_plan_membership_rows(self):
 
         venue = VenueFactory(slug="ledger-union")
-        member = UserFactory(username="ledger-member")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=member,
-            role=OrgRole.Role.MEMBER,
+        member = user_with_role(
+            venue, OrgRole.Role.MEMBER, "ledger-member", org_wide=True
         )
         plan = PlanFactory(organization=venue.organization)
         membership = PlanMembershipFactory(user=member, plan=plan)
@@ -270,20 +277,8 @@ class TestLedgerUnion:
 
     def test_staff_sees_org_plan_rows(self):
         venue = VenueFactory(slug="ledger-staff")
-        member = UserFactory(username="ledger-m2")
-        staff = UserFactory(username="ledger-s2")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=member,
-            role=OrgRole.Role.MEMBER,
-        )
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=staff,
-            role=OrgRole.Role.MANAGER,
-        )
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "ledger-m2", org_wide=True)
+        staff = user_with_role(venue, OrgRole.Role.MANAGER, "ledger-s2", org_wide=True)
         plan = PlanFactory(organization=venue.organization)
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=5)
         offering = ClassOfferingFactory(venue=venue)
@@ -300,14 +295,10 @@ class TestLedgerUnion:
 
         org_venues = VenueFactory(slug="ledger-home")
         other = VenueFactory(organization=org_venues.organization, slug="ledger-away")
-        member = UserFactory(username="ledger-m3")
-        staff = UserFactory(username="ledger-s3")
-        OrgRoleFactory(
-            organization=org_venues.organization,
-            venue=None,
-            user=member,
-            role=OrgRole.Role.MEMBER,
+        member = user_with_role(
+            org_venues, OrgRole.Role.MEMBER, "ledger-m3", org_wide=True
         )
+        staff = UserFactory(username="ledger-s3")
         OrgRoleFactory(
             organization=org_venues.organization,
             venue=other,

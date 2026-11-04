@@ -21,8 +21,8 @@ from tests.factories import (  # noqa: WPS235 — access tests build every domai
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
-    member_with_credit_pack,
     user_with_role,
+    with_credit_pack,
 )
 
 pytestmark = pytest.mark.django_db
@@ -77,7 +77,8 @@ def _session(venue, teacher=None, minutes_from_now=10):
 
 
 def _member_with_plan(venue, username, credits=5):
-    member, _membership = member_with_credit_pack(venue, username, credits)
+    member = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
+    with_credit_pack(member, venue, credits)
     return member
 
 
@@ -414,13 +415,7 @@ class TestDoorPlanMemberships:
 
         venue = _venue()
         point, _token = _point(venue)
-        teacher = _user("door-teacher")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=teacher,
-            role=OrgRole.Role.TEACHER,
-        )
+        teacher = user_with_role(venue, OrgRole.Role.TEACHER, "door-teacher")
 
         verdict = decide(point, teacher)
 
@@ -430,13 +425,7 @@ class TestDoorPlanMemberships:
 
         venue = _venue()
         point, _token = _point(venue)
-        member = _user("doormember")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=venue,
-            user=member,
-            role=OrgRole.Role.MEMBER,
-        )
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "doormember")
 
         verdict = decide(point, member)
 

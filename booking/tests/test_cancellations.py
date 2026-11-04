@@ -33,12 +33,12 @@ from tests.factories import (  # noqa: WPS235
     CancellationPolicyFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
-    OrgRoleFactory,
     PlanFactory,
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
-    member_with_monthly_plan,
+    user_with_role,
+    with_monthly_plan,
 )
 
 pytestmark = pytest.mark.django_db
@@ -61,22 +61,14 @@ def _session(venue, category=ClassCategory.GROUP, starts_in_hours=48):
 
 
 def _member(username, venue, credits=10, plan_type=PlanType.CREDIT_PACK):
-    user = UserFactory(username=username)
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=None,
-        user=user,
-        role=OrgRole.Role.MEMBER,
-    )
+    user = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
     plan = PlanFactory(organization=venue.organization, plan_type=plan_type)
     PlanMembershipFactory(user=user, plan=plan, credits_remaining=credits)
     return user
 
 
 def _staff(username, venue, role=OrgRole.Role.FRONTDESK):
-    user = UserFactory(username=username)
-    OrgRoleFactory(organization=venue.organization, venue=None, user=user, role=role)
-    return user
+    return user_with_role(venue, role, username, org_wide=True)
 
 
 def _policy(org, enforcement, late_cancel_hours=12, **scopes):
@@ -786,13 +778,7 @@ class TestInitiator:
 
     def test_teacher_cancels_own_roster_booking(self):
         venue = _venue()
-        teacher = UserFactory(username="t-roster")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=teacher,
-            role=OrgRole.Role.TEACHER,
-        )
+        teacher = user_with_role(venue, OrgRole.Role.TEACHER, "t-roster", org_wide=True)
         offering = ClassOfferingFactory(venue=venue, teacher=teacher)
         session = ClassSessionFactory(
             offering=offering,
@@ -815,12 +801,8 @@ class TestInitiator:
 
     def test_teacher_cannot_cancel_other_roster_booking(self):
         venue = _venue()
-        teacher = UserFactory(username="t-stranger")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=teacher,
-            role=OrgRole.Role.TEACHER,
+        teacher = user_with_role(
+            venue, OrgRole.Role.TEACHER, "t-stranger", org_wide=True
         )
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue)
@@ -973,7 +955,8 @@ class TestWaiver:
     def test_retroactive_waive_of_zero_spend_raises(self):
         venue = _venue()
         session = _session(venue, starts_in_hours=2)
-        member = member_with_monthly_plan(venue, "m1")
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
+        with_monthly_plan(member, venue)
         desk = _staff("desk", venue)
         _policy(venue.organization, LATE, late_cancel_hours=12)
         booking = _book(member, session, price=0)
@@ -1157,13 +1140,7 @@ class TestSessionCancel:
     def test_teacher_cancels_own_session(self):
 
         venue = _venue()
-        teacher = UserFactory(username="t-coach")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=teacher,
-            role=OrgRole.Role.TEACHER,
-        )
+        teacher = user_with_role(venue, OrgRole.Role.TEACHER, "t-coach", org_wide=True)
         offering = ClassOfferingFactory(venue=venue, teacher=teacher)
         session = ClassSessionFactory(
             offering=offering,
@@ -1179,13 +1156,7 @@ class TestSessionCancel:
 
     def test_teacher_cannot_cancel_another_teachers_session(self):
         venue = _venue()
-        teacher = UserFactory(username="t-other")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=teacher,
-            role=OrgRole.Role.TEACHER,
-        )
+        teacher = user_with_role(venue, OrgRole.Role.TEACHER, "t-other", org_wide=True)
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue)
         _book(member, session)

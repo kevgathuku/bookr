@@ -20,11 +20,10 @@ from scheduling.models import ClassCategory
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
-    OrgRoleFactory,
     PlanFactory,
     PlanMembershipFactory,
-    UserFactory,
     VenueFactory,
+    user_with_role,
 )
 
 pytestmark = pytest.mark.django_db
@@ -47,13 +46,7 @@ def _session(venue, starts_in_hours=48):
 def _member(username, venue, credits=10):
     from organizations.models import OrgRole
 
-    user = UserFactory(username=username)
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=None,
-        user=user,
-        role=OrgRole.Role.MEMBER,
-    )
+    user = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
     plan = PlanFactory(organization=venue.organization)
     PlanMembershipFactory(user=user, plan=plan, credits_remaining=credits)
     return user
@@ -62,14 +55,7 @@ def _member(username, venue, credits=10):
 def _staff(username, venue):
     from organizations.models import OrgRole
 
-    user = UserFactory(username=username)
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=None,
-        user=user,
-        role=OrgRole.Role.FRONTDESK,
-    )
-    return user
+    return user_with_role(venue, OrgRole.Role.FRONTDESK, username, org_wide=True)
 
 
 def _policy(org, enforcement, late_cancel_hours=12):

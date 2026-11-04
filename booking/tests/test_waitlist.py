@@ -43,12 +43,12 @@ from tests.factories import (  # noqa: WPS235
     CancellationPolicyFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
-    OrgRoleFactory,
     PlanFactory,
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
-    member_with_monthly_plan,
+    user_with_role,
+    with_monthly_plan,
 )
 
 pytestmark = pytest.mark.django_db
@@ -73,13 +73,7 @@ def _world(category=ClassCategory.GROUP, capacity=1, credits=10):
     )
 
     def member(username, member_credits=credits):
-        user = UserFactory(username=username)
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=user,
-            role=OrgRole.Role.MEMBER,
-        )
+        user = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
         PlanMembershipFactory(
             user=user,
             plan=plan,
@@ -432,7 +426,10 @@ class TestConfirmHold:
     def test_confirm_monthly_books_without_ledger(self):
         session, member = _world(capacity=1)
         seated = member("seated")
-        monthly_user = member_with_monthly_plan(session.offering.venue, "monthly")
+        monthly_user = user_with_role(
+            session.offering.venue, OrgRole.Role.MEMBER, "monthly", org_wide=True
+        )
+        with_monthly_plan(monthly_user, session.offering.venue)
         book_session(session=session, member=seated)
         waiting = book_session(session=session, member=monthly_user, waitlist=True)
         Booking.objects.filter(member=seated).update(status=Booking.Status.CANCELLED)
@@ -561,12 +558,8 @@ class TestCancelTriggersPromotion:
         queued = member("queued")
         seated_booking = book_session(session=session, member=seated)
         waiting = book_session(session=session, member=queued, waitlist=True)
-        desk = UserFactory(username="wait-desk")
-        OrgRoleFactory(
-            organization=session.offering.venue.organization,
-            venue=None,
-            user=desk,
-            role=OrgRole.Role.FRONTDESK,
+        desk = user_with_role(
+            session.offering.venue, OrgRole.Role.FRONTDESK, "wait-desk", org_wide=True
         )
 
         cancel_booking(
@@ -585,12 +578,8 @@ class TestCancelTriggersPromotion:
         queued = member("queued")
         seated_booking = book_session(session=session, member=seated)
         waiting = book_session(session=session, member=queued, waitlist=True)
-        desk = UserFactory(username="wait-door")
-        OrgRoleFactory(
-            organization=session.offering.venue.organization,
-            venue=None,
-            user=desk,
-            role=OrgRole.Role.FRONTDESK,
+        desk = user_with_role(
+            session.offering.venue, OrgRole.Role.FRONTDESK, "wait-door", org_wide=True
         )
 
         ClassSession.objects.filter(pk=session.pk).update(
@@ -608,12 +597,11 @@ class TestCancelTriggersPromotion:
         queued = member("queued")
         book_session(session=session, member=seated)
         waiting = book_session(session=session, member=queued, waitlist=True)
-        desk = UserFactory(username="wait-manager")
-        OrgRoleFactory(
-            organization=session.offering.venue.organization,
-            venue=None,
-            user=desk,
-            role=OrgRole.Role.MANAGER,
+        desk = user_with_role(
+            session.offering.venue,
+            OrgRole.Role.MANAGER,
+            "wait-manager",
+            org_wide=True,
         )
 
         cancel_session(session_id=session.pk, actor=desk, reason="studio closed")

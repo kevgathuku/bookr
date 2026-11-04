@@ -24,16 +24,10 @@ def _client(user, slug="downtown"):
 
 
 def _world(slug="adjust-world"):
-    from tests.factories import OrgRoleFactory, UserFactory, VenueFactory
+    from tests.factories import VenueFactory, user_with_role
 
     venue = VenueFactory(slug=slug)
-    member = UserFactory(username=f"member-{slug}")
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=None,
-        user=member,
-        role=OrgRole.Role.MEMBER,
-    )
+    member = user_with_role(venue, OrgRole.Role.MEMBER, f"member-{slug}", org_wide=True)
     return venue, member
 
 
@@ -45,16 +39,9 @@ def _membership(venue, member, credits=10):
 
 
 def _staff(venue, slug, role=OrgRole.Role.FRONTDESK):
-    from tests.factories import OrgRoleFactory, UserFactory
+    from tests.factories import user_with_role
 
-    staffer = UserFactory(username=f"desk-{slug}")
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=None,
-        user=staffer,
-        role=role,
-    )
-    return staffer
+    return user_with_role(venue, role, f"desk-{slug}", org_wide=True)
 
 
 class TestMembershipList:
@@ -83,14 +70,10 @@ class TestMembershipList:
 
     def test_member_cannot_list_another_member(self):
         venue, member = _world("no-leak")
-        from tests.factories import OrgRoleFactory, UserFactory
+        from tests.factories import user_with_role
 
-        other = UserFactory(username="other-no-leak")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=other,
-            role=OrgRole.Role.MEMBER,
+        other = user_with_role(
+            venue, OrgRole.Role.MEMBER, "other-no-leak", org_wide=True
         )
 
         response = _client(member, slug="no-leak").get(

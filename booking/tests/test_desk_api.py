@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from organizations.models import Organization, OrgRole, Venue
-from tests.factories import UserFactory
+from tests.factories import user_with_role
 
 pytestmark = pytest.mark.django_db
 
@@ -44,22 +44,11 @@ def _venue(slug="downtown"):
 
 
 def _staff(venue, username="manager", role=OrgRole.Role.MANAGER):
-    user = UserFactory(username=_unique(username))
-    OrgRole.objects.create(
-        organization=venue.organization, venue=venue, user=user, role=role
-    )
-    return user
+    return user_with_role(venue, role, _unique(username))
 
 
 def _member(venue, username="member"):
-    user = UserFactory(username=_unique(username))
-    OrgRole.objects.create(
-        organization=venue.organization,
-        venue=venue,
-        user=user,
-        role=OrgRole.Role.MEMBER,
-    )
-    return user
+    return user_with_role(venue, OrgRole.Role.MEMBER, _unique(username))
 
 
 def _member_with_plan(venue, username):
@@ -149,16 +138,11 @@ class TestDeskCancelFlows:
         return client
 
     def _world(self, slug="desk-flow"):
-        from organizations.models import OrgRole
-        from tests.factories import OrgRoleFactory, UserFactory, VenueFactory
+        from tests.factories import VenueFactory, user_with_role
 
         venue = VenueFactory(slug=slug)
-        desk = UserFactory(username=f"desk-{slug}")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=desk,
-            role=OrgRole.Role.FRONTDESK,
+        desk = user_with_role(
+            venue, OrgRole.Role.FRONTDESK, f"desk-{slug}", org_wide=True
         )
         return venue, desk
 
@@ -172,19 +156,11 @@ class TestDeskCancelFlows:
         from tests.factories import (
             ClassOfferingFactory,
             ClassSessionFactory,
-            OrgRoleFactory,
             PlanFactory,
             PlanMembershipFactory,
-            UserFactory,
         )
 
-        member = UserFactory(username=username)
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=member,
-            role=OrgRole.Role.MEMBER,
-        )
+        member = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
         plan = PlanFactory(organization=venue.organization)
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
         offering = ClassOfferingFactory(venue=venue, duration_minutes=60)

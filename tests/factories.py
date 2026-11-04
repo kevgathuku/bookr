@@ -216,19 +216,13 @@ def user_with_role(
     return user_with_roles(venue, [(role, org_wide)], username=username)
 
 
-def member_with_monthly_plan(venue: Venue, username: str | None = None):
-    """Member holding a valid monthly (unlimited, recurring) plan."""
-    user = user_with_role(venue, OrgRole.Role.MEMBER, username=username, org_wide=True)
+def with_monthly_plan(user, venue):
+    """Attach a valid monthly (unlimited, recurring) plan to a user."""
     plan = PlanFactory(organization=venue.organization, monthly=True)
-    PlanMembershipFactory(user=user, plan=plan, credits_remaining=None)
-    return user
+    return PlanMembershipFactory(user=user, plan=plan, credits_remaining=None)
 
 
-def member_with_credit_pack(
-    venue: Venue, username: str | None = None, credits: int = 10
-):
-    """Member holding a credit-pack plan with `credits` remaining."""
-    user = user_with_role(venue, OrgRole.Role.MEMBER, username=username, org_wide=True)
+def with_credit_pack(user, venue, credits=10):
+    """Attach a credit-pack plan with `credits` remaining to a user."""
     plan = PlanFactory(organization=venue.organization)
-    membership = PlanMembershipFactory(user=user, plan=plan, credits_remaining=credits)
-    return user, membership
+    return PlanMembershipFactory(user=user, plan=plan, credits_remaining=credits)

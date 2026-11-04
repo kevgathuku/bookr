@@ -12,15 +12,15 @@ from booking.models import Booking
 from booking.services import book_session
 from organizations.models import OrgRole
 from passes.models import CreditLedger, PlanType
-from tests.factories import (
+from tests.factories import (  # noqa: WPS235
     ClassOfferingFactory,
     ClassSessionFactory,
-    OrgRoleFactory,
     PlanFactory,
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
-    member_with_monthly_plan,
+    user_with_role,
+    with_monthly_plan,
 )
 
 pytestmark = pytest.mark.django_db
@@ -54,10 +54,7 @@ def _pack(venue, name, duration_days=30):
 
 def _member(username, venue, credits=10, plan=None):
     # Venue access rides on the org-wide member role; the plan only pays.
-    user = UserFactory(username=username)
-    OrgRoleFactory(
-        organization=venue.organization, venue=None, user=user, role=OrgRole.Role.MEMBER
-    )
+    user = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
     plan = plan or _pack(venue, f"{username}-pack")
     PlanMembershipFactory(
         user=user,
@@ -215,7 +212,8 @@ class TestBookSession:
     def test_monthly_books_free_without_balance(self):
         venue = _venue("monthly")
         session = _session(venue, price=2)
-        member = member_with_monthly_plan(venue, "m1")
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
+        with_monthly_plan(member, venue)
 
         booking = book_session(session=session, member=member)
 
@@ -227,7 +225,8 @@ class TestBookSession:
     def test_monthly_preferred_over_pack(self):
         venue = _venue("prefer")
         session = _session(venue, price=2)
-        member = member_with_monthly_plan(venue, "m1")
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
+        with_monthly_plan(member, venue)
         pack = _pack(venue, "m1-pack")
         PlanMembershipFactory(
             user=member,
@@ -426,13 +425,7 @@ class TestBookingApi:
         # Venue access (org-wide role) but nothing to pay with.
         venue = _venue("api-broke")
         session = _session(venue)
-        member = UserFactory(username="broke")
-        OrgRoleFactory(
-            organization=venue.organization,
-            venue=None,
-            user=member,
-            role=OrgRole.Role.MEMBER,
-        )
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "broke", org_wide=True)
 
         response = self._client(member, venue).post(
             "/api/v1/bookings/", {"session": session.pk}
