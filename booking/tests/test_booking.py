@@ -43,19 +43,10 @@ def _venue(slug):
     return VenueFactory(slug=slug, name=slug.title())
 
 
-def _pack(venue, name, duration_days=30):
-    return PlanFactory(
-        organization=venue.organization,
-        name=name,
-        plan_type=PlanType.CREDIT_PACK,
-        duration_days=duration_days,
-    )
-
-
-def _member(username, venue, credits=10, plan=None):
+def _member(username, venue, credits=10):
     # Venue access rides on the org-wide member role; the plan only pays.
     user = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
-    plan = plan or _pack(venue, f"{username}-pack")
+    plan = PlanFactory(organization=venue.organization, name=f"{username}-pack")
     PlanMembershipFactory(
         user=user,
         plan=plan,
@@ -227,7 +218,7 @@ class TestBookSession:
         session = _session(venue, price=2)
         member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
         with_monthly_plan(member, venue)
-        pack = _pack(venue, "m1-pack")
+        pack = PlanFactory(organization=venue.organization, name="m1-pack")
         PlanMembershipFactory(
             user=member,
             plan=pack,
@@ -245,7 +236,7 @@ class TestBookSession:
         venue = _venue("oldest")
         session = _session(venue, price=1)
         member = _member("m1", venue)
-        old_pack = _pack(venue, "old-pack")
+        old_pack = PlanFactory(organization=venue.organization, name="old-pack")
         PlanMembershipFactory(
             user=member,
             plan=old_pack,
