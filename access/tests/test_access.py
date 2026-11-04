@@ -141,8 +141,7 @@ class TestAccessPointModel:
 
 
 class TestGrantDeny:
-    def test_active_pass_grants_and_logs(self):
-        venue = _venue()
+    def test_active_pass_grants_and_logs(self, venue):
         point, token = _point(venue)
         member = _member_with_plan(venue, "member")
 
@@ -153,8 +152,7 @@ class TestGrantDeny:
         event = AccessEvent.objects.get(access_point=point, member=member)
         assert (event.granted, event.reason) == (True, "active_pass")
 
-    def test_live_booking_window_grants(self):
-        venue = _venue()
+    def test_live_booking_window_grants(self, venue):
         point, token = _point(venue)
         member = _member_with_plan(venue, "dropin")
         session = _session(venue, minutes_from_now=10)
@@ -170,10 +168,9 @@ class TestGrantDeny:
         assert response.data["granted"] is True
         assert AccessEvent.objects.get(member=member).reason == "live_booking"
 
-    def test_held_booking_denies_door(self):
+    def test_held_booking_denies_door(self, venue):
         from booking.models import Booking
 
-        venue = _venue()
         point, token = _point(venue)
         member = _member_with_plan(venue, "holder", credits=0)
         session = _session(venue, minutes_from_now=10)
@@ -192,8 +189,7 @@ class TestGrantDeny:
         assert response.data["granted"] is False
         assert AccessEvent.objects.get(member=member).reason == "no_access"
 
-    def test_staff_grants_without_pass_or_booking(self):
-        venue = _venue()
+    def test_staff_grants_without_pass_or_booking(self, venue):
         point, token = _point(venue)
         staff = user_with_role(venue, OrgRole.Role.MANAGER, username="manager")
 
@@ -202,8 +198,7 @@ class TestGrantDeny:
         assert response.data["granted"] is True
         assert AccessEvent.objects.get(member=staff).reason == "staff"
 
-    def test_stranger_denies_and_logs(self):
-        venue = _venue()
+    def test_stranger_denies_and_logs(self, venue):
         point, token = _point(venue)
         stranger = user_with_role(venue, OrgRole.Role.MEMBER, username="stranger")
 
@@ -212,8 +207,7 @@ class TestGrantDeny:
         assert response.data["granted"] is False
         assert AccessEvent.objects.get(member=stranger).reason == "no_access"
 
-    def test_bad_token_401(self):
-        venue = _venue()
+    def test_bad_token_401(self, venue):
         point, _ = _point(venue)
         member = _member_with_plan(venue, "member")
 
@@ -221,10 +215,9 @@ class TestGrantDeny:
 
         assert response.status_code == 401
 
-    def test_metric_counts_grants(self):
+    def test_metric_counts_grants(self, venue):
         from django.test import Client
 
-        venue = _venue()
         point, token = _point(venue)
         member = _member_with_plan(venue, "member")
         before = Client().get("/metrics/").content.decode().count("door_grants_total")
@@ -236,8 +229,7 @@ class TestGrantDeny:
 
 
 class TestPassback:
-    def test_replay_within_60s_returns_prior_without_new_event(self):
-        venue = _venue()
+    def test_replay_within_60s_returns_prior_without_new_event(self, venue):
         point, token = _point(venue)
         member = _member_with_plan(venue, "member")
 
@@ -250,8 +242,7 @@ class TestPassback:
 
 
 class TestFailClosed:
-    def test_db_outage_denies(self):
-        venue = _venue()
+    def test_db_outage_denies(self, venue):
         point, token = _point(venue)
         member = _member_with_plan(venue, "member")
 
@@ -263,8 +254,7 @@ class TestFailClosed:
 
 
 class TestRecentEvents:
-    def test_frontdesk_reads_member_cannot(self):
-        venue = _venue()
+    def test_frontdesk_reads_member_cannot(self, venue):
         point, token = _point(venue)
         member = _member_with_plan(venue, "member")
         staff = user_with_role(venue, OrgRole.Role.FRONTDESK, username="frontdesk")
@@ -272,7 +262,7 @@ class TestRecentEvents:
 
         client = APIClient()
         client.force_authenticate(user=staff)
-        client.defaults["HTTP_X_VENUE_SLUG"] = "downtown"
+        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
         staff_view = client.get("/api/v1/access/events/")
         client.force_authenticate(user=member)
         member_view = client.get("/api/v1/access/events/")
@@ -281,10 +271,9 @@ class TestRecentEvents:
         assert len(staff_view.data) == 1
         assert member_view.status_code == 403
 
-    def test_latency_budget(self):
+    def test_latency_budget(self, venue):
         import time
 
-        venue = _venue()
         point, token = _point(venue)
         member = _member_with_plan(venue, "member")
         _check(token, member.pk, point.pk)  # warm cache
@@ -377,8 +366,7 @@ class TestDoorPlanMemberships:
         point, _token = _point(venue)
         return decide(point, member)
 
-    def test_monthly_plan_grants_without_balance(self):
-        venue = _venue()
+    def test_monthly_plan_grants_without_balance(self, venue):
         member = _user("monthly")
         plan = PlanFactory(organization=venue.organization, monthly=True)
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=None)
@@ -387,8 +375,7 @@ class TestDoorPlanMemberships:
 
         assert (verdict.granted, verdict.reason) == (True, "active_pass")
 
-    def test_pack_with_balance_grants(self):
-        venue = _venue()
+    def test_pack_with_balance_grants(self, venue):
         member = _user("packholder")
         plan = PlanFactory(
             organization=venue.organization, plan_type=PlanType.CREDIT_PACK
@@ -399,8 +386,7 @@ class TestDoorPlanMemberships:
 
         assert verdict.granted is True
 
-    def test_depleted_pack_denies(self):
-        venue = _venue()
+    def test_depleted_pack_denies(self, venue):
         member = _user("depleted")
         plan = PlanFactory(
             organization=venue.organization, plan_type=PlanType.CREDIT_PACK
@@ -411,9 +397,7 @@ class TestDoorPlanMemberships:
 
         assert verdict.granted is False
 
-    def test_org_role_teacher_opens_staff_door(self):
-
-        venue = _venue()
+    def test_org_role_teacher_opens_staff_door(self, venue):
         point, _token = _point(venue)
         teacher = user_with_role(venue, OrgRole.Role.TEACHER, "door-teacher")
 
@@ -421,9 +405,7 @@ class TestDoorPlanMemberships:
 
         assert (verdict.granted, verdict.reason) == (True, "staff")
 
-    def test_org_role_plain_member_door_denied(self):
-
-        venue = _venue()
+    def test_org_role_plain_member_door_denied(self, venue):
         point, _token = _point(venue)
         member = user_with_role(venue, OrgRole.Role.MEMBER, "doormember")
 

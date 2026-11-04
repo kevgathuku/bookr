@@ -112,8 +112,7 @@ def _roles(user, venue):
 
 
 class TestResolution:
-    def test_most_specific_wins(self):
-        venue = _venue()
+    def test_most_specific_wins(self, venue):
         org = venue.organization
         base = _policy(org, NONE)
         specific = _policy(org, STRIKE, venue=venue)
@@ -129,8 +128,7 @@ class TestResolution:
         )
         assert base.pk is not None
 
-    def test_more_scopes_beat_fewer(self):
-        venue = _venue()
+    def test_more_scopes_beat_fewer(self, venue):
         org = venue.organization
         _policy(org, NONE, venue=venue)
         both = _policy(org, STRIKE, venue=venue, class_category=ClassCategory.GROUP)
@@ -145,8 +143,7 @@ class TestResolution:
             == both
         )
 
-    def test_higher_priority_breaks_ties(self):
-        venue = _venue()
+    def test_higher_priority_breaks_ties(self, venue):
         org = venue.organization
         low = _policy(org, NONE, venue=venue, priority=0)
         high = _policy(org, STRIKE, class_category=ClassCategory.GROUP, priority=5)
@@ -162,8 +159,7 @@ class TestResolution:
         )
         assert low.pk is not None
 
-    def test_ambiguous_rules_rejected_at_creation(self):
-        venue = _venue()
+    def test_ambiguous_rules_rejected_at_creation(self, venue):
         org = venue.organization
         _policy(org, NONE, venue=venue)
         rival = CancellationPolicyFactory(
@@ -176,8 +172,7 @@ class TestResolution:
         with pytest.raises(ValidationError):
             rival.full_clean()
 
-    def test_uncovered_context_falls_back_to_baseline(self):
-        venue = _venue()
+    def test_uncovered_context_falls_back_to_baseline(self, venue):
         org = venue.organization
 
         policy = resolve_policy(
@@ -191,8 +186,7 @@ class TestResolution:
         assert policy.venue is None
         assert policy.specificity == 0
 
-    def test_baseline_created_once(self):
-        venue = _venue()
+    def test_baseline_created_once(self, venue):
         org = venue.organization
         resolve_policy(
             OrgId(org.pk), VenueId(venue.pk), ClassCategory.GROUP, PlanType.CREDIT_PACK
@@ -203,8 +197,7 @@ class TestResolution:
 
         assert CancellationPolicy.objects.filter(organization=org).count() == 1
 
-    def test_last_rule_deletion_protected(self):
-        venue = _venue()
+    def test_last_rule_deletion_protected(self, venue):
         org = venue.organization
         only = resolve_policy(
             OrgId(org.pk),
@@ -216,8 +209,7 @@ class TestResolution:
         with pytest.raises(ValidationError):
             only.delete()
 
-    def test_non_last_rule_deletes(self):
-        venue = _venue()
+    def test_non_last_rule_deletes(self, venue):
         org = venue.organization
         _policy(org, STRIKE, venue=venue)
         baseline = resolve_policy(
@@ -330,8 +322,7 @@ class TestMemberOutcome:
 
 
 class TestPolicyModel:
-    def test_specificity_counts_scopes(self):
-        venue = _venue()
+    def test_specificity_counts_scopes(self, venue):
         org = venue.organization
 
         assert _policy(org, NONE).specificity == 0
@@ -354,8 +345,7 @@ class TestPolicyModel:
             == 3
         )
 
-    def test_overlaps(self):
-        venue = _venue()
+    def test_overlaps(self, venue):
         org = venue.organization
         plain = _policy(org, NONE)
         pinned = _policy(org, NONE, venue=venue, priority=1)
@@ -371,8 +361,7 @@ class TestPolicyModel:
 
         assert str(policy) == f"policy #{policy.pk} (0 scopes)"
 
-    def test_record_str(self):
-        venue = _venue()
+    def test_record_str(self, venue):
         session = _session(venue)
         member = _member("m1", venue, credits=10)
         _policy(venue.organization, LATE)
@@ -386,8 +375,7 @@ class TestPolicyModel:
 
         assert str(record) == f"cancel record #{record.pk} (member_cancel)"
 
-    def test_record_resave_refused(self):
-        venue = _venue()
+    def test_record_resave_refused(self, venue):
         session = _session(venue)
         member = _member("m1", venue, credits=10)
         _policy(venue.organization, LATE)
@@ -403,8 +391,7 @@ class TestPolicyModel:
             record.credits_refunded = 99
             record.save()
 
-    def test_record_update_fields_save_refused(self):
-        venue = _venue()
+    def test_record_update_fields_save_refused(self, venue):
         session = _session(venue)
         member = _member("m1", venue, credits=10)
         _policy(venue.organization, LATE)
@@ -511,8 +498,7 @@ class TestHeldRelease:
         with pytest.raises(AlreadyCancelled):
             check_in(booking_id=waiting.pk, actor=desk)
 
-    def test_waived_record_without_actor_rejected_at_db(self):
-        venue = _venue()
+    def test_waived_record_without_actor_rejected_at_db(self, venue):
         session = _session(venue)
         member = _member("waived", venue, credits=10)
         booking = _book(member, session)
@@ -530,8 +516,7 @@ class TestHeldRelease:
                 snapshot={},
             )
 
-    def test_ontime_record_with_enforcement_rejected_at_db(self):
-        venue = _venue()
+    def test_ontime_record_with_enforcement_rejected_at_db(self, venue):
         session = _session(venue)
         member = _member("ontime", venue, credits=10)
         booking = _book(member, session)
@@ -549,8 +534,7 @@ class TestHeldRelease:
 
 
 class TestMemberCancel:
-    def test_early_cancel_refunds_and_records(self):
-        venue = _venue()
+    def test_early_cancel_refunds_and_records(self, venue):
         session = _session(venue, starts_in_hours=48)
         member = _member("m1", venue, credits=10)
         _policy(venue.organization, LATE, late_cancel_hours=12)
@@ -570,8 +554,7 @@ class TestMemberCancel:
         assert record.credits_refunded == 2
         member.plan_memberships.get().refresh_from_db()
 
-    def test_late_cancel_lose_credit_forfeits(self):
-        venue = _venue()
+    def test_late_cancel_lose_credit_forfeits(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         _policy(venue.organization, LATE, late_cancel_hours=12)
@@ -597,8 +580,7 @@ class TestMemberCancel:
             == 0
         )
 
-    def test_late_cancel_strike_refunds_and_counts(self):
-        venue = _venue()
+    def test_late_cancel_strike_refunds_and_counts(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         _policy(venue.organization, STRIKE, late_cancel_hours=12)
@@ -615,8 +597,7 @@ class TestMemberCancel:
         assert record.credits_refunded == 2
         assert strike_count(member, venue.organization, timezone.now()) == 1
 
-    def test_no_rule_is_designed_free(self):
-        venue = _venue()
+    def test_no_rule_is_designed_free(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         booking = _book(member, session)
@@ -631,8 +612,7 @@ class TestMemberCancel:
         assert record.enforcement_applied == NONE
         assert record.credits_refunded == 2
 
-    def test_double_cancel_raises(self):
-        venue = _venue()
+    def test_double_cancel_raises(self, venue):
         session = _session(venue)
         member = _member("m1", venue)
         booking = _book(member, session)
@@ -651,8 +631,7 @@ class TestMemberCancel:
                 reason="second",
             )
 
-    def test_cancel_started_session_raises(self):
-        venue = _venue()
+    def test_cancel_started_session_raises(self, venue):
         session = _session(venue, starts_in_hours=-1)
         member = _member("m1", venue)
         booking = _direct_booking(member, session)
@@ -665,8 +644,7 @@ class TestMemberCancel:
                 reason="too late",
             )
 
-    def test_snapshot_pins_full_context(self):
-        venue = _venue()
+    def test_snapshot_pins_full_context(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         policy = _policy(venue.organization, STRIKE, late_cancel_hours=12)
@@ -707,10 +685,9 @@ class TestMemberCancel:
             "waived_by_id": None,
         }
 
-    def test_resolution_follows_current_rules(self):
+    def test_resolution_follows_current_rules(self, venue):
         # No versions: cancelling always applies today's rules; the record
         # pins what applied so history stays readable after rules change.
-        venue = _venue()
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         old = _policy(venue.organization, STRIKE, late_cancel_hours=12)
@@ -736,8 +713,7 @@ class TestMemberCancel:
 
 
 class TestInitiator:
-    def test_frontdesk_on_behalf_penalized(self):
-        venue = _venue()
+    def test_frontdesk_on_behalf_penalized(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue)
         desk = _staff("desk", venue)
@@ -755,8 +731,7 @@ class TestInitiator:
         assert record.enforcement_applied == LATE
         assert record.snapshot["on_behalf_of"] is True
 
-    def test_staff_own_decision_never_penalized(self):
-        venue = _venue()
+    def test_staff_own_decision_never_penalized(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue)
         desk = _staff("desk", venue)
@@ -776,8 +751,7 @@ class TestInitiator:
         assert record.credits_refunded == 2
         assert record.snapshot["cause"] == "staff_decision"
 
-    def test_teacher_cancels_own_roster_booking(self):
-        venue = _venue()
+    def test_teacher_cancels_own_roster_booking(self, venue):
         teacher = user_with_role(venue, OrgRole.Role.TEACHER, "t-roster", org_wide=True)
         offering = ClassOfferingFactory(venue=venue, teacher=teacher)
         session = ClassSessionFactory(
@@ -799,8 +773,7 @@ class TestInitiator:
         assert record.enforcement_applied == NONE
         assert record.credits_refunded == 2
 
-    def test_teacher_cannot_cancel_other_roster_booking(self):
-        venue = _venue()
+    def test_teacher_cannot_cancel_other_roster_booking(self, venue):
         teacher = user_with_role(
             venue, OrgRole.Role.TEACHER, "t-stranger", org_wide=True
         )
@@ -816,8 +789,7 @@ class TestInitiator:
                 reason="not mine",
             )
 
-    def test_staff_cancel_requires_reason(self):
-        venue = _venue()
+    def test_staff_cancel_requires_reason(self, venue):
         session = _session(venue)
         member = _member("m1", venue)
         desk = _staff("desk", venue)
@@ -831,8 +803,7 @@ class TestInitiator:
                 reason="",
             )
 
-    def test_waive_with_no_penalty_raises(self):
-        venue = _venue()
+    def test_waive_with_no_penalty_raises(self, venue):
         session = _session(venue)
         member = _member("m1", venue)
         desk = _staff("desk", venue)
@@ -847,9 +818,7 @@ class TestInitiator:
                 reason="nothing to waive",
             )
 
-    def test_stranger_cannot_cancel(self):
-
-        venue = _venue()
+    def test_stranger_cannot_cancel(self, venue):
         session = _session(venue)
         member = _member("m1", venue)
         stranger = UserFactory(username="stranger")
@@ -865,8 +834,7 @@ class TestInitiator:
 
 
 class TestWaiver:
-    def test_inline_waive_by_desk_forgives_but_remembers(self):
-        venue = _venue()
+    def test_inline_waive_by_desk_forgives_but_remembers(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         desk = _staff("desk", venue)
@@ -887,8 +855,7 @@ class TestWaiver:
         assert record.waived_by == desk
         assert record.credits_refunded == 2
 
-    def test_inline_waive_snapshot_remembers(self):
-        venue = _venue()
+    def test_inline_waive_snapshot_remembers(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         desk = _staff("desk", venue)
@@ -908,9 +875,7 @@ class TestWaiver:
         assert record.snapshot["penalty_waived"] is True
         assert record.snapshot["waived_by_id"] == desk.pk
 
-    def test_member_cannot_waive_own_penalty(self):
-
-        venue = _venue()
+    def test_member_cannot_waive_own_penalty(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue)
         _policy(venue.organization, LATE, late_cancel_hours=12)
@@ -925,8 +890,7 @@ class TestWaiver:
                 reason="please",
             )
 
-    def test_retroactive_waive_compensates_without_rewriting(self):
-        venue = _venue()
+    def test_retroactive_waive_compensates_without_rewriting(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         desk = _staff("desk", venue)
@@ -952,8 +916,7 @@ class TestWaiver:
         assert record.enforcement_applied == LATE
         assert record.credits_refunded == 0
 
-    def test_retroactive_waive_of_zero_spend_raises(self):
-        venue = _venue()
+    def test_retroactive_waive_of_zero_spend_raises(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
         with_monthly_plan(member, venue)
@@ -970,8 +933,7 @@ class TestWaiver:
         with pytest.raises(InvalidWaiver):
             waive_record(record_id=record.pk, actor=desk, reason="goodwill")
 
-    def test_retroactive_waive_of_strike_raises(self):
-        venue = _venue()
+    def test_retroactive_waive_of_strike_raises(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         desk = _staff("desk", venue)
@@ -991,8 +953,7 @@ class TestWaiver:
 
         assert strike_count(member, venue.organization, timezone.now()) == 1
 
-    def test_retroactive_waive_is_idempotent(self):
-        venue = _venue()
+    def test_retroactive_waive_is_idempotent(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         desk = _staff("desk", venue)
@@ -1011,10 +972,9 @@ class TestWaiver:
         assert first.pk == second.pk
         assert CreditLedger.objects.filter(cancellation_record=record).count() == 1
 
-    def test_linked_adjustment_excludes_the_strike(self):
+    def test_linked_adjustment_excludes_the_strike(self, venue):
         # Unreachable via waive_record by design (strikes move no money);
         # direct row proves the strike query honors the link regardless.
-        venue = _venue()
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         desk = _staff("desk", venue)
@@ -1040,12 +1000,11 @@ class TestWaiver:
 
 @pytest.mark.django_db(transaction=True)
 class TestSessionCancelRace:
-    def test_concurrent_session_cancels_refund_once(self):
+    def test_concurrent_session_cancels_refund_once(self, venue):
         from concurrent.futures import ThreadPoolExecutor
 
         from django.db import connection
 
-        venue = _venue()
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         _book(member, session)
@@ -1066,12 +1025,11 @@ class TestSessionCancelRace:
         assert first == second
         assert CancellationRecord.objects.filter(booking__session=session).count() == 1
 
-    def test_concurrent_member_cancels_keep_one_refund(self):
+    def test_concurrent_member_cancels_keep_one_refund(self, venue):
         from concurrent.futures import ThreadPoolExecutor
 
         from django.db import connection
 
-        venue = _venue()
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         booking = _book(member, session)
@@ -1101,8 +1059,7 @@ class TestSessionCancelRace:
 
 
 class TestSessionCancel:
-    def test_session_cancel_refunds_every_booking(self):
-        venue = _venue()
+    def test_session_cancel_refunds_every_booking(self, venue):
         session = _session(venue, starts_in_hours=2)
         members = [_member(f"m{i}", venue, credits=10) for i in range(3)]
         bookings = [_book(member, session) for member in members]
@@ -1120,8 +1077,7 @@ class TestSessionCancel:
             assert record.snapshot["cause"] == "session_cancelled"
             assert record.enforcement_applied == NONE
 
-    def test_session_cancel_repeat_returns_same_records(self):
-        venue = _venue()
+    def test_session_cancel_repeat_returns_same_records(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue, credits=10)
         _book(member, session)
@@ -1137,9 +1093,7 @@ class TestSessionCancel:
         session.refresh_from_db()
         assert session.cancelled_at is not None
 
-    def test_teacher_cancels_own_session(self):
-
-        venue = _venue()
+    def test_teacher_cancels_own_session(self, venue):
         teacher = user_with_role(venue, OrgRole.Role.TEACHER, "t-coach", org_wide=True)
         offering = ClassOfferingFactory(venue=venue, teacher=teacher)
         session = ClassSessionFactory(
@@ -1154,8 +1108,7 @@ class TestSessionCancel:
         assert len(records) == 1
         assert records[0].snapshot["cause"] == "session_cancelled"
 
-    def test_teacher_cannot_cancel_another_teachers_session(self):
-        venue = _venue()
+    def test_teacher_cannot_cancel_another_teachers_session(self, venue):
         teacher = user_with_role(venue, OrgRole.Role.TEACHER, "t-other", org_wide=True)
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue)
@@ -1164,8 +1117,7 @@ class TestSessionCancel:
         with pytest.raises(PermissionDenied):
             cancel_session(session_id=session.pk, actor=teacher, reason="not mine")
 
-    def test_session_cancel_requires_reason(self):
-        venue = _venue()
+    def test_session_cancel_requires_reason(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue)
         _book(member, session)
@@ -1176,8 +1128,7 @@ class TestSessionCancel:
 
 
 class TestNoShowAndCheckin:
-    def test_mark_no_show_forfeits_without_strike(self):
-        venue = _venue()
+    def test_mark_no_show_forfeits_without_strike(self, venue):
         session = _session(venue, starts_in_hours=-2)
         member = _member("m1", venue, credits=10)
         desk = _staff("desk", venue)
@@ -1192,8 +1143,7 @@ class TestNoShowAndCheckin:
         assert record.credits_refunded == 0
         assert strike_count(member, venue.organization, timezone.now()) == 0
 
-    def test_future_session_cannot_be_no_show(self):
-        venue = _venue()
+    def test_future_session_cannot_be_no_show(self, venue):
         session = _session(venue, starts_in_hours=2)
         member = _member("m1", venue)
         desk = _staff("desk", venue)
@@ -1202,9 +1152,7 @@ class TestNoShowAndCheckin:
         with pytest.raises(ValidationError):
             mark_no_show(booking_id=booking.pk, actor=desk)
 
-    def test_member_cannot_mark_no_show(self):
-
-        venue = _venue()
+    def test_member_cannot_mark_no_show(self, venue):
         session = _session(venue, starts_in_hours=-2)
         member = _member("m1", venue)
         booking = _direct_booking(member, session)
@@ -1212,8 +1160,7 @@ class TestNoShowAndCheckin:
         with pytest.raises(PermissionDenied):
             mark_no_show(booking_id=booking.pk, actor=member)
 
-    def test_check_in_is_status_only(self):
-        venue = _venue()
+    def test_check_in_is_status_only(self, venue):
         session = _session(venue, starts_in_hours=1)
         member = _member("m1", venue)
         desk = _staff("desk", venue)
@@ -1227,8 +1174,7 @@ class TestNoShowAndCheckin:
 
 
 class TestStrikes:
-    def test_window_excludes_old_and_waived(self):
-        venue = _venue()
+    def test_window_excludes_old_and_waived(self, venue):
         org = venue.organization
         member = _member("m1", venue, credits=30)
         desk = _staff("desk", venue)

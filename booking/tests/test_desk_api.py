@@ -66,7 +66,6 @@ def _book(member, session):
 class TestRoster:
     def test_roster_rejects_bad_date(self):
         venue = _venue()
-
         response = _client(_staff(venue)).get(
             "/api/v1/bookings/roster/?date=not-a-date"
         )
@@ -115,7 +114,6 @@ class TestMemberSearch:
 
     def test_member_cannot_search(self):
         venue = _venue()
-
         response = _client(_member(venue)).get("/api/v1/members/search/?q=a")
 
         assert response.status_code in (403, 404)
