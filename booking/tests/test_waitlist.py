@@ -30,6 +30,7 @@ from booking.errors import (
 from booking.models import Booking, CancellationPolicy, CancellationRecord
 from booking.services import (
     HOLD_WINDOW_MINUTES,
+    _lapse_hold,
     book_session,
     confirm_booking,
     promote_next,
@@ -344,6 +345,41 @@ class TestSweepExpiredHolds:
         assert (
             Booking.objects.get(member__username="queued").status
             == Booking.Status.CANCELLED
+        )
+
+    def test_sweep_skips_hold_confirmed_first(self):
+        # Schema forbids hold_expires_at on non-HELD rows, so the race
+        # shape (HELD at sweep-query time, BOOKED at lock time) is staged
+        # by calling _lapse_hold directly on a confirmed booking.
+        session, member = _world(capacity=1)
+        booking = book_session(session=session, member=member("seated"))
+
+        assert _lapse_hold(booking.pk, timezone.now()) is False
+        assert Booking.objects.get(pk=booking.pk).status == Booking.Status.BOOKED
+        assert not CancellationRecord.objects.filter(booking=booking).exists()
+
+    def test_sweep_counts_multiple_expired_holds(self):
+        session, member = _world(capacity=2)
+        book_session(session=session, member=member("seated-a"))
+        book_session(session=session, member=member("seated-b"))
+        book_session(session=session, member=member("first"), waitlist=True)
+        book_session(session=session, member=member("second"), waitlist=True)
+        Booking.objects.filter(member__username__in=["seated-a", "seated-b"]).update(
+            status=Booking.Status.CANCELLED
+        )
+        promote_next(session)
+        promote_next(session)
+        Booking.objects.filter(member__username__in=["first", "second"]).update(
+            hold_expires_at=timezone.now() - timedelta(minutes=1)
+        )
+
+        assert sweep_expired_holds() == 2
+        assert (
+            Booking.objects.filter(
+                member__username__in=["first", "second"],
+                status=Booking.Status.CANCELLED,
+            ).count()
+            == 2
         )
 
     def test_sweep_passes_the_seat_to_next_in_line(self):
