@@ -7,10 +7,10 @@ ones arrive as linked ledger adjustments. No fee path anywhere.
 """
 
 import dataclasses
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import assert_never
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -26,17 +26,16 @@ from booking.models import (
 from booking.notifications import notify_member_cancel, notify_session_cancelled
 from booking.policies import resolve_policy
 from booking.tasks import promote_waitlist
+from common.ids import BookingId, OrgId, SessionId, VenueId
 from organizations.capabilities import (
     can_operate_desk,
     can_staff_door,
     can_waive,
     is_staff,
 )
-from organizations.ids import OrgId, VenueId
-from organizations.models import OrgRole
+from organizations.models import Organization, OrgRole
 from passes.models import CreditLedger, Membership
-
-User = get_user_model()
+from scheduling.models import ClassSession
 
 
 @dataclasses.dataclass(frozen=True)
@@ -54,17 +53,17 @@ class _Outcome:
 
 def cancel_booking(
     *,
-    booking_id,
-    actor,
-    on_behalf_of=False,
-    waive_penalty=False,
-    now=None,
-    reason="",
-):
+    booking_id: BookingId,
+    actor: User,
+    on_behalf_of: bool = False,
+    waive_penalty: bool = False,
+    now: datetime | None = None,
+    reason: str = "",
+) -> CancellationRecord:
     """Cancel one booking, applying the resolved rule. Returns the record."""
     moment = now or timezone.now()
     with transaction.atomic():
-        loaded = load_open_booking(booking_id, moment)
+        loaded = load_open_booking(BookingId(booking_id), moment)
         record = committed(
             _apply_cancel(
                 loaded.booking,
@@ -144,14 +143,16 @@ def _apply_cancel(
     )
 
 
-def cancel_session(*, session_id, actor, reason=""):
+def cancel_session(
+    *, session_id: SessionId, actor: User, reason: str = ""
+) -> list[CancellationRecord]:
     """Provider-side cancel: refund every active booking's stamp, penalize
     none. Repeat calls return the original records; the row lock makes
     concurrent calls and member-vs-session races safe."""
     if not reason:
         raise ValidationError("Session cancellations require a reason.")
     with transaction.atomic():
-        session = lock_session(session_id)
+        session = lock_session(SessionId(session_id))
         venue = session.offering.venue
         organization = venue.organization
         _require_session_cancel(actor, organization, session)
@@ -182,10 +183,12 @@ def _live_session_bookings(session):
     )
 
 
-def mark_no_show(*, booking_id, actor):
+def mark_no_show(*, booking_id: BookingId, actor: User) -> CancellationRecord:
     """Door-observed absence: status flips, stamp stays spent, no strike."""
     with transaction.atomic():
-        loaded = load_open_booking(booking_id, timezone.now(), allow_started=True)
+        loaded = load_open_booking(
+            BookingId(booking_id), timezone.now(), allow_started=True
+        )
         booking, session = loaded.booking, loaded.session
         organization = loaded.venue.organization
         if session.starts_at > timezone.now():
@@ -227,10 +230,12 @@ def _write_no_show_record(booking, session, organization, actor):
     )
 
 
-def check_in(*, booking_id, actor):
+def check_in(*, booking_id: BookingId, actor: User) -> Booking:
     """Status-only attendance mark: no record, no money moves."""
     with transaction.atomic():
-        loaded = load_open_booking(booking_id, timezone.now(), allow_started=True)
+        loaded = load_open_booking(
+            BookingId(booking_id), timezone.now(), allow_started=True
+        )
         booking = loaded.booking
         organization = loaded.venue.organization
         if booking.status != Booking.Status.BOOKED:
@@ -245,7 +250,7 @@ def check_in(*, booking_id, actor):
 def waive_record(
     *,
     record_id: int,
-    actor: User,  # type: ignore[valid-type]
+    actor: User,
     reason: str = "",
 ) -> CreditLedger:
     """Retroactive waiver: a compensating ADJUSTMENT for forfeited credits,
@@ -294,7 +299,9 @@ def waive_record(
         return adjustment
 
 
-def strike_count(member, organization, now=None):
+def strike_count(
+    member: User, organization: Organization, now: datetime | None = None
+) -> int:
     """Stood STRIKE-enforcement lates in the rolling 30-day window.
 
     Inline-waived rows are excluded by flag; retroactively waived rows by
@@ -319,7 +326,13 @@ def strike_count(member, organization, now=None):
     )
 
 
-def release_unclaimed(booking, session, organization, actor, reason):
+def release_unclaimed(
+    booking: Booking,
+    session: ClassSession,
+    organization: Organization,
+    actor: User | None,
+    reason: str,
+) -> CancellationRecord:
     """Shared exit for unconfirmed holds: never charged, so never
     penalized, refunded, or waived — released as unclaimed."""
     booking.status = Booking.Status.CANCELLED

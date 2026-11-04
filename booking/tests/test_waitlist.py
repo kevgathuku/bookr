@@ -36,6 +36,7 @@ from booking.services import (
     promote_next,
     sweep_expired_holds,
 )
+from common.ids import BookingId, SessionId
 from organizations.models import OrgRole
 from passes.models import CreditLedger, Membership, PlanType
 from scheduling.models import ClassCategory, ClassSession
@@ -419,7 +420,7 @@ class TestConfirmHold:
         _session, queued, waiting = self._held_world()
         opening = Membership.objects.get(user=queued).credits_remaining
 
-        confirmed = confirm_booking(booking_id=waiting.pk, actor=queued)
+        confirmed = confirm_booking(booking_id=BookingId(waiting.pk), actor=queued)
 
         assert confirmed.status == Booking.Status.BOOKED
         assert confirmed.credits_spent == 1
@@ -441,7 +442,9 @@ class TestConfirmHold:
         Booking.objects.filter(member=seated).update(status=Booking.Status.CANCELLED)
         promote_next(session)
 
-        confirmed = confirm_booking(booking_id=waiting.pk, actor=monthly_user)
+        confirmed = confirm_booking(
+            booking_id=BookingId(waiting.pk), actor=monthly_user
+        )
 
         assert confirmed.status == Booking.Status.BOOKED
         assert confirmed.credits_spent == 0
@@ -452,15 +455,15 @@ class TestConfirmHold:
         booking = book_session(session=session, member=member("seated"))
 
         with pytest.raises(NotHeld):
-            confirm_booking(booking_id=booking.pk, actor=booking.member)
+            confirm_booking(booking_id=BookingId(booking.pk), actor=booking.member)
 
     def test_confirm_cancelled_booking_raises(self, world):
         session, member = world
         booking = book_session(session=session, member=member("seated"))
-        cancel_booking(booking_id=booking.pk, actor=booking.member)
+        cancel_booking(booking_id=BookingId(booking.pk), actor=booking.member)
 
         with pytest.raises(AlreadyCancelled):
-            confirm_booking(booking_id=booking.pk, actor=booking.member)
+            confirm_booking(booking_id=BookingId(booking.pk), actor=booking.member)
 
     def test_confirm_after_session_start_raises(self):
         session, queued, waiting = self._held_world()
@@ -469,7 +472,7 @@ class TestConfirmHold:
         )
 
         with pytest.raises(SessionStarted):
-            confirm_booking(booking_id=waiting.pk, actor=queued)
+            confirm_booking(booking_id=BookingId(waiting.pk), actor=queued)
 
     def test_confirm_expired_hold_raises(self):
         _session, queued, waiting = self._held_world()
@@ -478,7 +481,7 @@ class TestConfirmHold:
         )
 
         with pytest.raises(NotHeld):
-            confirm_booking(booking_id=waiting.pk, actor=queued)
+            confirm_booking(booking_id=BookingId(waiting.pk), actor=queued)
 
     def test_confirm_lapsed_pass_raises(self):
         _session, queued, waiting = self._held_world()
@@ -488,7 +491,7 @@ class TestConfirmHold:
         )
 
         with pytest.raises(CreditInsufficient):
-            confirm_booking(booking_id=waiting.pk, actor=queued)
+            confirm_booking(booking_id=BookingId(waiting.pk), actor=queued)
 
         waiting.refresh_from_db()
         assert waiting.status == Booking.Status.HELD
@@ -498,7 +501,7 @@ class TestConfirmHold:
         stranger = UserFactory(username="stranger")
 
         with pytest.raises(PermissionDenied):
-            confirm_booking(booking_id=waiting.pk, actor=stranger)
+            confirm_booking(booking_id=BookingId(waiting.pk), actor=stranger)
 
 
 class TestWaitlistNotifications:
@@ -532,7 +535,7 @@ class TestCancelTriggersPromotion:
         seated_booking = book_session(session=session, member=seated)
         waiting = book_session(session=session, member=queued, waitlist=True)
 
-        cancel_booking(booking_id=seated_booking.pk, actor=seated)
+        cancel_booking(booking_id=BookingId(seated_booking.pk), actor=seated)
 
         waiting.refresh_from_db()
         assert waiting.status == Booking.Status.HELD
@@ -551,7 +554,7 @@ class TestCancelTriggersPromotion:
         seated_booking = book_session(session=session, member=seated)
         waiting = book_session(session=session, member=queued, waitlist=True)
 
-        record = cancel_booking(booking_id=seated_booking.pk, actor=seated)
+        record = cancel_booking(booking_id=BookingId(seated_booking.pk), actor=seated)
 
         assert record.cause == "member_cancel"
         waiting.refresh_from_db()
@@ -568,7 +571,7 @@ class TestCancelTriggersPromotion:
         )
 
         cancel_booking(
-            booking_id=seated_booking.pk,
+            booking_id=BookingId(seated_booking.pk),
             actor=desk,
             on_behalf_of=True,
             reason="desk frees the seat",
@@ -591,7 +594,7 @@ class TestCancelTriggersPromotion:
             starts_at=timezone.now() - timedelta(minutes=30)
         )
 
-        mark_no_show(booking_id=seated_booking.pk, actor=desk)
+        mark_no_show(booking_id=BookingId(seated_booking.pk), actor=desk)
 
         waiting.refresh_from_db()
         assert waiting.status == Booking.Status.HELD
@@ -609,7 +612,9 @@ class TestCancelTriggersPromotion:
             org_wide=True,
         )
 
-        cancel_session(session_id=session.pk, actor=desk, reason="studio closed")
+        cancel_session(
+            session_id=SessionId(session.pk), actor=desk, reason="studio closed"
+        )
 
         waiting.refresh_from_db()
         assert waiting.status == Booking.Status.CANCELLED

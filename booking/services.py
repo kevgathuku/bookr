@@ -5,6 +5,7 @@ live here too; booking/tasks.py wraps them as shared tasks."""
 
 from datetime import datetime, timedelta
 
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -20,7 +21,8 @@ from booking.errors import (
 )
 from booking.models import ACTIVE_STATUSES, Booking
 from booking.notifications import notify_hold_expired, notify_promoted
-from passes.models import Entitlement
+from common.ids import BookingId, OrgId, SessionId
+from passes.models import Entitlement, Membership
 from passes.services import spend_for_booking, valid_memberships
 from scheduling.models import ClassCategory, ClassSession
 
@@ -33,7 +35,7 @@ HOLD_WINDOW_MINUTES = 60
 def _paying_membership(member, session, price):
     """Unlimited first, else first-expiring credit pack that covers the price."""
     today = timezone.now().date()
-    organization_id = session.offering.venue.organization_id
+    organization_id = OrgId(session.offering.venue.organization_id)
     candidates = list(valid_memberships(member, organization_id, today))
     unlimited = next(
         (mem for mem in candidates if mem.plan.entitlement == Entitlement.UNLIMITED),
@@ -120,8 +122,13 @@ def _create_booking(locked, member, membership, amount):
 
 
 def book_session(
-    *, session, member, membership=None, spend_credits=True, waitlist=False
-):
+    *,
+    session: ClassSession,
+    member: User,
+    membership: Membership | None = None,
+    spend_credits: bool = True,
+    waitlist: bool = False,
+) -> Booking:
     """Book one seat, serialized per session via SELECT ... FOR UPDATE.
 
     Retries are safe through the natural key: the same member + session can
@@ -133,7 +140,7 @@ def book_session(
     sessions never queue: they book or raise SeatFull.
     """
     with transaction.atomic():
-        locked = lock_session(session.pk)
+        locked = lock_session(SessionId(session.pk))
         _ensure_open(locked)
         _ensure_no_duplicate(locked, member)
         if _is_full(locked):
@@ -181,7 +188,7 @@ def promote_next(session: ClassSession, now: datetime | None = None) -> Booking 
     """
     moment = now or timezone.now()
     with transaction.atomic():
-        locked = lock_session(session.pk)
+        locked = lock_session(SessionId(session.pk))
         if _is_full(locked):
             return None
         head = _next_waiter(locked)
@@ -199,10 +206,12 @@ def _seat_head(locked, head, moment):
     return committed(head, notify_promoted)
 
 
-def confirm_booking(*, booking_id, actor, membership=None):
+def confirm_booking(
+    *, booking_id: BookingId, actor: User, membership: Membership | None = None
+) -> Booking:
     """Claim a held seat: charge the pass, flip Held to Booked."""
     with transaction.atomic():
-        loaded = load_open_booking(booking_id, timezone.now())
+        loaded = load_open_booking(BookingId(booking_id), timezone.now())
         booking, session = loaded.booking, loaded.session
         if booking.status != Booking.Status.HELD:
             raise NotHeld("Booking holds no confirmable seat.")
@@ -238,7 +247,7 @@ def _confirmed_charge(actor, session, membership):
     return membership, _charge_for(membership, price, True)
 
 
-def sweep_expired_holds(now=None):
+def sweep_expired_holds(now: datetime | None = None) -> int:
     """Release lapsed holds as unclaimed; each freed seat passes on."""
     moment = now or timezone.now()
     expired = list(
@@ -248,15 +257,15 @@ def sweep_expired_holds(now=None):
     )
     swept = 0
     for pk in expired:
-        if _lapse_hold(pk, moment):
+        if _lapse_hold(BookingId(pk), moment):
             swept += 1
     return swept
 
 
-def _lapse_hold(pk, moment):
+def _lapse_hold(pk: BookingId, moment: datetime) -> bool:
     with transaction.atomic():
         try:
-            loaded = load_open_booking(pk, moment, allow_started=True)
+            loaded = load_open_booking(BookingId(pk), moment, allow_started=True)
         except AlreadyCancelled:
             # Member cancelled first, or another worker won.
             return False

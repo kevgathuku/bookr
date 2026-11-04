@@ -16,6 +16,7 @@ from django.utils import timezone
 from booking.cancellations import cancel_booking, cancel_session
 from booking.models import CancellationPolicy
 from booking.services import book_session
+from common.ids import BookingId, SessionId
 from scheduling.models import ClassCategory
 from tests.factories import (
     ClassOfferingFactory,
@@ -76,7 +77,7 @@ def _cancel(member, booking, **kwargs):
     kwargs.setdefault("reason", "change of plans")
     with TestCase.captureOnCommitCallbacks(execute=True) as callbacks:
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             **kwargs,
@@ -118,7 +119,7 @@ class TestMemberCancelNotice:
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
             cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=member,
                 now=timezone.now(),
                 reason="change of plans",
@@ -149,7 +150,7 @@ class TestMemberCancelNotice:
         booking = _book(member, session)
 
         cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="change of plans",
@@ -169,7 +170,7 @@ class TestSessionCancelNotice:
 
         with TestCase.captureOnCommitCallbacks(execute=True):
             records = cancel_session(
-                session_id=session.pk, actor=desk, reason="teacher sick"
+                session_id=SessionId(session.pk), actor=desk, reason="teacher sick"
             )
 
         assert len(records) == 2

@@ -7,6 +7,8 @@ do, so retries and concurrent workers are safe.
 
 from celery import shared_task
 
+from common.ids import SessionId
+
 
 @shared_task(
     name="booking.promote_waitlist",
@@ -14,7 +16,7 @@ from celery import shared_task
     retry_backoff=True,
     max_retries=5,
 )
-def promote_waitlist(session_id):
+def promote_waitlist(session_id: SessionId) -> int | None:
     from booking.services import promote_next
     from scheduling.models import ClassSession
 

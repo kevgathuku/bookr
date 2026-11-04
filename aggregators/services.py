@@ -10,6 +10,7 @@ from aggregators.models import AggregatorBooking
 from booking.errors import AllotmentExhausted, DuplicateBooking
 from booking.models import ACTIVE_STATUSES, Booking
 from booking.services import book_session
+from common.ids import BookingId
 from passes.models import Entitlement, Membership, Plan, PlanType, Validity
 
 
@@ -93,7 +94,7 @@ def cancel_partner_booking(partner, booking):
     late = timezone.now() > cutoff
     window = "inside" if late else "outside"
     record = cancel_booking(
-        booking_id=booking.pk,
+        booking_id=BookingId(booking.pk),
         actor=booking.member,
         now=timezone.now(),
         reason=f"partner {partner.slug} cancel ({window} contract cutoff)",

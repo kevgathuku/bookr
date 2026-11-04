@@ -35,9 +35,10 @@
 # Per-file: access/services.py ignores WPS202 — the door decision needs one
 # predicate per grant path (pass, booking, staff) plus shared helpers;
 # splitting it would scatter a single verdict.
-# Per-file: passes/services.py ignores WPS211 — post_entry() takes the
+# Per-file: passes/services.py ignores WPS201/WPS211 — post_entry() takes the
 # full ledger-row shape in one call by design; bundling the row extras
 # would obscure the choke-point signature every writer funnels through.
+# WPS201: ID/model annotations on the service seam cost import lines.
 # Per-file: test_browser.py ignores WPS202/WPS210/WPS213 — linear E2E scripts;
 # splitting further would be helpers that exist only to shorten.
 # Per-file: booking/views.py, aggregators/views.py ignore WPS201;
@@ -66,9 +67,10 @@
 # args explicit.
 # Per-file: booking/errors.py ignores WPS202 — an error catalogue with
 # one typed failure per booking failure mode, by design.
-# Per-file: booking/services.py ignores WPS202/WPS211 — one transaction
-# split into named steps (lock, validate, select, create); splitting the
-# module would scatter a single flow, and channel kwargs stay explicit.
+# Per-file: booking/services.py ignores WPS201/WPS202/WPS211 — one
+# transaction split into named steps (lock, validate, select, create);
+# splitting the module would scatter a single flow, and channel kwargs
+# stay explicit. WPS201: ID/model annotations on the seam cost imports.
 # Per-file: organizations/models.py ignores legacy E501/WPS237/WPS601 (long help
 # strings + attribute shadowing predate the gates; this ticket's diff is the
 # time_zone validator only).
@@ -135,6 +137,7 @@ per-file-ignores =
     organizations/tenancy.py:
         WPS202,
     booking/services.py:
+        WPS201,
         WPS202,
         WPS211,
     organizations/models.py:
@@ -168,6 +171,7 @@ per-file-ignores =
     access/services.py:
         WPS202,
     passes/services.py:
+        WPS201,
         WPS211,
     config/__init__.py:
         WPS300,

@@ -25,7 +25,7 @@ from booking.cancellations import (
 from booking.errors import AlreadyCancelled, InvalidWaiver, SessionStarted
 from booking.models import Booking, CancellationPolicy, CancellationRecord
 from booking.services import book_session
-from organizations.ids import OrgId, VenueId
+from common.ids import BookingId, OrgId, SessionId, VenueId
 from organizations.models import OrgRole
 from passes.models import CreditLedger, PlanType
 from scheduling.models import ClassCategory, ClassSession
@@ -367,7 +367,7 @@ class TestPolicyModel:
         _policy(venue.organization, LATE)
         booking = _book(member, session)
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="change of plans",
@@ -381,7 +381,7 @@ class TestPolicyModel:
         _policy(venue.organization, LATE)
         booking = _book(member, session)
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="change of plans",
@@ -397,7 +397,7 @@ class TestPolicyModel:
         _policy(venue.organization, LATE)
         booking = _book(member, session)
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="change of plans",
@@ -431,7 +431,7 @@ class TestHeldRelease:
         _venue, _session, queued, waiting = self._held_world()
 
         record = cancel_booking(
-            booking_id=waiting.pk,
+            booking_id=BookingId(waiting.pk),
             actor=queued,
             now=timezone.now(),
             reason="changed mind",
@@ -451,7 +451,7 @@ class TestHeldRelease:
         _venue, _session, queued, waiting = self._held_world(starts_in_hours=2)
 
         record = cancel_booking(
-            booking_id=waiting.pk,
+            booking_id=BookingId(waiting.pk),
             actor=queued,
             now=timezone.now(),
             reason="late but unclaimed",
@@ -469,7 +469,7 @@ class TestHeldRelease:
             starts_at=timezone.now() - timedelta(minutes=30)
         )
 
-        record = mark_no_show(booking_id=waiting.pk, actor=desk)
+        record = mark_no_show(booking_id=BookingId(waiting.pk), actor=desk)
 
         assert record.cause == CancellationRecord.Cause.UNCLAIMED
         waiting.refresh_from_db()
@@ -480,7 +480,7 @@ class TestHeldRelease:
         desk = _staff("manager", venue, role=OrgRole.Role.MANAGER)
 
         records = cancel_session(
-            session_id=session.pk, actor=desk, reason="studio closed"
+            session_id=SessionId(session.pk), actor=desk, reason="studio closed"
         )
 
         held_record = next(row for row in records if row.booking_id == waiting.pk)
@@ -496,7 +496,7 @@ class TestHeldRelease:
         desk = _staff("door", venue)
 
         with pytest.raises(AlreadyCancelled):
-            check_in(booking_id=waiting.pk, actor=desk)
+            check_in(booking_id=BookingId(waiting.pk), actor=desk)
 
     def test_waived_record_without_actor_rejected_at_db(self, venue):
         session = _session(venue)
@@ -541,7 +541,7 @@ class TestMemberCancel:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="change of plans",
@@ -561,7 +561,7 @@ class TestMemberCancel:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="overslept",
@@ -587,7 +587,7 @@ class TestMemberCancel:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="traffic",
@@ -603,7 +603,7 @@ class TestMemberCancel:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="no rules yet",
@@ -617,7 +617,7 @@ class TestMemberCancel:
         member = _member("m1", venue)
         booking = _book(member, session)
         cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="first",
@@ -625,7 +625,7 @@ class TestMemberCancel:
 
         with pytest.raises(AlreadyCancelled):
             cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=member,
                 now=timezone.now(),
                 reason="second",
@@ -638,7 +638,7 @@ class TestMemberCancel:
 
         with pytest.raises(SessionStarted):
             cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=member,
                 now=timezone.now(),
                 reason="too late",
@@ -651,7 +651,7 @@ class TestMemberCancel:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="traffic",
@@ -702,7 +702,7 @@ class TestMemberCancel:
         _policy(venue.organization, NONE, late_cancel_hours=12)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="rules changed",
@@ -721,7 +721,7 @@ class TestInitiator:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=desk,
             on_behalf_of=True,
             now=timezone.now(),
@@ -739,7 +739,7 @@ class TestInitiator:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=desk,
             now=timezone.now(),
             reason="class moved rooms",
@@ -763,7 +763,7 @@ class TestInitiator:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=teacher,
             now=timezone.now(),
             reason="disruptive, remove",
@@ -783,7 +783,7 @@ class TestInitiator:
 
         with pytest.raises(PermissionDenied):
             cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=teacher,
                 now=timezone.now(),
                 reason="not mine",
@@ -797,7 +797,7 @@ class TestInitiator:
 
         with pytest.raises(ValidationError):
             cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=desk,
                 now=timezone.now(),
                 reason="",
@@ -811,7 +811,7 @@ class TestInitiator:
 
         with pytest.raises(InvalidWaiver):
             cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=desk,
                 waive_penalty=True,
                 now=timezone.now(),
@@ -826,7 +826,7 @@ class TestInitiator:
 
         with pytest.raises(PermissionDenied):
             cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=stranger,
                 now=timezone.now(),
                 reason="hijack",
@@ -842,7 +842,7 @@ class TestWaiver:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=desk,
             on_behalf_of=True,
             waive_penalty=True,
@@ -863,7 +863,7 @@ class TestWaiver:
         booking = _book(member, session)
 
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=desk,
             on_behalf_of=True,
             waive_penalty=True,
@@ -883,7 +883,7 @@ class TestWaiver:
 
         with pytest.raises(PermissionDenied):
             cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=member,
                 waive_penalty=True,
                 now=timezone.now(),
@@ -897,7 +897,7 @@ class TestWaiver:
         _policy(venue.organization, LATE, late_cancel_hours=12)
         booking = _book(member, session)
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="overslept",
@@ -924,7 +924,7 @@ class TestWaiver:
         _policy(venue.organization, LATE, late_cancel_hours=12)
         booking = _book(member, session, price=0)
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="late",
@@ -940,7 +940,7 @@ class TestWaiver:
         _policy(venue.organization, STRIKE, late_cancel_hours=12)
         booking = _book(member, session)
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="late",
@@ -960,7 +960,7 @@ class TestWaiver:
         _policy(venue.organization, LATE, late_cancel_hours=12)
         booking = _book(member, session)
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="overslept",
@@ -981,7 +981,7 @@ class TestWaiver:
         _policy(venue.organization, STRIKE, late_cancel_hours=12)
         booking = _book(member, session)
         record = cancel_booking(
-            booking_id=booking.pk,
+            booking_id=BookingId(booking.pk),
             actor=member,
             now=timezone.now(),
             reason="late",
@@ -1013,7 +1013,7 @@ class TestSessionCancelRace:
         def attempt(_i):
             try:
                 records = cancel_session(
-                    session_id=session.pk, actor=desk, reason="storm"
+                    session_id=SessionId(session.pk), actor=desk, reason="storm"
                 )
                 return [r.pk for r in records]
             finally:
@@ -1038,7 +1038,7 @@ class TestSessionCancelRace:
         def attempt(_i):
             try:
                 cancel_booking(
-                    booking_id=booking.pk,
+                    booking_id=BookingId(booking.pk),
                     actor=member,
                     now=timezone.now(),
                     reason="double tap",
@@ -1066,7 +1066,7 @@ class TestSessionCancel:
         desk = _staff("desk", venue)
 
         records = cancel_session(
-            session_id=session.pk, actor=desk, reason="teacher sick"
+            session_id=SessionId(session.pk), actor=desk, reason="teacher sick"
         )
 
         assert len(records) == 3
@@ -1083,9 +1083,11 @@ class TestSessionCancel:
         _book(member, session)
         desk = _staff("desk", venue)
 
-        first = cancel_session(session_id=session.pk, actor=desk, reason="teacher sick")
+        first = cancel_session(
+            session_id=SessionId(session.pk), actor=desk, reason="teacher sick"
+        )
         second = cancel_session(
-            session_id=session.pk, actor=desk, reason="teacher sick"
+            session_id=SessionId(session.pk), actor=desk, reason="teacher sick"
         )
 
         assert [r.pk for r in first] == [r.pk for r in second]
@@ -1103,7 +1105,9 @@ class TestSessionCancel:
         member = _member("m1", venue, credits=10)
         _book(member, session)
 
-        records = cancel_session(session_id=session.pk, actor=teacher, reason="sick")
+        records = cancel_session(
+            session_id=SessionId(session.pk), actor=teacher, reason="sick"
+        )
 
         assert len(records) == 1
         assert records[0].snapshot["cause"] == "session_cancelled"
@@ -1115,7 +1119,9 @@ class TestSessionCancel:
         _book(member, session)
 
         with pytest.raises(PermissionDenied):
-            cancel_session(session_id=session.pk, actor=teacher, reason="not mine")
+            cancel_session(
+                session_id=SessionId(session.pk), actor=teacher, reason="not mine"
+            )
 
     def test_session_cancel_requires_reason(self, venue):
         session = _session(venue, starts_in_hours=2)
@@ -1124,7 +1130,7 @@ class TestSessionCancel:
         desk = _staff("desk", venue)
 
         with pytest.raises(ValidationError):
-            cancel_session(session_id=session.pk, actor=desk, reason="")
+            cancel_session(session_id=SessionId(session.pk), actor=desk, reason="")
 
 
 class TestNoShowAndCheckin:
@@ -1135,7 +1141,7 @@ class TestNoShowAndCheckin:
         _policy(venue.organization, STRIKE, late_cancel_hours=12)
         booking = _direct_booking(member, session)
 
-        record = mark_no_show(booking_id=booking.pk, actor=desk)
+        record = mark_no_show(booking_id=BookingId(booking.pk), actor=desk)
 
         booking.refresh_from_db()
         assert booking.status == Booking.Status.NO_SHOW
@@ -1150,7 +1156,7 @@ class TestNoShowAndCheckin:
         booking = _book(member, session)
 
         with pytest.raises(ValidationError):
-            mark_no_show(booking_id=booking.pk, actor=desk)
+            mark_no_show(booking_id=BookingId(booking.pk), actor=desk)
 
     def test_member_cannot_mark_no_show(self, venue):
         session = _session(venue, starts_in_hours=-2)
@@ -1158,7 +1164,7 @@ class TestNoShowAndCheckin:
         booking = _direct_booking(member, session)
 
         with pytest.raises(PermissionDenied):
-            mark_no_show(booking_id=booking.pk, actor=member)
+            mark_no_show(booking_id=BookingId(booking.pk), actor=member)
 
     def test_check_in_is_status_only(self, venue):
         session = _session(venue, starts_in_hours=1)
@@ -1166,7 +1172,7 @@ class TestNoShowAndCheckin:
         desk = _staff("desk", venue)
         booking = _book(member, session)
 
-        check_in(booking_id=booking.pk, actor=desk)
+        check_in(booking_id=BookingId(booking.pk), actor=desk)
 
         booking.refresh_from_db()
         assert booking.status == Booking.Status.ATTENDED
@@ -1186,7 +1192,7 @@ class TestStrikes:
             other = _member(f"s-{username_suffix}", venue, credits=10)
             booking = _book(other, session)
             return cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=other,
                 now=now - timedelta(hours=hours_ago),
                 reason="late",
@@ -1203,7 +1209,7 @@ class TestStrikes:
         session_c = _session(venue, starts_in_hours=2)
         booking_c = _book(waived_booking_member, session_c)
         waived = cancel_booking(
-            booking_id=booking_c.pk,
+            booking_id=BookingId(booking_c.pk),
             actor=desk,
             on_behalf_of=True,
             waive_penalty=True,

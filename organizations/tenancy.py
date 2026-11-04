@@ -10,6 +10,7 @@ session users; permissions lazily resolve for the rest via ensure_venue.
 
 import dataclasses
 
+from django.contrib.auth.models import User
 from django.db import models
 
 from organizations.capabilities import OPERATE_DESK_ROLES
@@ -26,17 +27,21 @@ class ResolvedVenue:
 
     venue: Venue | None
     organization: Organization | None
-    org_roles: list
+    org_roles: list[OrgRole]
 
 
-def _match_pinned(rows, slug):
+def _match_pinned(
+    rows: list[OrgRole], slug: str | None
+) -> tuple[Venue | None, Organization | None]:
     for row in rows:
         if row.venue is not None and row.venue.slug == slug:
             return row.venue, row.venue.organization
     return None, None
 
 
-def _match_spanning(rows, slug):
+def _match_spanning(
+    rows: list[OrgRole], slug: str | None
+) -> tuple[Venue | None, Organization | None]:
     for row in rows:
         if row.venue is None:
             venue = (
@@ -49,15 +54,19 @@ def _match_spanning(rows, slug):
     return None, None
 
 
-def _default_venue(rows):
+def _default_venue(
+    rows: list[OrgRole],
+) -> tuple[Venue | None, Organization | None]:
     pinned = [row for row in rows if row.venue_id is not None]
     pinned.sort(key=lambda row: row.role not in set(OPERATE_DESK_ROLES))
     if pinned:
-        return pinned[0].venue, pinned[0].venue.organization
+        venue = pinned[0].venue
+        assert venue is not None  # filtered on venue_id + select_related above
+        return venue, venue.organization
     return None, None
 
 
-def resolve_venue(user, slug):
+def resolve_venue(user: User, slug: str | None) -> ResolvedVenue:
     """Resolve the request venue and the role rows behind the decision."""
     org_roles = list(
         OrgRole.objects.filter(user=user).select_related(
@@ -77,7 +86,7 @@ def resolve_venue(user, slug):
     return ResolvedVenue(venue=venue, organization=organization, org_roles=org_roles)
 
 
-def ensure_venue(request):
+def ensure_venue(request) -> Venue | None:
     """Request venue, resolving late for DRF-authenticated users."""
     venue = getattr(request, "venue", None)
     if venue is None and request.user.is_authenticated:
@@ -89,12 +98,12 @@ def ensure_venue(request):
     return venue
 
 
-def covers(row, venue):
+def covers(row: OrgRole, venue: Venue) -> bool:
     if row.venue_id == venue.pk:
         return True
     return row.venue_id is None and (row.organization_id == venue.organization_id)
 
 
 class VenueScopedQuerySet(models.QuerySet):
-    def for_venue(self, venue):
+    def for_venue(self, venue: Venue):
         return self.filter(venue=venue)

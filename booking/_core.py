@@ -7,11 +7,13 @@ logic stays where it is — this module owns transitions, not decisions.
 """
 
 import dataclasses
+from datetime import datetime
 
 from django.db import transaction
 
 from booking.errors import AlreadyCancelled, SessionStarted
 from booking.models import Booking
+from common.ids import BookingId, SessionId
 from organizations.models import Venue
 from scheduling.models import ClassSession
 
@@ -26,7 +28,7 @@ class LoadedBooking:
     venue: Venue
 
 
-def lock_session(session_id):
+def lock_session(session_id: SessionId) -> ClassSession:
     """Row-lock one session with its offering and venue attached."""
     return (
         ClassSession.objects.select_for_update()
@@ -35,7 +37,9 @@ def lock_session(session_id):
     )
 
 
-def load_open_booking(booking_id, moment, allow_started=False):
+def load_open_booking(
+    booking_id: BookingId, moment: datetime, allow_started: bool = False
+) -> LoadedBooking:
     """Row-lock one booking with its session, plan, and member attached.
 
     Raises when the booking is no longer active, its session is

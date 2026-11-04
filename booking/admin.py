@@ -95,7 +95,7 @@ def _coverage_combos(org):
 
 def _coverage_row(org, venue, category, plan):
     from booking.policies import resolve_policy
-    from organizations.ids import OrgId, VenueId
+    from common.ids import OrgId, VenueId
 
     if venue is None:
         venue_id, venue_slug = None, "any"

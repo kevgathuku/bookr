@@ -29,6 +29,7 @@ from booking.serializers import (
     WaiveSerializer,
 )
 from booking.services import book_session, confirm_booking
+from common.ids import BookingId
 from organizations.capabilities import can_staff_door
 from organizations.permissions import IsStaff, IsVenueMember
 from organizations.tenancy import covers
@@ -213,7 +214,7 @@ class BookingCancelView(APIView):
             request,
             pk,
             lambda booking: cancel_booking(
-                booking_id=booking.pk,
+                booking_id=BookingId(booking.pk),
                 actor=request.user,
                 on_behalf_of=params["staff_override"],
                 waive_penalty=params["waive_penalty"],
@@ -233,7 +234,9 @@ class BookingConfirmView(APIView):
     def post(self, request, pk):
         booking = _visible_booking(request, pk)
         with mapped_errors():
-            booking = confirm_booking(booking_id=booking.pk, actor=request.user)
+            booking = confirm_booking(
+                booking_id=BookingId(booking.pk), actor=request.user
+            )
         return Response(BookingSerializer(booking).data)
 
 
@@ -249,7 +252,9 @@ class NoShowView(APIView):
         return _record_response(
             request,
             pk,
-            lambda booking: mark_no_show(booking_id=booking.pk, actor=request.user),
+            lambda booking: mark_no_show(
+                booking_id=BookingId(booking.pk), actor=request.user
+            ),
         )
 
 
@@ -264,7 +269,7 @@ class CheckInView(APIView):
     def post(self, request, pk):
         booking = _visible_booking(request, pk)
         with mapped_errors():
-            booking = check_in(booking_id=booking.pk, actor=request.user)
+            booking = check_in(booking_id=BookingId(booking.pk), actor=request.user)
         return Response(BookingSerializer(booking).data)
 
 

@@ -4,11 +4,16 @@ Every movement goes through post_entry(); nothing edits the cache
 directly.
 """
 
+from datetime import date
+
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F, Q
 
 from booking.errors import CreditInsufficient
+from common.ids import OrgId
+from organizations.models import Organization
 from passes.models import CreditLedger, Membership
 
 
@@ -53,7 +58,7 @@ def post_entry(
     return row
 
 
-def valid_memberships(user, organization, today):
+def valid_memberships(user: User, organization: Organization | OrgId, today: date):
     """Date-valid memberships, first-expiring first. Organization takes
     an instance or id. Validity only: price coverage (booking) and
     balance checks (door) stay with the readers."""
