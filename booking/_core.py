@@ -29,7 +29,9 @@ class LoadedBooking:
 
 
 def lock_session(session_id: SessionId) -> ClassSession:
-    """Row-lock one session with its offering and venue attached."""
+    """Row-lock one session with its offering and venue attached.
+
+    The occupancy gate: _is_full's count is only meaningful inside this lock."""
     return (
         ClassSession.objects.select_for_update()
         .select_related("offering", "offering__venue")

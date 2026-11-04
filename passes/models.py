@@ -155,6 +155,7 @@ class Plan(models.Model):
         ]
 
     def clean(self):
+        # Mirrors the Meta CHECKs for form/admin messages; the DB is the guarantee.
         super().clean()
         errors = {}
         errors.update(self._entitlement_errors())
@@ -194,11 +195,16 @@ class Membership(models.Model):
     )
     plan = models.ForeignKey(Plan, on_delete=models.PROTECT, related_name="memberships")
     # NULL = unlimited (no balance to track); credit memberships hold a count.
+    # NULL ⟺ plan.entitlement == UNLIMITED is cross-table (no CHECK): writers
+    # construct it, and post_entry refuses ledger rows for NULL balances.
     credits_remaining = models.PositiveIntegerField(null=True, blank=True, default=0)
     starts_on = models.DateField()
     # NULL = never expires (open-ended plans, the partner vehicle).
     # Fixed/recurring memberships always carry a known end.
     valid_until = models.DateField(null=True, blank=True)
+    # Grant idempotency key: one membership per (member, incident); blank
+    # for ordinary purchases (exempt from the incident uniqueness CHECK).
+    payment_ref = models.CharField(max_length=100, blank=True)
 
     class Meta:
         constraints: ClassVar[list[models.BaseConstraint]] = [
@@ -217,6 +223,8 @@ class Membership(models.Model):
         ]
 
     def clean(self):
+        # Mirrors the membership_dates_ordered CHECK for messages; the DB
+        # is the guarantee.
         super().clean()
         if (
             self.starts_on is not None
@@ -224,8 +232,6 @@ class Membership(models.Model):
             and self.valid_until < self.starts_on
         ):
             raise ValidationError("valid_until is before starts_on.")
-
-    payment_ref = models.CharField(max_length=100, blank=True)
 
     def __str__(self):
         if self.credits_remaining is None:

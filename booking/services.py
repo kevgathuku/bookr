@@ -85,6 +85,10 @@ def _ensure_no_duplicate(*, locked: ClassSession, member: User) -> None:
 
 def _is_full(locked: ClassSession) -> bool:
     # Seated bookings and held seats occupy capacity; the queue waits outside it.
+    # Race-safe only under the session row lock: both occupancy-increasing
+    # writers (_create_booking/_join_or_refuse via book_session, _seat_head
+    # via promote_next) hold lock_session, so count-then-write serializes.
+    # Confirm (held->booked) is occupancy-neutral and needs no lock.
     return (
         Booking.objects.filter(
             session=locked, status__in=(Booking.Status.BOOKED, Booking.Status.HELD)

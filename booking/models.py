@@ -61,6 +61,9 @@ class Booking(models.Model):
         ]
 
     def clean(self):
+        # Cross-table coherence has no CHECK equivalent (constraints can't
+        # join), so it lives here — on every save() — mirrored fail-fast in
+        # services._validate_membership.
         super().clean()
         if (
             self.membership_id is not None

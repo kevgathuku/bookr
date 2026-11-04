@@ -63,6 +63,9 @@ class OrgRole(models.Model):
     role = models.CharField(max_length=20, choices=Role.choices)
 
     def clean(self):
+        # Cross-table coherence has no CHECK equivalent (constraints can't
+        # join): writers construct coherent rows (organization matches the
+        # venue's), this is the backstop.
         super().clean()
         if self.venue_id is None or self.organization_id is None:
             return
