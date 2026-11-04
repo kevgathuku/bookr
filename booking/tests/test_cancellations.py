@@ -5,11 +5,12 @@ specific same-priority overlaps rejected at creation, uncovered contexts
 fall back to the auto-created org-wide NONE baseline (free by design).
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.utils import timezone
 
 from booking.cancellations import (
@@ -24,7 +25,7 @@ from booking.cancellations import (
 )
 from booking.errors import AlreadyCancelled, InvalidWaiver, SessionStarted
 from booking.models import Booking, CancellationPolicy, CancellationRecord
-from booking.services import book_session
+from booking.services import book_session, promote_next
 from common.ids import BookingId, OrgId, SessionId, VenueId
 from organizations.models import OrgRole
 from passes.models import CreditLedger, PlanType
@@ -33,10 +34,13 @@ from tests.factories import (  # noqa: WPS235
     CancellationPolicyFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
-    PlanFactory,
-    PlanMembershipFactory,
     UserFactory,
     VenueFactory,
+    book,
+    make_member,
+    make_policy,
+    make_session,
+    make_venue,
     user_with_role,
     with_monthly_plan,
 )
@@ -46,47 +50,6 @@ pytestmark = pytest.mark.django_db
 LATE = CancellationPolicy.Enforcement.LOSE_CREDIT
 STRIKE = CancellationPolicy.Enforcement.STRIKE
 NONE = CancellationPolicy.Enforcement.NONE
-
-
-def _venue(slug="v1"):
-    return VenueFactory(slug=slug)
-
-
-def _session(venue, category=ClassCategory.GROUP, starts_in_hours=48):
-    offering = ClassOfferingFactory(venue=venue, category=category)
-    return ClassSessionFactory(
-        offering=offering,
-        starts_at=timezone.now() + timedelta(hours=starts_in_hours),
-    )
-
-
-def _member(username, venue, credits=10, plan_type=PlanType.CREDIT_PACK):
-    user = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
-    plan = PlanFactory(organization=venue.organization, plan_type=plan_type)
-    PlanMembershipFactory(user=user, plan=plan, credits_remaining=credits)
-    return user
-
-
-def _staff(username, venue, role=OrgRole.Role.FRONTDESK):
-    return user_with_role(venue, role, username, org_wide=True)
-
-
-def _policy(org, enforcement, late_cancel_hours=12, **scopes):
-    policy = CancellationPolicyFactory(
-        organization=org,
-        enforcement=enforcement,
-        late_cancel_hours=late_cancel_hours,
-        **scopes,
-    )
-    policy.full_clean()
-    policy.save()
-    return policy
-
-
-def _book(member, session, price=2):
-    session.offering.credit_cost = price
-    session.offering.save(update_fields=["credit_cost"])
-    return book_session(session=session, member=member)
 
 
 def _direct_booking(member, session, spent=2):
@@ -103,19 +66,11 @@ def _direct_booking(member, session, spent=2):
     )
 
 
-def _roles(user, venue):
-    return list(
-        OrgRole.objects.filter(organization=venue.organization, user=user).values_list(
-            "role", flat=True
-        )
-    )
-
-
 class TestResolution:
     def test_most_specific_wins(self, venue):
         org = venue.organization
-        base = _policy(org, NONE)
-        specific = _policy(org, STRIKE, venue=venue)
+        base = make_policy(org, NONE)
+        specific = make_policy(org, STRIKE, venue=venue)
 
         assert (
             resolve_policy(
@@ -130,8 +85,8 @@ class TestResolution:
 
     def test_more_scopes_beat_fewer(self, venue):
         org = venue.organization
-        _policy(org, NONE, venue=venue)
-        both = _policy(org, STRIKE, venue=venue, class_category=ClassCategory.GROUP)
+        make_policy(org, NONE, venue=venue)
+        both = make_policy(org, STRIKE, venue=venue, class_category=ClassCategory.GROUP)
 
         assert (
             resolve_policy(
@@ -145,8 +100,8 @@ class TestResolution:
 
     def test_higher_priority_breaks_ties(self, venue):
         org = venue.organization
-        low = _policy(org, NONE, venue=venue, priority=0)
-        high = _policy(org, STRIKE, class_category=ClassCategory.GROUP, priority=5)
+        low = make_policy(org, NONE, venue=venue, priority=0)
+        high = make_policy(org, STRIKE, class_category=ClassCategory.GROUP, priority=5)
 
         assert (
             resolve_policy(
@@ -161,7 +116,7 @@ class TestResolution:
 
     def test_ambiguous_rules_rejected_at_creation(self, venue):
         org = venue.organization
-        _policy(org, NONE, venue=venue)
+        make_policy(org, NONE, venue=venue)
         rival = CancellationPolicyFactory(
             organization=org,
             enforcement=STRIKE,
@@ -211,14 +166,14 @@ class TestResolution:
 
     def test_non_last_rule_deletes(self, venue):
         org = venue.organization
-        _policy(org, STRIKE, venue=venue)
+        make_policy(org, STRIKE, venue=venue)
         baseline = resolve_policy(
             OrgId(org.pk),
             VenueId(venue.pk),
             ClassCategory.GROUP,
             PlanType.CREDIT_PACK,
         )
-        extra = _policy(org, NONE, class_category=ClassCategory.PRIVATE, priority=5)
+        extra = make_policy(org, NONE, class_category=ClassCategory.PRIVATE, priority=5)
 
         extra.delete()
 
@@ -240,7 +195,7 @@ class TestMemberOutcome:
     """Direct matrix for the pure late x enforcement x waive decision."""
 
     def _matrix_policy(self, enforcement):
-        return _policy(_venue().organization, enforcement)
+        return make_policy(make_venue().organization, enforcement)
 
     @pytest.mark.parametrize(("enforcement", "applied", "refund"), LATE_MATRIX)
     def test_late_unwaived_applies_policy(self, enforcement, applied, refund):
@@ -371,16 +326,16 @@ class TestPolicyModel:
     def test_specificity_counts_scopes(self, venue):
         org = venue.organization
 
-        assert _policy(org, NONE).specificity == 0
-        assert _policy(org, NONE, venue=venue, priority=1).specificity == 1
+        assert make_policy(org, NONE).specificity == 0
+        assert make_policy(org, NONE, venue=venue, priority=1).specificity == 1
         assert (
-            _policy(
+            make_policy(
                 org, NONE, venue=venue, plan_type=PlanType.CREDIT_PACK, priority=2
             ).specificity
             == 2
         )
         assert (
-            _policy(
+            make_policy(
                 org,
                 NONE,
                 venue=venue,
@@ -393,25 +348,25 @@ class TestPolicyModel:
 
     def test_overlaps(self, venue):
         org = venue.organization
-        plain = _policy(org, NONE)
-        pinned = _policy(org, NONE, venue=venue, priority=1)
+        plain = make_policy(org, NONE)
+        pinned = make_policy(org, NONE, venue=venue, priority=1)
         far = VenueFactory(organization=org, slug="far")
-        elsewhere = _policy(org, NONE, venue=far, priority=2)
+        elsewhere = make_policy(org, NONE, venue=far, priority=2)
 
         assert plain.overlaps(pinned) is True
         assert pinned.overlaps(plain) is True
         assert pinned.overlaps(elsewhere) is False
 
     def test_str(self):
-        policy = _policy(_venue().organization, STRIKE)
+        policy = make_policy(make_venue().organization, STRIKE)
 
         assert str(policy) == f"policy #{policy.pk} (0 scopes)"
 
     def test_record_str(self, venue):
-        session = _session(venue)
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, LATE)
-        booking = _book(member, session)
+        session = make_session(venue)
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, LATE)
+        booking = book(member, session)
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
             actor=member,
@@ -422,10 +377,10 @@ class TestPolicyModel:
         assert str(record) == f"cancel record #{record.pk} (member_cancel)"
 
     def test_record_resave_refused(self, venue):
-        session = _session(venue)
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, LATE)
-        booking = _book(member, session)
+        session = make_session(venue)
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, LATE)
+        booking = book(member, session)
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
             actor=member,
@@ -438,10 +393,10 @@ class TestPolicyModel:
             record.save()
 
     def test_record_update_fields_save_refused(self, venue):
-        session = _session(venue)
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, LATE)
-        booking = _book(member, session)
+        session = make_session(venue)
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, LATE)
+        booking = book(member, session)
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
             actor=member,
@@ -455,16 +410,17 @@ class TestPolicyModel:
 
 class TestHeldRelease:
     def _held_world(self, starts_in_hours=48):
-        from booking.services import promote_next
-
-        venue = _venue()
-        session = _session(venue, starts_in_hours=starts_in_hours)
+        venue = make_venue()
+        session = make_session(
+            venue,
+            starts_at=timezone.now() + timedelta(hours=starts_in_hours),
+        )
         session.capacity = 1
         session.save(update_fields=["capacity"])
-        seated = _member("seated", venue, credits=10)
-        queued = _member("queued", venue, credits=10)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        seated_booking = _book(seated, session)
+        seated = make_member("seated", venue, credits=10)
+        queued = make_member("queued", venue, credits=10)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        seated_booking = book(seated, session)
         waiting = book_session(session=session, member=queued, waitlist=True)
         Booking.objects.filter(pk=seated_booking.pk).update(
             status=Booking.Status.CANCELLED
@@ -507,10 +463,8 @@ class TestHeldRelease:
         assert record.enforcement_applied == CancellationPolicy.Enforcement.NONE
 
     def test_no_show_of_held_releases_unclaimed(self):
-        from booking.cancellations import mark_no_show
-
         venue, session, _queued, waiting = self._held_world()
-        desk = _staff("door", venue)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "door", org_wide=True)
         ClassSession.objects.filter(pk=session.pk).update(
             starts_at=timezone.now() - timedelta(minutes=30)
         )
@@ -523,7 +477,7 @@ class TestHeldRelease:
 
     def test_session_cancel_of_held_keeps_provider_cause_and_clears_hold(self):
         venue, session, _queued, waiting = self._held_world()
-        desk = _staff("manager", venue, role=OrgRole.Role.MANAGER)
+        desk = user_with_role(venue, OrgRole.Role.MANAGER, "manager", org_wide=True)
 
         records = cancel_session(
             session_id=SessionId(session.pk), actor=desk, reason="studio closed"
@@ -535,19 +489,16 @@ class TestHeldRelease:
         assert waiting.hold_expires_at is None
 
     def test_check_in_of_held_refused(self):
-        from booking.cancellations import check_in
-        from booking.errors import AlreadyCancelled
-
         venue, _session, _queued, waiting = self._held_world()
-        desk = _staff("door", venue)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "door", org_wide=True)
 
         with pytest.raises(AlreadyCancelled):
             check_in(booking_id=BookingId(waiting.pk), actor=desk)
 
     def test_waived_record_without_actor_rejected_at_db(self, venue):
-        session = _session(venue)
-        member = _member("waived", venue, credits=10)
-        booking = _book(member, session)
+        session = make_session(venue)
+        member = make_member("waived", venue, credits=10)
+        booking = book(member, session)
 
         with pytest.raises(IntegrityError):
             CancellationRecord.objects.create(
@@ -563,9 +514,9 @@ class TestHeldRelease:
             )
 
     def test_ontime_record_with_enforcement_rejected_at_db(self, venue):
-        session = _session(venue)
-        member = _member("ontime", venue, credits=10)
-        booking = _book(member, session)
+        session = make_session(venue)
+        member = make_member("ontime", venue, credits=10)
+        booking = book(member, session)
 
         with pytest.raises(IntegrityError):
             CancellationRecord.objects.create(
@@ -581,10 +532,10 @@ class TestHeldRelease:
 
 class TestMemberCancel:
     def test_early_cancel_refunds_and_records(self, venue):
-        session = _session(venue, starts_in_hours=48)
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=48))
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -601,10 +552,10 @@ class TestMemberCancel:
         member.plan_memberships.get().refresh_from_db()
 
     def test_late_cancel_lose_credit_forfeits(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -627,10 +578,10 @@ class TestMemberCancel:
         )
 
     def test_late_cancel_strike_refunds_and_counts(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, STRIKE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, STRIKE, late_cancel_hours=12)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -644,9 +595,9 @@ class TestMemberCancel:
         assert strike_count(member, venue.organization, timezone.now()) == 1
 
     def test_no_rule_is_designed_free(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -659,9 +610,9 @@ class TestMemberCancel:
         assert record.credits_refunded == 2
 
     def test_double_cancel_raises(self, venue):
-        session = _session(venue)
-        member = _member("m1", venue)
-        booking = _book(member, session)
+        session = make_session(venue)
+        member = make_member("m1", venue)
+        booking = book(member, session)
         cancel_booking(
             booking_id=BookingId(booking.pk),
             actor=member,
@@ -678,8 +629,8 @@ class TestMemberCancel:
             )
 
     def test_cancel_started_session_raises(self, venue):
-        session = _session(venue, starts_in_hours=-1)
-        member = _member("m1", venue)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=-1))
+        member = make_member("m1", venue)
         booking = _direct_booking(member, session)
 
         with pytest.raises(SessionStarted):
@@ -691,10 +642,10 @@ class TestMemberCancel:
             )
 
     def test_snapshot_pins_full_context(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        policy = _policy(venue.organization, STRIKE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        policy = make_policy(venue.organization, STRIKE, late_cancel_hours=12)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -734,10 +685,10 @@ class TestMemberCancel:
     def test_resolution_follows_current_rules(self, venue):
         # No versions: cancelling always applies today's rules; the record
         # pins what applied so history stays readable after rules change.
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        old = _policy(venue.organization, STRIKE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        old = make_policy(venue.organization, STRIKE, late_cancel_hours=12)
+        booking = book(member, session)
         resolve_policy(
             OrgId(venue.organization.pk),
             VenueId(venue.pk),
@@ -745,7 +696,7 @@ class TestMemberCancel:
             PlanType.CREDIT_PACK,
         )
         old.delete()
-        _policy(venue.organization, NONE, late_cancel_hours=12)
+        make_policy(venue.organization, NONE, late_cancel_hours=12)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -760,11 +711,11 @@ class TestMemberCancel:
 
 class TestInitiator:
     def test_frontdesk_on_behalf_penalized(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -778,11 +729,11 @@ class TestInitiator:
         assert record.snapshot["on_behalf_of"] is True
 
     def test_staff_own_decision_never_penalized(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -804,9 +755,9 @@ class TestInitiator:
             offering=offering,
             starts_at=timezone.now() + timedelta(hours=2),
         )
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        booking = _book(member, session)
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -823,9 +774,9 @@ class TestInitiator:
         teacher = user_with_role(
             venue, OrgRole.Role.TEACHER, "t-stranger", org_wide=True
         )
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue)
+        booking = book(member, session)
 
         with pytest.raises(PermissionDenied):
             cancel_booking(
@@ -836,10 +787,10 @@ class TestInitiator:
             )
 
     def test_staff_cancel_requires_reason(self, venue):
-        session = _session(venue)
-        member = _member("m1", venue)
-        desk = _staff("desk", venue)
-        booking = _book(member, session)
+        session = make_session(venue)
+        member = make_member("m1", venue)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        booking = book(member, session)
 
         with pytest.raises(ValidationError):
             cancel_booking(
@@ -850,10 +801,10 @@ class TestInitiator:
             )
 
     def test_waive_with_no_penalty_raises(self, venue):
-        session = _session(venue)
-        member = _member("m1", venue)
-        desk = _staff("desk", venue)
-        booking = _book(member, session)
+        session = make_session(venue)
+        member = make_member("m1", venue)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        booking = book(member, session)
 
         with pytest.raises(InvalidWaiver):
             cancel_booking(
@@ -865,10 +816,10 @@ class TestInitiator:
             )
 
     def test_stranger_cannot_cancel(self, venue):
-        session = _session(venue)
-        member = _member("m1", venue)
+        session = make_session(venue)
+        member = make_member("m1", venue)
         stranger = UserFactory(username="stranger")
-        booking = _book(member, session)
+        booking = book(member, session)
 
         with pytest.raises(PermissionDenied):
             cancel_booking(
@@ -881,11 +832,11 @@ class TestInitiator:
 
 class TestWaiver:
     def test_inline_waive_by_desk_forgives_but_remembers(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, STRIKE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, STRIKE, late_cancel_hours=12)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -902,11 +853,11 @@ class TestWaiver:
         assert record.credits_refunded == 2
 
     def test_inline_waive_snapshot_remembers(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, STRIKE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, STRIKE, late_cancel_hours=12)
+        booking = book(member, session)
 
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -922,10 +873,10 @@ class TestWaiver:
         assert record.snapshot["waived_by_id"] == desk.pk
 
     def test_member_cannot_waive_own_penalty(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = book(member, session)
 
         with pytest.raises(PermissionDenied):
             cancel_booking(
@@ -937,11 +888,11 @@ class TestWaiver:
             )
 
     def test_retroactive_waive_compensates_without_rewriting(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = book(member, session)
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
             actor=member,
@@ -963,12 +914,12 @@ class TestWaiver:
         assert record.credits_refunded == 0
 
     def test_retroactive_waive_of_zero_spend_raises(self, venue):
-        session = _session(venue, starts_in_hours=2)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
         member = user_with_role(venue, OrgRole.Role.MEMBER, "m1", org_wide=True)
         with_monthly_plan(member, venue)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        booking = _book(member, session, price=0)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = book(member, session, price=0)
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
             actor=member,
@@ -980,11 +931,11 @@ class TestWaiver:
             waive_record(record_id=record.pk, actor=desk, reason="goodwill")
 
     def test_retroactive_waive_of_strike_raises(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, STRIKE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, STRIKE, late_cancel_hours=12)
+        booking = book(member, session)
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
             actor=member,
@@ -1000,11 +951,11 @@ class TestWaiver:
         assert strike_count(member, venue.organization, timezone.now()) == 1
 
     def test_retroactive_waive_is_idempotent(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, LATE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, LATE, late_cancel_hours=12)
+        booking = book(member, session)
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
             actor=member,
@@ -1021,11 +972,11 @@ class TestWaiver:
     def test_linked_adjustment_excludes_the_strike(self, venue):
         # Unreachable via waive_record by design (strikes move no money);
         # direct row proves the strike query honors the link regardless.
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, STRIKE, late_cancel_hours=12)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, STRIKE, late_cancel_hours=12)
+        booking = book(member, session)
         record = cancel_booking(
             booking_id=BookingId(booking.pk),
             actor=member,
@@ -1047,14 +998,10 @@ class TestWaiver:
 @pytest.mark.django_db(transaction=True)
 class TestSessionCancelRace:
     def test_concurrent_session_cancels_refund_once(self, venue):
-        from concurrent.futures import ThreadPoolExecutor
-
-        from django.db import connection
-
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        _book(member, session)
-        desk = _staff("desk", venue)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        book(member, session)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
 
         def attempt(_i):
             try:
@@ -1076,9 +1023,9 @@ class TestSessionCancelRace:
 
         from django.db import connection
 
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        booking = book(member, session)
         before = member.plan_memberships.get().credits_remaining
 
         def attempt(_i):
@@ -1106,10 +1053,10 @@ class TestSessionCancelRace:
 
 class TestSessionCancel:
     def test_session_cancel_refunds_every_booking(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        members = [_member(f"m{i}", venue, credits=10) for i in range(3)]
-        bookings = [_book(member, session) for member in members]
-        desk = _staff("desk", venue)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        members = [make_member(f"m{i}", venue, credits=10) for i in range(3)]
+        bookings = [book(member, session) for member in members]
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
 
         records = cancel_session(
             session_id=SessionId(session.pk), actor=desk, reason="teacher sick"
@@ -1124,10 +1071,10 @@ class TestSessionCancel:
             assert record.enforcement_applied == NONE
 
     def test_session_cancel_repeat_returns_same_records(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        _book(member, session)
-        desk = _staff("desk", venue)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        book(member, session)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
 
         first = cancel_session(
             session_id=SessionId(session.pk), actor=desk, reason="teacher sick"
@@ -1148,8 +1095,8 @@ class TestSessionCancel:
             offering=offering,
             starts_at=timezone.now() + timedelta(hours=2),
         )
-        member = _member("m1", venue, credits=10)
-        _book(member, session)
+        member = make_member("m1", venue, credits=10)
+        book(member, session)
 
         records = cancel_session(
             session_id=SessionId(session.pk), actor=teacher, reason="sick"
@@ -1160,9 +1107,9 @@ class TestSessionCancel:
 
     def test_teacher_cannot_cancel_another_teachers_session(self, venue):
         teacher = user_with_role(venue, OrgRole.Role.TEACHER, "t-other", org_wide=True)
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue)
-        _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue)
+        book(member, session)
 
         with pytest.raises(PermissionDenied):
             cancel_session(
@@ -1170,10 +1117,10 @@ class TestSessionCancel:
             )
 
     def test_session_cancel_requires_reason(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue)
-        _book(member, session)
-        desk = _staff("desk", venue)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue)
+        book(member, session)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
 
         with pytest.raises(ValidationError):
             cancel_session(session_id=SessionId(session.pk), actor=desk, reason="")
@@ -1181,10 +1128,10 @@ class TestSessionCancel:
 
 class TestNoShowAndCheckin:
     def test_mark_no_show_forfeits_without_strike(self, venue):
-        session = _session(venue, starts_in_hours=-2)
-        member = _member("m1", venue, credits=10)
-        desk = _staff("desk", venue)
-        _policy(venue.organization, STRIKE, late_cancel_hours=12)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=-2))
+        member = make_member("m1", venue, credits=10)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(venue.organization, STRIKE, late_cancel_hours=12)
         booking = _direct_booking(member, session)
 
         record = mark_no_show(booking_id=BookingId(booking.pk), actor=desk)
@@ -1196,27 +1143,27 @@ class TestNoShowAndCheckin:
         assert strike_count(member, venue.organization, timezone.now()) == 0
 
     def test_future_session_cannot_be_no_show(self, venue):
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue)
-        desk = _staff("desk", venue)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        booking = book(member, session)
 
         with pytest.raises(ValidationError):
             mark_no_show(booking_id=BookingId(booking.pk), actor=desk)
 
     def test_member_cannot_mark_no_show(self, venue):
-        session = _session(venue, starts_in_hours=-2)
-        member = _member("m1", venue)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=-2))
+        member = make_member("m1", venue)
         booking = _direct_booking(member, session)
 
         with pytest.raises(PermissionDenied):
             mark_no_show(booking_id=BookingId(booking.pk), actor=member)
 
     def test_check_in_is_status_only(self, venue):
-        session = _session(venue, starts_in_hours=1)
-        member = _member("m1", venue)
-        desk = _staff("desk", venue)
-        booking = _book(member, session)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=1))
+        member = make_member("m1", venue)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        booking = book(member, session)
 
         check_in(booking_id=BookingId(booking.pk), actor=desk)
 
@@ -1228,15 +1175,15 @@ class TestNoShowAndCheckin:
 class TestStrikes:
     def test_window_excludes_old_and_waived(self, venue):
         org = venue.organization
-        member = _member("m1", venue, credits=30)
-        desk = _staff("desk", venue)
-        _policy(org, STRIKE, late_cancel_hours=12)
+        member = make_member("m1", venue, credits=30)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
+        make_policy(org, STRIKE, late_cancel_hours=12)
         now = timezone.now()
 
         def late_cancel(username_suffix, hours_ago):
-            session = _session(venue, starts_in_hours=2)
-            other = _member(f"s-{username_suffix}", venue, credits=10)
-            booking = _book(other, session)
+            session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+            other = make_member(f"s-{username_suffix}", venue, credits=10)
+            booking = book(other, session)
             return cancel_booking(
                 booking_id=BookingId(booking.pk),
                 actor=other,
@@ -1251,9 +1198,9 @@ class TestStrikes:
         CancellationRecord.objects.filter(pk=old.pk).update(
             created_at=now - timedelta(days=31)
         )
-        waived_booking_member = _member("s-c", venue, credits=10)
-        session_c = _session(venue, starts_in_hours=2)
-        booking_c = _book(waived_booking_member, session_c)
+        waived_booking_member = make_member("s-c", venue, credits=10)
+        session_c = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        booking_c = book(waived_booking_member, session_c)
         waived = cancel_booking(
             booking_id=BookingId(booking_c.pk),
             actor=desk,

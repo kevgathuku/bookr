@@ -1,10 +1,9 @@
 import pytest
-from rest_framework.test import APIClient
 
 from aggregators.models import Aggregator, AggregatorEventLog
 from aggregators.tokens import verify
-from organizations.models import Organization, OrgRole, Venue
-from tests.factories import user_with_role
+from organizations.models import OrgRole
+from tests.factories import api_client, make_venue, user_with_role
 
 pytestmark = pytest.mark.django_db
 
@@ -13,32 +12,12 @@ pytestmark = pytest.mark.django_db
 #  at rotate — and are never stored.
 
 
-def _client(user, slug="downtown"):
-    client = APIClient()
-    client.force_authenticate(user=user)
-    client.defaults["HTTP_X_VENUE_SLUG"] = slug
-    return client
-
-
-def _venue(slug="downtown"):
-    org = Organization.objects.create(slug=f"org-{slug}", name=f"Org {slug}")
-    return Venue.objects.create(organization=org, slug=slug, name=slug.title())
-
-
-def _staff(venue, username=None, role=OrgRole.Role.MANAGER):
-    return user_with_role(venue, role, username)
-
-
-def _member(venue, username=None):
-    return user_with_role(venue, OrgRole.Role.MEMBER, username)
-
-
 class TestAggregatorCrud:
     def test_staff_creates_partner_with_single_token_viewing(self):
-        venue = _venue("manage")
+        venue = make_venue("manage")
 
-        response = _client(
-            _staff(venue, username="owner", role="owner"), slug="manage"
+        response = api_client(
+            user_with_role(venue, "owner", username="owner"), venue_slug="manage"
         ).post(
             "/api/v1/staff/aggregators/",
             {
@@ -55,10 +34,10 @@ class TestAggregatorCrud:
         assert partner.api_token_hash != raw
 
     def test_create_does_not_store_plaintext(self):
-        venue = _venue("manage-plain")
-        staff = _staff(venue, username="owner2", role="owner")
+        venue = make_venue("manage-plain")
+        staff = user_with_role(venue, "owner", username="owner2")
 
-        response = _client(staff, slug="manage-plain").post(
+        response = api_client(staff, venue_slug="manage-plain").post(
             "/api/v1/staff/aggregators/",
             {"slug": "plain", "name": "Plain", "seat_allotment": 2},
         )
@@ -68,9 +47,9 @@ class TestAggregatorCrud:
         assert len(stored) == 64
 
     def test_member_cannot_create(self):
-        venue = _venue("manage-no")
+        venue = make_venue("manage-no")
 
-        response = _client(_member(venue)).post(
+        response = api_client(user_with_role(venue, OrgRole.Role.MEMBER)).post(
             "/api/v1/staff/aggregators/",
             {"slug": "nope", "name": "Nope", "seat_allotment": 1},
         )
@@ -78,10 +57,9 @@ class TestAggregatorCrud:
         assert response.status_code in (403, 404)
 
     def test_rotate_invalidates_old_token(self):
-
-        venue = _venue("manage-rot")
-        staff = _staff(venue, username="owner3", role="owner")
-        client = _client(staff, slug="manage-rot")
+        venue = make_venue("manage-rot")
+        staff = user_with_role(venue, "owner", username="owner3")
+        client = api_client(staff, venue_slug="manage-rot")
         created = client.post(
             "/api/v1/staff/aggregators/",
             {"slug": "rot", "name": "Rot", "seat_allotment": 2},
@@ -98,9 +76,9 @@ class TestAggregatorCrud:
         assert not verify(old_raw, partner.api_token_hash)
 
     def test_event_log_lists_partner_calls(self):
-        venue = _venue("manage-log")
-        staff = _staff(venue, username="owner4", role="owner")
-        client = _client(staff, slug="manage-log")
+        venue = make_venue("manage-log")
+        staff = user_with_role(venue, "owner", username="owner4")
+        client = api_client(staff, venue_slug="manage-log")
         client.post(
             "/api/v1/staff/aggregators/",
             {"slug": "logged", "name": "Logged", "seat_allotment": 2},

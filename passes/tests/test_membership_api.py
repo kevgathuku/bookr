@@ -1,8 +1,8 @@
 import pytest
-from rest_framework.test import APIClient
 
 from organizations.models import OrgRole
 from passes.models import CreditLedger
+from tests.factories import api_client, make_venue, user_with_role, with_credit_pack
 
 pytestmark = pytest.mark.django_db
 
@@ -16,40 +16,20 @@ pytestmark = pytest.mark.django_db
 #    non-negative, writes one ADJUSTMENT row stamped by the actor.
 
 
-def _client(user, slug="downtown"):
-    client = APIClient()
-    client.force_authenticate(user=user)
-    client.defaults["HTTP_X_VENUE_SLUG"] = slug
-    return client
-
-
 def _world(slug="adjust-world"):
-    from tests.factories import VenueFactory, user_with_role
-
-    venue = VenueFactory(slug=slug)
+    venue = make_venue(slug)
     member = user_with_role(venue, OrgRole.Role.MEMBER, f"member-{slug}", org_wide=True)
     return venue, member
-
-
-def _membership(venue, member, credits=10):
-    from tests.factories import PlanFactory, PlanMembershipFactory
-
-    plan = PlanFactory(organization=venue.organization)
-    return PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
-
-
-def _staff(venue, slug, role=OrgRole.Role.FRONTDESK):
-    from tests.factories import user_with_role
-
-    return user_with_role(venue, role, f"desk-{slug}", org_wide=True)
 
 
 class TestMembershipList:
     def test_member_sees_own_memberships(self):
         venue, member = _world("mine-list")
-        membership = _membership(venue, member)
+        membership = with_credit_pack(member, venue)
 
-        response = _client(member, slug="mine-list").get("/api/v1/memberships/")
+        response = api_client(member, venue_slug="mine-list").get(
+            "/api/v1/memberships/"
+        )
 
         assert response.status_code == 200
         rows = {row["id"]: row for row in response.json()}
@@ -58,10 +38,10 @@ class TestMembershipList:
 
     def test_staff_lists_one_member(self):
         venue, member = _world("staff-list")
-        membership = _membership(venue, member)
-        staffer = _staff(venue, "staff-list")
+        membership = with_credit_pack(member, venue)
+        staffer = user_with_role(venue, OrgRole.Role.FRONTDESK, org_wide=True)
 
-        response = _client(staffer, slug="staff-list").get(
+        response = api_client(staffer, venue_slug="staff-list").get(
             f"/api/v1/memberships/?member={member.pk}"
         )
 
@@ -70,13 +50,11 @@ class TestMembershipList:
 
     def test_member_cannot_list_another_member(self):
         venue, member = _world("no-leak")
-        from tests.factories import user_with_role
-
         other = user_with_role(
             venue, OrgRole.Role.MEMBER, "other-no-leak", org_wide=True
         )
 
-        response = _client(member, slug="no-leak").get(
+        response = api_client(member, venue_slug="no-leak").get(
             f"/api/v1/memberships/?member={other.pk}"
         )
 
@@ -86,10 +64,10 @@ class TestMembershipList:
 class TestLedgerAdjust:
     def test_desk_adjust_writes_row_and_moves_balance(self):
         venue, member = _world("adjust-ok")
-        membership = _membership(venue, member, credits=10)
-        staffer = _staff(venue, "adjust-ok")
+        membership = with_credit_pack(member, venue, credits=10)
+        staffer = user_with_role(venue, OrgRole.Role.FRONTDESK, org_wide=True)
 
-        response = _client(staffer, slug="adjust-ok").post(
+        response = api_client(staffer, venue_slug="adjust-ok").post(
             "/api/v1/ledger/adjust/",
             {"membership": membership.pk, "delta": -3, "reason": "goodwill"},
         )
@@ -103,10 +81,10 @@ class TestLedgerAdjust:
 
     def test_adjust_needs_a_reason(self):
         venue, member = _world("adjust-reason")
-        membership = _membership(venue, member)
-        staffer = _staff(venue, "adjust-reason")
+        membership = with_credit_pack(member, venue)
+        staffer = user_with_role(venue, OrgRole.Role.FRONTDESK, org_wide=True)
 
-        response = _client(staffer, slug="adjust-reason").post(
+        response = api_client(staffer, venue_slug="adjust-reason").post(
             "/api/v1/ledger/adjust/",
             {"membership": membership.pk, "delta": 1, "reason": " "},
         )
@@ -115,9 +93,9 @@ class TestLedgerAdjust:
 
     def test_member_cannot_adjust(self):
         venue, member = _world("adjust-member")
-        membership = _membership(venue, member)
+        membership = with_credit_pack(member, venue)
 
-        response = _client(member, slug="adjust-member").post(
+        response = api_client(member, venue_slug="adjust-member").post(
             "/api/v1/ledger/adjust/",
             {"membership": membership.pk, "delta": 1, "reason": "goodwill"},
         )
@@ -130,9 +108,9 @@ class TestLedgerGrants:
 
     def test_desk_grant_mints_membership(self):
         venue, member = _world("grant-ok")
-        staffer = _staff(venue, "grant-ok")
+        staffer = user_with_role(venue, OrgRole.Role.FRONTDESK, org_wide=True)
 
-        response = _client(staffer, slug="grant-ok").post(
+        response = api_client(staffer, venue_slug="grant-ok").post(
             "/api/v1/ledger/grants/",
             {
                 "member": member.pk,
@@ -151,7 +129,7 @@ class TestLedgerGrants:
 
     def test_grant_is_idempotent_on_incident_key(self):
         venue, member = _world("grant-idem")
-        staffer = _staff(venue, "grant-idem")
+        staffer = user_with_role(venue, OrgRole.Role.FRONTDESK, org_wide=True)
         payload = {
             "member": member.pk,
             "credits": 2,
@@ -159,10 +137,10 @@ class TestLedgerGrants:
             "incident_key": "grant-9",
         }
 
-        first = _client(staffer, slug="grant-idem").post(
+        first = api_client(staffer, venue_slug="grant-idem").post(
             "/api/v1/ledger/grants/", payload
         )
-        second = _client(staffer, slug="grant-idem").post(
+        second = api_client(staffer, venue_slug="grant-idem").post(
             "/api/v1/ledger/grants/", payload
         )
 
@@ -173,7 +151,7 @@ class TestLedgerGrants:
     def test_member_cannot_grant(self):
         _, member = _world("grant-member")
 
-        response = _client(member, slug="grant-member").post(
+        response = api_client(member, venue_slug="grant-member").post(
             "/api/v1/ledger/grants/",
             {"member": member.pk, "credits": 2, "incident_key": "grant-x"},
         )

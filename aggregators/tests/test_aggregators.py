@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest import mock
 
 import pytest
 from django.db import IntegrityError
@@ -7,7 +8,8 @@ from rest_framework.test import APIClient
 
 from aggregators.models import AggregatorBooking, AggregatorEventLog
 from aggregators.tokens import new_token, rotate, verify
-from booking.models import Booking
+from aggregators.webhooks import SIGNATURE_HEADER, send_webhook, sign, verify_signature
+from booking.models import Booking, CancellationPolicy
 from organizations.models import OrgRole
 from passes.models import CreditLedger, Membership, PlanType
 from tests.factories import (
@@ -17,6 +19,9 @@ from tests.factories import (
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
+    api_client,
+    make_session,
+    make_venue,
     user_with_role,
 )
 
@@ -31,20 +36,9 @@ def _partner(slug="classpass"):
     )
 
 
-def _session(venue, teacher=None, **overrides):
-    offering = ClassOfferingFactory(
-        venue=venue,
-        teacher=teacher or UserFactory(username=f"teacher-{venue.slug}"),
-        title="Spin",
-    )
-    defaults = {"starts_at": timezone.now() + timedelta(days=1)}
-    defaults.update(overrides)
-    return ClassSessionFactory(offering=offering, **defaults)
-
-
 def _setup_partner():
-    venue = VenueFactory(slug="agg-venue", name="Agg Venue")
-    session = _session(venue)
+    venue = make_venue("agg-venue")
+    session = make_session(venue)
     raw, token_hash = new_token()
     partner = _partner("gymhopper")
     partner.api_token_hash = token_hash
@@ -178,8 +172,8 @@ class TestPartnerBookings:
 
 class TestPartnerCancel:
     def _client_for(self, slug, name="cancelco"):
-        venue = VenueFactory(slug=slug, name=slug.title())
-        session = _session(venue)
+        venue = make_venue(slug)
+        session = make_session(venue)
         raw, token_hash = new_token()
         partner = _partner(name)
         partner.api_token_hash = token_hash
@@ -202,8 +196,6 @@ class TestPartnerCancel:
         assert cancelled.json()["status"] == "cancelled"
 
     def test_late_cancel_marks_late_without_charges(self):
-        from booking.models import CancellationPolicy
-
         session, _partner, client = self._client_for("agg-late", "lateco")
         CancellationPolicy.objects.create(
             organization=session.offering.venue.organization,
@@ -226,8 +218,6 @@ class TestPartnerCancel:
 
 class TestWebhooks:
     def test_signature_verifies_and_rejects_tampering(self):
-        from aggregators.webhooks import sign, verify_signature
-
         body = b'{"event":"booking.created"}'
 
         assert verify_signature("secret", body, sign("secret", body)) is True
@@ -238,10 +228,6 @@ class TestWebhooks:
 
 class TestWebhookSend:
     def test_send_signs_body_and_posts(self):
-        from unittest import mock
-
-        from aggregators.webhooks import SIGNATURE_HEADER, send_webhook, sign
-
         with mock.patch("aggregators.webhooks.urlopen") as opener:
             send_webhook(
                 "https://partner.example/hook", "secret", "booking.created", {"a": 1}
@@ -270,7 +256,7 @@ class TestEventLogReplay:
 class TestReviewFixes:
     def test_retry_with_different_session_is_409(self):
         session, _partner, client = _setup_partner()
-        other = _session(VenueFactory(slug="other-venue", name="Other"))
+        other = make_session(make_venue("other-venue"))
         url = "/api/v1/aggregators/gymhopper/bookings/"
 
         assert (
@@ -298,9 +284,7 @@ class TestStaffGatesOnRoles:
     def test_org_role_manager_lists_partners(self):
         venue = VenueFactory()
         manager = user_with_role(venue, OrgRole.Role.MANAGER, username="agg-manager")
-        client = APIClient()
-        client.force_authenticate(user=manager)
-        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
+        client = api_client(manager, venue_slug=venue.slug)
 
         response = client.get("/api/v1/staff/aggregators/")
 
@@ -309,9 +293,7 @@ class TestStaffGatesOnRoles:
     def test_org_role_member_cannot_list_partners(self):
         venue = VenueFactory()
         member = user_with_role(venue, OrgRole.Role.MEMBER, username="agg-member")
-        client = APIClient()
-        client.force_authenticate(user=member)
-        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
+        client = api_client(member, venue_slug=venue.slug)
 
         response = client.get("/api/v1/staff/aggregators/")
 

@@ -8,12 +8,11 @@ from django.core.management import CommandError, call_command
 from django.db import IntegrityError, connection
 from django.db.models import Sum
 from django.utils import timezone
-from rest_framework.test import APIClient
 
 from booking.errors import CreditInsufficient
 from booking.models import Booking, CancellationRecord
 from booking.services import book_session
-from organizations.models import Organization, OrgRole, Venue
+from organizations.models import OrgRole
 from passes.models import (
     CreditLedger,
     Entitlement,
@@ -39,6 +38,9 @@ from tests.factories import (  # noqa: WPS235
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
+    api_client,
+    make_session,
+    make_venue,
     user_with_role,
     with_credit_pack,
 )
@@ -58,15 +60,6 @@ pytestmark = pytest.mark.django_db
 #  - 20 threads, 1 member, 1 credit, 20 classes → exactly 1 booking.
 
 
-def _user(username):
-    return UserFactory(username=username)
-
-
-def _venue(slug="downtown"):
-    org = Organization.objects.create(slug=f"org-{slug}", name=f"Org {slug}")
-    return Venue.objects.create(organization=org, slug=slug, name=slug.title())
-
-
 def _plan(venue, name="Pack"):
 
     return Plan.objects.get_or_create(
@@ -84,7 +77,7 @@ def _plan(venue, name="Pack"):
 
 def _member_plan(venue, username, credits=10, plan=None):
 
-    member = _user(username)
+    member = UserFactory(username=username)
     plan = plan or _plan(venue)
     membership = PlanMembershipFactory(
         user=member, plan=plan, credits_remaining=credits
@@ -94,20 +87,20 @@ def _member_plan(venue, username, credits=10, plan=None):
 
 class TestLedgerModel:
     def test_str(self):
-        _, membership = _member_plan(_venue("ledger-str"), "str", credits=10)
+        _, membership = _member_plan(make_venue("ledger-str"), "str", credits=10)
         entry = CreditLedgerFactory(membership=membership, delta=5)
 
         assert str(entry) == "str → Pack (credit_pack) (10 left): +5 (purchase)"
 
     def test_delete_refused(self):
-        _, membership = _member_plan(_venue("ledger-del"), "del")
+        _, membership = _member_plan(make_venue("ledger-del"), "del")
         entry = CreditLedgerFactory(membership=membership, delta=5)
 
         with pytest.raises(ValidationError):
             entry.delete()
 
     def test_resave_refused(self):
-        _, membership = _member_plan(_venue("ledger-resave"), "resave")
+        _, membership = _member_plan(make_venue("ledger-resave"), "resave")
         entry = CreditLedgerFactory(membership=membership, delta=5)
 
         with pytest.raises(ValidationError):
@@ -115,14 +108,14 @@ class TestLedgerModel:
             entry.save()
 
     def test_update_fields_save_refused(self):
-        _, membership = _member_plan(_venue("ledger-fields"), "fields")
+        _, membership = _member_plan(make_venue("ledger-fields"), "fields")
         entry = CreditLedgerFactory(membership=membership, delta=5)
 
         with pytest.raises(ValidationError):
             entry.save(update_fields=["note"])
 
     def test_zero_delta_rejected(self):
-        _, membership = _member_plan(_venue("ledger-zero"), "zero")
+        _, membership = _member_plan(make_venue("ledger-zero"), "zero")
 
         with pytest.raises(IntegrityError):
             CreditLedgerFactory(membership=membership, delta=0)
@@ -153,17 +146,17 @@ class TestLedgerModel:
             )
 
     def test_plan_str(self):
-        _, membership = _member_plan(_venue("plan-str"), "plan")
+        _, membership = _member_plan(make_venue("plan-str"), "plan")
 
         assert str(membership.plan) == "Pack (credit_pack)"
 
     def test_membership_str(self):
-        _, membership = _member_plan(_venue("member-str"), "mem", credits=10)
+        _, membership = _member_plan(make_venue("member-str"), "mem", credits=10)
 
         assert str(membership) == "mem → Pack (credit_pack) (10 left)"
 
     def test_membership_clean_rejects_inverted_dates(self):
-        _, membership = _member_plan(_venue("member-dates"), "dates")
+        _, membership = _member_plan(make_venue("member-dates"), "dates")
         membership.starts_on = date(2026, 2, 1)
         membership.valid_until = date(2026, 1, 1)
 
@@ -171,7 +164,7 @@ class TestLedgerModel:
             membership.clean()
 
     def test_membership_clean_accepts_ordered_dates(self):
-        _, membership = _member_plan(_venue("member-ok"), "ok")
+        _, membership = _member_plan(make_venue("member-ok"), "ok")
 
         membership.clean()
 
@@ -237,13 +230,6 @@ class TestSpend:
 
 
 class TestLedgerUnion:
-    def _client(self, user, slug="ledger-union"):
-
-        client = APIClient()
-        client.force_authenticate(user=user)
-        client.defaults["HTTP_X_VENUE_SLUG"] = slug
-        return client
-
     def test_member_sees_plan_membership_rows(self):
         venue = VenueFactory(slug="ledger-union")
         member = user_with_role(
@@ -257,7 +243,7 @@ class TestLedgerUnion:
             reason=CreditLedger.Reason.BOOKING,
         )
 
-        response = self._client(member).get("/api/v1/ledger/")
+        response = api_client(member, venue_slug="ledger-union").get("/api/v1/ledger/")
 
         assert response.status_code == 200
         assert len(response.data) == 1
@@ -273,7 +259,7 @@ class TestLedgerUnion:
         session = ClassSessionFactory(offering=offering)
         book_session(session=session, member=member)
 
-        response = self._client(staff, slug="ledger-staff").get("/api/v1/ledger/")
+        response = api_client(staff, venue_slug="ledger-staff").get("/api/v1/ledger/")
 
         assert response.status_code == 200
         assert len(response.data) == 1
@@ -298,7 +284,7 @@ class TestLedgerUnion:
         session = ClassSessionFactory(offering=offering)
         book_session(session=session, member=member)
 
-        response = self._client(staff, slug="ledger-away").get("/api/v1/ledger/")
+        response = api_client(staff, venue_slug="ledger-away").get("/api/v1/ledger/")
 
         assert response.status_code == 200
         assert response.data == []
@@ -324,16 +310,18 @@ class TestPlanAxes:
 
     def test_unlimited_with_count_rejected(self):
         with pytest.raises(IntegrityError):
-            self._plan(_venue("ax-unl"), entitlement="unlimited", credits_included=10)
+            self._plan(
+                make_venue("ax-unl"), entitlement="unlimited", credits_included=10
+            )
 
     def test_credits_without_count_rejected(self):
         with pytest.raises(IntegrityError):
-            self._plan(_venue("ax-cred"), credits_included=None)
+            self._plan(make_venue("ax-cred"), credits_included=None)
 
     def test_open_ended_with_duration_rejected(self):
         with pytest.raises(IntegrityError):
             self._plan(
-                _venue("ax-open"),
+                make_venue("ax-open"),
                 entitlement="unlimited",
                 credits_included=None,
                 validity="open_ended",
@@ -342,12 +330,12 @@ class TestPlanAxes:
 
     def test_fixed_without_duration_rejected(self):
         with pytest.raises(IntegrityError):
-            self._plan(_venue("ax-fix"), duration_days=None)
+            self._plan(make_venue("ax-fix"), duration_days=None)
 
     def test_recurring_without_duration_rejected(self):
         with pytest.raises(IntegrityError):
             self._plan(
-                _venue("ax-rec"),
+                make_venue("ax-rec"),
                 entitlement="unlimited",
                 credits_included=None,
                 validity="recurring",
@@ -355,7 +343,7 @@ class TestPlanAxes:
             )
 
     def test_staff_and_aggregator_types_accepted(self):
-        venue = _venue("ax-types")
+        venue = make_venue("ax-types")
         self._plan(
             venue,
             name="Staff",
@@ -376,7 +364,7 @@ class TestPlanAxes:
         )
 
     def test_unlimited_membership_holds_null_balance(self):
-        venue = _venue("ax-null")
+        venue = make_venue("ax-null")
         plan = self._plan(
             venue,
             entitlement="unlimited",
@@ -385,7 +373,7 @@ class TestPlanAxes:
             duration_days=30,
         )
         membership = PlanMembership.objects.create(
-            user=_user("null-bal"),
+            user=UserFactory(username="null-bal"),
             plan=plan,
             credits_remaining=None,
             starts_on=timezone.now().date(),
@@ -394,7 +382,7 @@ class TestPlanAxes:
         assert membership.credits_remaining is None
 
     def test_open_ended_membership_holds_null_date(self):
-        venue = _venue("ax-nodate")
+        venue = make_venue("ax-nodate")
         plan = self._plan(
             venue,
             entitlement="unlimited",
@@ -403,7 +391,7 @@ class TestPlanAxes:
             duration_days=None,
         )
         membership = PlanMembership.objects.create(
-            user=_user("nodate"),
+            user=UserFactory(username="nodate"),
             plan=plan,
             credits_remaining=None,
             starts_on=timezone.now().date(),
@@ -412,11 +400,11 @@ class TestPlanAxes:
         assert membership.valid_until is None
 
     def test_inverted_dates_rejected(self):
-        venue = _venue("ax-inv")
+        venue = make_venue("ax-inv")
         plan = self._plan(venue)
         with pytest.raises(IntegrityError):
             PlanMembership.objects.create(
-                user=_user("inv"),
+                user=UserFactory(username="inv"),
                 plan=plan,
                 credits_remaining=5,
                 starts_on=timezone.now().date(),
@@ -428,7 +416,7 @@ class TestPostEntry:
     """post_entry: the single choke-point for every credit movement."""
 
     def test_posts_row_and_bumps_cache(self):
-        _, membership = _member_plan(_venue("pe-ok"), "ok", credits=10)
+        _, membership = _member_plan(make_venue("pe-ok"), "ok", credits=10)
         row = post_entry(
             membership,
             -3,
@@ -442,13 +430,13 @@ class TestPostEntry:
         assert membership.ledger_entries.count() == 1
 
     def test_zero_delta_refused(self):
-        _, membership = _member_plan(_venue("pe-zero"), "zero", credits=10)
+        _, membership = _member_plan(make_venue("pe-zero"), "zero", credits=10)
 
         with pytest.raises(ValidationError):
             post_entry(membership, 0, CreditLedger.Reason.BOOKING, booking=None)
 
     def test_floor_breach_raises_insufficient(self):
-        _, membership = _member_plan(_venue("pe-floor"), "floor", credits=2)
+        _, membership = _member_plan(make_venue("pe-floor"), "floor", credits=2)
 
         with pytest.raises(CreditInsufficient):
             post_entry(membership, -3, CreditLedger.Reason.BOOKING, booking=None)
@@ -457,7 +445,7 @@ class TestPostEntry:
         assert membership.ledger_entries.count() == 0
 
     def test_unlimited_takes_no_rows(self):
-        venue = _venue("pe-unl")
+        venue = make_venue("pe-unl")
 
         plan = Plan.objects.create(
             organization=venue.organization,
@@ -468,7 +456,7 @@ class TestPostEntry:
             duration_days=30,
         )
         membership = PlanMembership.objects.create(
-            user=_user("unlimited"),
+            user=UserFactory(username="unlimited"),
             plan=plan,
             credits_remaining=None,
             starts_on=plan_starts_today(),
@@ -480,8 +468,16 @@ class TestPostEntry:
         assert membership.ledger_entries.count() == 0
 
     def test_duplicate_spend_for_one_booking_rejected(self):
-        _, membership = _member_plan(_venue("pe-dupe"), "dupe", credits=10)
-        booking = _booking_for(membership)
+        _, membership = _member_plan(make_venue("pe-dupe"), "dupe", credits=10)
+        # Bare row: the service would spend and validate, but this test is
+        # about the ledger's per-booking uniqueness, not booking rules.
+        venue = VenueFactory(organization=membership.plan.organization)
+        booking = Booking.objects.create(
+            session=make_session(venue),
+            member=membership.user,
+            membership=membership,
+            credits_spent=1,
+        )
 
         post_entry(membership, -1, CreditLedger.Reason.BOOKING, booking=booking)
         with pytest.raises(IntegrityError):
@@ -492,30 +488,17 @@ def plan_starts_today():
     return timezone.now().date()
 
 
-def _booking_for(membership):
-    venue = VenueFactory(organization=membership.plan.organization)
-    offering = ClassOfferingFactory(venue=venue)
-    session = ClassSessionFactory(offering=offering)
-
-    return Booking.objects.create(
-        session=session,
-        member=membership.user,
-        membership=membership,
-        credits_spent=1,
-    )
-
-
 class TestReconcileLedger:
     def test_agrees_on_clean_data(self):
         from django.core.management import call_command
 
-        _, membership = _member_plan(_venue("rec-ok"), "ok", credits=0)
+        _, membership = _member_plan(make_venue("rec-ok"), "ok", credits=0)
         post_entry(membership, 10, CreditLedger.Reason.PURCHASE)
 
         call_command("reconcile_ledger")
 
     def test_fails_on_drift(self):
-        _, membership = _member_plan(_venue("rec-drift"), "drift", credits=10)
+        _, membership = _member_plan(make_venue("rec-drift"), "drift", credits=10)
         PlanMembership.objects.filter(pk=membership.pk).update(credits_remaining=99)
 
         with pytest.raises(CommandError):
@@ -526,8 +509,8 @@ class TestGrantGoodwill:
     """grant_goodwill: one atomic mint of plan + membership + PURCHASE."""
 
     def test_mints_all_three_rows(self):
-        venue = _venue("grant-ok")
-        member = _user("granted")
+        venue = make_venue("grant-ok")
+        member = UserFactory(username="granted")
         membership, created = grant_goodwill(
             organization=venue.organization,
             user=member,
@@ -552,8 +535,8 @@ class TestGrantGoodwill:
         assert purchase.delta == 2
 
     def test_same_incident_key_returns_existing(self):
-        venue = _venue("grant-idem")
-        member = _user("idem")
+        venue = make_venue("grant-idem")
+        member = UserFactory(username="idem")
         first, _ = grant_goodwill(
             organization=venue.organization,
             user=member,
@@ -581,8 +564,8 @@ class TestGrantGoodwill:
         )
 
     def test_duplicate_payment_ref_rejected_at_db(self):
-        venue = _venue("grant-dupe")
-        member = _user("dupe")
+        venue = make_venue("grant-dupe")
+        member = UserFactory(username="dupe")
         PlanMembershipFactory(
             user=member,
             plan=_plan(venue),
@@ -602,8 +585,8 @@ class TestGrantGoodwill:
 @pytest.mark.django_db(transaction=True)
 class TestGrantRace:
     def test_concurrent_same_key_grants_once(self):
-        venue = _venue("grant-race")
-        member = _user("racer")
+        venue = make_venue("grant-race")
+        member = UserFactory(username="racer")
         outcomes = []
         gate = Barrier(2)
 

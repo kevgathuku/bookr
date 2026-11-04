@@ -1,16 +1,21 @@
-from datetime import timedelta
-
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.test import Client
-from django.utils import timezone
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.test import Client, RequestFactory
 
 from access.models import AccessEvent, AccessPoint
+from booking.models import CancellationPolicy
 from organizations.admin_mixins import bookr_site
-from organizations.models import Organization, OrgRole, Venue
+from organizations.models import OrgRole
 from passes.models import CreditLedger
-from tests.factories import UserFactory
+from tests.factories import (
+    OrganizationFactory,
+    UserFactory,
+    VenueFactory,
+    make_session,
+    user_with_role,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -24,31 +29,6 @@ pytestmark = pytest.mark.django_db
 #    not roles; ADR-0005).
 
 
-def _user(username, staff=False):
-    return UserFactory(username=username, is_staff=staff)
-
-
-def _org(slug):
-    return Organization.objects.create(slug=slug, name=slug.title())
-
-
-def _venue(org, slug):
-    return Venue.objects.create(organization=org, slug=slug, name=slug.title())
-
-
-def _membership(org, user, role, venue=None):
-    return OrgRole.objects.create(organization=org, venue=venue, user=user, role=role)
-
-
-def _class(venue, teacher):
-    from tests.factories import ClassOfferingFactory, ClassSessionFactory
-
-    offering = ClassOfferingFactory(venue=venue, teacher=teacher)
-    return ClassSessionFactory(
-        offering=offering, starts_at=timezone.now() + timedelta(days=1)
-    )
-
-
 def _admin_client(user):
     client = Client()
     client.force_login(user)
@@ -57,13 +37,15 @@ def _admin_client(user):
 
 class TestVenueScoping:
     def test_venue_a_staff_blind_to_venue_b(self):
-        org = _org("org")
-        venue_a, venue_b = _venue(org, "a-main"), _venue(org, "b-annex")
-        teacher = _user("teacher")
-        class_a = _class(venue_a, teacher)
-        _class(venue_b, teacher)
-        manager = _user("manager", staff=True)
-        _membership(org, manager, OrgRole.Role.MANAGER, venue_a)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue_a, venue_b = (
+            VenueFactory(organization=org, slug="a-main", name="A-Main"),
+            VenueFactory(organization=org, slug="b-annex", name="B-Annex"),
+        )
+        teacher = UserFactory(username="teacher")
+        class_a = make_session(venue_a, teacher=teacher)
+        make_session(venue_b, teacher=teacher)
+        manager = user_with_role(venue_a, OrgRole.Role.MANAGER, "manager", staff=True)
 
         response = _admin_client(manager).get("/admin/scheduling/classsession/")
 
@@ -72,13 +54,17 @@ class TestVenueScoping:
         assert list(response.context["cl"].result_list) == [class_a]
 
     def test_spanning_owner_sees_both(self):
-        org = _org("org")
-        venue_a, venue_b = _venue(org, "a-main"), _venue(org, "b-annex")
-        teacher = _user("teacher")
-        _class(venue_a, teacher)
-        _class(venue_b, teacher)
-        owner = _user("owner", staff=True)
-        _membership(org, owner, OrgRole.Role.OWNER)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue_a, venue_b = (
+            VenueFactory(organization=org, slug="a-main", name="A-Main"),
+            VenueFactory(organization=org, slug="b-annex", name="B-Annex"),
+        )
+        teacher = UserFactory(username="teacher")
+        make_session(venue_a, teacher=teacher)
+        make_session(venue_b, teacher=teacher)
+        owner = user_with_role(
+            venue_a, OrgRole.Role.OWNER, "owner", org_wide=True, staff=True
+        )
 
         response = _admin_client(owner).get("/admin/scheduling/classsession/")
 
@@ -88,42 +74,38 @@ class TestVenueScoping:
 
 class TestRoleGate:
     def test_teacher_with_staff_flag_denied(self):
-        org = _org("org")
-        venue = _venue(org, "main")
-        teacher = _user("teacher", staff=True)
-        _membership(org, teacher, OrgRole.Role.TEACHER, venue)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue = VenueFactory(organization=org, slug="main", name="Main")
+        teacher = user_with_role(venue, OrgRole.Role.TEACHER, "teacher", staff=True)
 
         response = _admin_client(teacher).get("/admin/")
 
         assert response.status_code in (302, 403)
 
     def test_group_membership_grants_nothing(self):
-        org = _org("org")
-        venue = _venue(org, "main")
-        teacher = _user("teacher", staff=True)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue = VenueFactory(organization=org, slug="main", name="Main")
+        teacher = user_with_role(venue, OrgRole.Role.TEACHER, "teacher", staff=True)
         group, _ = Group.objects.get_or_create(name="managers")
         teacher.groups.add(group)
-        _membership(org, teacher, OrgRole.Role.TEACHER, venue)
 
         response = _admin_client(teacher).get("/admin/scheduling/classsession/")
 
         assert response.status_code in (302, 403)
 
     def test_frontdesk_fallback_allowed(self):
-        org = _org("org")
-        venue = _venue(org, "main")
-        desk = _user("desk", staff=True)
-        _membership(org, desk, OrgRole.Role.FRONTDESK, venue)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue = VenueFactory(organization=org, slug="main", name="Main")
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", staff=True)
 
         response = _admin_client(desk).get("/admin/")
 
         assert response.status_code == 200
 
     def test_member_denied(self):
-        org = _org("org")
-        venue = _venue(org, "main")
-        member = _user("member", staff=True)
-        _membership(org, member, OrgRole.Role.MEMBER, venue)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue = VenueFactory(organization=org, slug="main", name="Main")
+        member = user_with_role(venue, OrgRole.Role.MEMBER, "member", staff=True)
 
         response = _admin_client(member).get("/admin/")
 
@@ -132,10 +114,9 @@ class TestRoleGate:
 
 class TestReadOnlyAudit:
     def test_ledger_rejects_add_change_delete(self):
-        org = _org("org")
-        venue = _venue(org, "main")
-        manager = _user("manager", staff=True)
-        _membership(org, manager, OrgRole.Role.MANAGER, venue)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue = VenueFactory(organization=org, slug="main", name="Main")
+        manager = user_with_role(venue, OrgRole.Role.MANAGER, "manager", staff=True)
         model_admin = bookr_site._registry[CreditLedger]
         request = _request(manager)
 
@@ -145,10 +126,9 @@ class TestReadOnlyAudit:
         assert model_admin.has_view_permission(request) is True
 
     def test_access_events_reject_add_change_delete(self):
-        org = _org("org")
-        venue = _venue(org, "main")
-        manager = _user("manager", staff=True)
-        _membership(org, manager, OrgRole.Role.MANAGER, venue)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue = VenueFactory(organization=org, slug="main", name="Main")
+        manager = user_with_role(venue, OrgRole.Role.MANAGER, "manager", staff=True)
         model_admin = bookr_site._registry[AccessEvent]
         request = _request(manager)
 
@@ -156,10 +136,9 @@ class TestReadOnlyAudit:
         assert model_admin.has_delete_permission(request) is False
 
     def test_add_url_refuses(self):
-        org = _org("org")
-        venue = _venue(org, "main")
-        manager = _user("manager", staff=True)
-        _membership(org, manager, OrgRole.Role.MANAGER, venue)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue = VenueFactory(organization=org, slug="main", name="Main")
+        manager = user_with_role(venue, OrgRole.Role.MANAGER, "manager", staff=True)
 
         response = _admin_client(manager).get("/admin/passes/creditledger/add/")
 
@@ -168,10 +147,9 @@ class TestReadOnlyAudit:
 
 class TestTokenHash:
     def test_hash_readonly_rotation_tooling(self):
-        org = _org("org")
-        venue = _venue(org, "main")
-        manager = _user("manager", staff=True)
-        _membership(org, manager, OrgRole.Role.MANAGER, venue)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue = VenueFactory(organization=org, slug="main", name="Main")
+        manager = user_with_role(venue, OrgRole.Role.MANAGER, "manager", staff=True)
         point = AccessPoint.objects.create(venue=venue, name="Door", controller_id="d1")
         model_admin = bookr_site._registry[AccessPoint]
 
@@ -188,10 +166,9 @@ class TestTokenHash:
 
 class TestUserEmailRequired:
     def _manager_client(self):
-        org = _org("org")
-        venue = _venue(org, "main")
-        manager = _user("manager", staff=True)
-        _membership(org, manager, OrgRole.Role.MANAGER, venue)
+        org = OrganizationFactory(slug="org", name="Org")
+        venue = VenueFactory(organization=org, slug="main", name="Main")
+        manager = user_with_role(venue, OrgRole.Role.MANAGER, "manager", staff=True)
         return _admin_client(manager)
 
     def test_add_without_email_rejected(self):
@@ -238,9 +215,6 @@ class TestUserEmailRequired:
 
 
 def _request(user):
-    from django.contrib.messages.storage.fallback import FallbackStorage
-    from django.test import RequestFactory
-
     request = RequestFactory().get("/admin/")
     request.user = user
     request.session = {}
@@ -249,22 +223,17 @@ def _request(user):
 
 
 class TestCoverageMatrix:
-    def _staff_client(self, org):
-        from organizations.models import OrgRole
-        from tests.factories import OrgRoleFactory
-
-        user = _user("matrix-staff", staff=True)
-        OrgRoleFactory(
-            organization=org, venue=None, user=user, role=OrgRole.Role.MANAGER
+    def _staff_client(self, venue):
+        user = user_with_role(
+            venue,
+            OrgRole.Role.MANAGER,
+            "matrix-staff",
+            org_wide=True,
+            staff=True,
         )
-        client = Client()
-        client.force_login(user)
-        return client
+        return _admin_client(user)
 
     def test_matrix_shows_winner_and_free(self):
-        from booking.models import CancellationPolicy
-        from tests.factories import VenueFactory
-
         venue = VenueFactory(slug="matrix")
         org = venue.organization
         CancellationPolicy.objects.create(
@@ -274,7 +243,7 @@ class TestCoverageMatrix:
             enforcement=CancellationPolicy.Enforcement.STRIKE,
         )
 
-        response = self._staff_client(org).get(
+        response = self._staff_client(venue).get(
             "/admin/booking/cancellationpolicy/coverage/"
         )
 
@@ -284,11 +253,9 @@ class TestCoverageMatrix:
         assert "free by design" in body
 
     def test_member_cannot_see_matrix(self):
-        from tests.factories import VenueFactory
-
         VenueFactory(slug="matrix-member")
         client = Client()
-        client.force_login(_user("matrix-member"))
+        client.force_login(UserFactory(username="matrix-member"))
 
         response = client.get("/admin/booking/cancellationpolicy/coverage/")
 

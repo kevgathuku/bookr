@@ -2,10 +2,22 @@ from datetime import timedelta
 
 import pytest
 from django.utils import timezone
-from rest_framework.test import APIClient
 
-from organizations.models import Organization, OrgRole, Venue
-from tests.factories import user_with_role
+from booking.models import CancellationPolicy
+from booking.services import book_session
+from organizations.models import OrgRole
+from tests.factories import (
+    ClassOfferingFactory,
+    ClassSessionFactory,
+    PlanFactory,
+    PlanMembershipFactory,
+    api_client,
+    book,
+    make_member,
+    make_session,
+    make_venue,
+    user_with_role,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -15,71 +27,25 @@ pytestmark = pytest.mark.django_db
 #  - check-in / no-show return with the cancel and desk tickets.
 
 
-def _client(user, slug="downtown"):
-    client = APIClient()
-    client.force_authenticate(user=user)
-    client.defaults["HTTP_X_VENUE_SLUG"] = slug
-    return client
-
-
-def _session(venue):
-    from tests.factories import ClassOfferingFactory, ClassSessionFactory
-
-    offering = ClassOfferingFactory(venue=venue, title="Spin")
-    return ClassSessionFactory(
-        offering=offering, starts_at=timezone.now() + timedelta(days=1)
-    )
-
-
-def _venue(slug="downtown"):
-    org = Organization.objects.create(slug=f"org-{slug}", name=f"Org {slug}")
-    return Venue.objects.create(organization=org, slug=slug, name=slug.title())
-
-
-def _staff(venue, username=None, role=OrgRole.Role.MANAGER):
-    return user_with_role(venue, role, username)
-
-
-def _member(venue, username=None):
-    return user_with_role(venue, OrgRole.Role.MEMBER, username)
-
-
-def _member_with_plan(venue, username):
-    from tests.factories import (
-        PlanFactory,
-        PlanMembershipFactory,
-        UserFactory,
-    )
-
-    member = UserFactory(username=username)
-    plan = PlanFactory(organization=venue.organization)
-    PlanMembershipFactory(user=member, plan=plan, credits_remaining=5)
-    return member
-
-
-def _book(member, session):
-    from booking.services import book_session
-
-    return book_session(member=member, session=session)
-
-
 class TestRoster:
     def test_roster_rejects_bad_date(self):
-        venue = _venue()
-        response = _client(_staff(venue)).get(
+        venue = make_venue()
+        response = api_client(user_with_role(venue, OrgRole.Role.MANAGER)).get(
             "/api/v1/bookings/roster/?date=not-a-date"
         )
 
         assert response.status_code == 400
 
     def test_roster_lists_todays_venue_bookings(self):
-        venue = _venue()
-        session = _session(venue)
-        member = _member_with_plan(venue, "roster-member")
-        booking = _book(member, session)
+        venue = make_venue()
+        session = make_session(venue)
+        member = make_member("roster-member", venue, credits=5)
+        booking = book(member, session)
         day = (timezone.now() + timedelta(days=1)).date().isoformat()
 
-        response = _client(_staff(venue)).get(f"/api/v1/bookings/roster/?date={day}")
+        response = api_client(user_with_role(venue, OrgRole.Role.MANAGER)).get(
+            f"/api/v1/bookings/roster/?date={day}"
+        )
 
         assert response.status_code == 200
         rows = {row["id"]: row for row in response.json()}
@@ -89,10 +55,12 @@ class TestRoster:
 
 class TestMemberSearch:
     def test_search_finds_venue_member(self):
-        venue = _venue()
-        _member(venue, "searchable-sam")
+        venue = make_venue()
+        user_with_role(venue, OrgRole.Role.MEMBER, "searchable-sam")
 
-        response = _client(_staff(venue)).get("/api/v1/members/search/?q=sam")
+        response = api_client(user_with_role(venue, OrgRole.Role.MANAGER)).get(
+            "/api/v1/members/search/?q=sam"
+        )
 
         assert response.status_code == 200
         assert any(
@@ -101,11 +69,13 @@ class TestMemberSearch:
         assert "id" in response.json()[0]
 
     def test_search_finds_spanning_member(self):
-        venue = _venue()
-        spanning = _member(venue, "spanning-sue")
+        venue = make_venue()
+        spanning = user_with_role(venue, OrgRole.Role.MEMBER, "spanning-sue")
         OrgRole.objects.filter(user=spanning).update(venue=None)
 
-        response = _client(_staff(venue)).get("/api/v1/members/search/?q=sue")
+        response = api_client(user_with_role(venue, OrgRole.Role.MANAGER)).get(
+            "/api/v1/members/search/?q=sue"
+        )
 
         assert response.status_code == 200
         assert any(
@@ -113,44 +83,23 @@ class TestMemberSearch:
         )
 
     def test_member_cannot_search(self):
-        venue = _venue()
-        response = _client(_member(venue)).get("/api/v1/members/search/?q=a")
+        venue = make_venue()
+        response = api_client(user_with_role(venue, OrgRole.Role.MEMBER)).get(
+            "/api/v1/members/search/?q=a"
+        )
 
         assert response.status_code in (403, 404)
 
 
 class TestDeskCancelFlows:
-    def _client(self, user, venue):
-        from rest_framework.test import APIClient
-
-        client = APIClient()
-        client.force_authenticate(user=user)
-        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
-        return client
-
     def _world(self, slug="desk-flow"):
-        from tests.factories import VenueFactory, user_with_role
-
-        venue = VenueFactory(slug=slug)
+        venue = make_venue(slug)
         desk = user_with_role(
             venue, OrgRole.Role.FRONTDESK, f"desk-{slug}", org_wide=True
         )
         return venue, desk
 
     def _book(self, venue, username, credits=10):
-        from datetime import timedelta
-
-        from django.utils import timezone
-
-        from booking.services import book_session
-        from organizations.models import OrgRole
-        from tests.factories import (
-            ClassOfferingFactory,
-            ClassSessionFactory,
-            PlanFactory,
-            PlanMembershipFactory,
-        )
-
         member = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
         plan = PlanFactory(organization=venue.organization)
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
@@ -163,8 +112,6 @@ class TestDeskCancelFlows:
         return member, booking, session
 
     def test_desk_cancels_on_behalf_late_forfeits(self):
-        from booking.models import CancellationPolicy
-
         venue, desk = self._world()
         _member, booking, _session = self._book(venue, "m-flow")
         CancellationPolicy.objects.create(
@@ -173,7 +120,7 @@ class TestDeskCancelFlows:
             enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
         )
 
-        response = self._client(desk, venue).post(
+        response = api_client(desk, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{booking.pk}/cancel/",
             {"staff_override": True, "reason": "called in sick"},
             format="json",
@@ -189,7 +136,7 @@ class TestDeskCancelFlows:
         _member, booking, _session = self._book(venue, "m-contra")
 
         # Staff's own decision carries no penalty: nothing to waive.
-        response = self._client(desk, venue).post(
+        response = api_client(desk, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{booking.pk}/cancel/",
             {"waive_penalty": True, "reason": "oops"},
             format="json",
@@ -201,7 +148,7 @@ class TestDeskCancelFlows:
         venue, _desk = self._world(slug="desk-own")
         member, booking, _session = self._book(venue, "m-own")
 
-        response = self._client(member, venue).post(
+        response = api_client(member, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{booking.pk}/cancel/",
             {"reason": "change of plans"},
             format="json",
@@ -215,7 +162,7 @@ class TestDeskCancelFlows:
         venue, _desk = self._world(slug="desk-bare")
         member, booking, _session = self._book(venue, "m-bare")
 
-        response = self._client(member, venue).post(
+        response = api_client(member, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{booking.pk}/cancel/"
         )
 
@@ -223,8 +170,6 @@ class TestDeskCancelFlows:
         assert response.data["cause"] == "member_cancel"
 
     def test_desk_waives_forfeit(self):
-        from booking.models import CancellationPolicy
-
         venue, desk = self._world(slug="desk-waive")
         member, booking, _session = self._book(venue, "m-waive")
         CancellationPolicy.objects.create(
@@ -233,7 +178,7 @@ class TestDeskCancelFlows:
             enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
         )
         record_id = (
-            self._client(member, venue)
+            api_client(member, venue_slug=venue.slug)
             .post(
                 f"/api/v1/bookings/{booking.pk}/cancel/",
                 {"reason": "overslept"},
@@ -242,7 +187,7 @@ class TestDeskCancelFlows:
             .data["id"]
         )
 
-        response = self._client(desk, venue).post(
+        response = api_client(desk, venue_slug=venue.slug).post(
             f"/api/v1/records/{record_id}/waive/",
             {"reason": "goodwill"},
             format="json",
@@ -256,7 +201,7 @@ class TestDeskCancelFlows:
         venue, desk = self._world(slug="desk-session")
         _member, _booking, session = self._book(venue, "m-session")
 
-        response = self._client(desk, venue).post(
+        response = api_client(desk, venue_slug=venue.slug).post(
             f"/api/v1/sessions/{session.pk}/cancel/",
             {"reason": "teacher sick"},
             format="json",
@@ -269,14 +214,10 @@ class TestDeskCancelFlows:
     def test_door_marks_no_show_and_check_in(self):
         venue, desk = self._world(slug="desk-door")
         _member, booking, session = self._book(venue, "m-door")
-        from datetime import timedelta
-
-        from django.utils import timezone
-
         session.starts_at = timezone.now() - timedelta(hours=1)
         session.save(update_fields=["starts_at"])
 
-        no_show = self._client(desk, venue).post(
+        no_show = api_client(desk, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{booking.pk}/no-show/"
         )
         assert no_show.status_code == 200
@@ -286,16 +227,12 @@ class TestDeskCancelFlows:
         assert booking.status == "no_show"
 
     def test_door_check_in_stamps_time(self):
-        from datetime import timedelta
-
-        from django.utils import timezone
-
         venue, desk = self._world(slug="desk-checkin")
         _member, booking, session = self._book(venue, "m-checkin")
         session.starts_at = timezone.now() - timedelta(minutes=30)
         session.save(update_fields=["starts_at"])
 
-        checked = self._client(desk, venue).post(
+        checked = api_client(desk, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{booking.pk}/checkin/"
         )
 

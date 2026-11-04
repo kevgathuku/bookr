@@ -15,62 +15,20 @@ from django.utils import timezone
 
 from booking.cancellations import cancel_booking, cancel_session
 from booking.models import CancellationPolicy
-from booking.services import book_session
 from common.ids import BookingId, SessionId
-from scheduling.models import ClassCategory
+from organizations.models import OrgRole
 from tests.factories import (
-    ClassOfferingFactory,
-    ClassSessionFactory,
-    PlanFactory,
-    PlanMembershipFactory,
-    VenueFactory,
+    book,
+    make_member,
+    make_policy,
+    make_session,
+    make_venue,
     user_with_role,
 )
 
 pytestmark = pytest.mark.django_db
 
 LATE = CancellationPolicy.Enforcement.LOSE_CREDIT
-
-
-def _venue(slug):
-    return VenueFactory(slug=slug)
-
-
-def _session(venue, starts_in_hours=48):
-    offering = ClassOfferingFactory(venue=venue, category=ClassCategory.GROUP)
-    return ClassSessionFactory(
-        offering=offering,
-        starts_at=timezone.now() + timedelta(hours=starts_in_hours),
-    )
-
-
-def _member(username, venue, credits=10):
-    from organizations.models import OrgRole
-
-    user = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
-    plan = PlanFactory(organization=venue.organization)
-    PlanMembershipFactory(user=user, plan=plan, credits_remaining=credits)
-    return user
-
-
-def _staff(username, venue):
-    from organizations.models import OrgRole
-
-    return user_with_role(venue, OrgRole.Role.FRONTDESK, username, org_wide=True)
-
-
-def _policy(org, enforcement, late_cancel_hours=12):
-    return CancellationPolicy.objects.create(
-        organization=org,
-        enforcement=enforcement,
-        late_cancel_hours=late_cancel_hours,
-    )
-
-
-def _book(member, session, price=2):
-    session.offering.credit_cost = price
-    session.offering.save(update_fields=["credit_cost"])
-    return book_session(session=session, member=member)
 
 
 def _cancel(member, booking, **kwargs):
@@ -88,11 +46,11 @@ def _cancel(member, booking, **kwargs):
 
 class TestMemberCancelNotice:
     def test_early_cancel_says_refunded(self):
-        venue = _venue("notice-early")
-        session = _session(venue)
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, LATE)
-        booking = _book(member, session)
+        venue = make_venue("notice-early")
+        session = make_session(venue)
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, LATE)
+        booking = book(member, session)
 
         _cancel(member, booking)
 
@@ -103,13 +61,13 @@ class TestMemberCancelNotice:
         assert mail.outbox[0].to == [member.email]
 
     def test_missing_email_raises_instead_of_fabricating(self):
-        venue = _venue("notice-noemail")
-        session = _session(venue)
-        member = _member("m1", venue, credits=10)
+        venue = make_venue("notice-noemail")
+        session = make_session(venue)
+        member = make_member("m1", venue, credits=10)
         member.email = ""
         member.save(update_fields=["email"])
-        _policy(venue.organization, LATE)
-        booking = _book(member, session)
+        make_policy(venue.organization, LATE)
+        booking = book(member, session)
 
         with (
             pytest.raises(
@@ -128,11 +86,11 @@ class TestMemberCancelNotice:
         assert len(mail.outbox) == 0
 
     def test_late_forfeit_says_forfeited(self):
-        venue = _venue("notice-forfeit")
-        session = _session(venue, starts_in_hours=2)
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, LATE)
-        booking = _book(member, session)
+        venue = make_venue("notice-forfeit")
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, LATE)
+        booking = book(member, session)
 
         _cancel(member, booking)
 
@@ -143,11 +101,11 @@ class TestMemberCancelNotice:
         # Inside the TestCase's outer transaction the commit never happens,
         # so a correctly deferred notice stays silent. This fails if the
         # service ever calls the notifier inline instead of on_commit.
-        venue = _venue("notice-deferred")
-        session = _session(venue)
-        member = _member("m1", venue, credits=10)
-        _policy(venue.organization, LATE)
-        booking = _book(member, session)
+        venue = make_venue("notice-deferred")
+        session = make_session(venue)
+        member = make_member("m1", venue, credits=10)
+        make_policy(venue.organization, LATE)
+        booking = book(member, session)
 
         cancel_booking(
             booking_id=BookingId(booking.pk),
@@ -161,12 +119,12 @@ class TestMemberCancelNotice:
 
 class TestSessionCancelNotice:
     def test_each_member_gets_refund_notice(self):
-        venue = _venue("notice-session")
-        session = _session(venue, starts_in_hours=2)
-        members = [_member(f"m{i}", venue, credits=10) for i in range(2)]
+        venue = make_venue("notice-session")
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        members = [make_member(f"m{i}", venue, credits=10) for i in range(2)]
         for member in members:
-            _book(member, session)
-        desk = _staff("desk", venue)
+            book(member, session)
+        desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
 
         with TestCase.captureOnCommitCallbacks(execute=True):
             records = cancel_session(

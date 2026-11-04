@@ -191,9 +191,16 @@ def user_with_roles(
     venue: Venue,
     roles: Iterable[tuple[OrgRole.Role, bool]],
     username: str | None = None,
+    staff: bool = False,
 ):
-    """User holding several OrgRoles: (role, org_wide) pairs share one user."""
-    user = UserFactory(username=username) if username else UserFactory()
+    """User holding several OrgRoles: (role, org_wide) pairs share one user.
+
+    staff=True sets Django's is_staff (the admin-site door); OrgRole rows
+    still scope what the staffer sees inside."""
+    if username:
+        user = UserFactory(username=username, is_staff=staff)
+    else:
+        user = UserFactory(is_staff=staff)
     for role, org_wide in roles:
         OrgRoleFactory(
             organization=venue.organization,
@@ -209,17 +216,99 @@ def user_with_role(
     role: OrgRole.Role,
     username: str | None = None,
     org_wide: bool = False,
+    staff: bool = False,
 ):
     """User holding an OrgRole: avoids the create-user-then-role repetition.
 
     Pass org_wide=True for org-level roles (venue=None)."""
-    return user_with_roles(venue, [(role, org_wide)], username=username)
+    return user_with_roles(venue, [(role, org_wide)], username=username, staff=staff)
 
 
 def with_monthly_plan(user, venue):
     """Attach a valid monthly (unlimited, recurring) plan to a user."""
     plan = PlanFactory(organization=venue.organization, monthly=True)
     return PlanMembershipFactory(user=user, plan=plan, credits_remaining=None)
+
+
+def make_venue(slug="downtown"):
+    """One venue in its own org. The shared _venue replacement: venue slugs
+    only need uniqueness per test, orgs are always fresh."""
+    return VenueFactory(slug=slug, name=slug.title())
+
+
+def make_member(username=None, venue=None, credits=10):
+    """Org-wide member with a credit pack. Composes user_with_role +
+    with_credit_pack; the shared _member replacement."""
+    user = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
+    with_credit_pack(user, venue, credits)
+    return user
+
+
+def make_session(
+    venue,
+    *,
+    title="Spin",
+    category=ClassCategory.GROUP,
+    price=1,
+    capacity=None,
+    teacher=None,
+    starts_at=None,
+):
+    """One session tomorrow. Pass starts_at explicitly when the test's
+    subject is timing; every other kwarg is the assertion subject.
+    Capacity defaults to the model's (15): only pin it when the test is
+    about fullness."""
+    offering_kwargs = {
+        "venue": venue,
+        "title": title,
+        "category": category,
+        "credit_cost": price,
+    }
+    if teacher is not None:
+        offering_kwargs["teacher"] = teacher
+    offering = ClassOfferingFactory(**offering_kwargs)
+    session_kwargs = {
+        "offering": offering,
+        "starts_at": starts_at or (timezone.now() + timedelta(days=1)),
+    }
+    if capacity is not None:
+        session_kwargs["capacity"] = capacity
+    return ClassSessionFactory(**session_kwargs)
+
+
+def book(member, session, price=2):
+    """Book through the service at a given price. The shared _book
+    replacement: stamps price credits, so price is the default."""
+    from booking.services import book_session
+
+    session.offering.credit_cost = price
+    session.offering.save(update_fields=["credit_cost"])
+    return book_session(session=session, member=member)
+
+
+def make_policy(org, enforcement, late_cancel_hours=12, **scopes):
+    """One validated policy. full_clean runs so ambiguous scope sets fail
+    at setup, not at resolve time."""
+    policy = CancellationPolicyFactory(
+        organization=org,
+        enforcement=enforcement,
+        late_cancel_hours=late_cancel_hours,
+        **scopes,
+    )
+    policy.full_clean()
+    policy.save()
+    return policy
+
+
+def api_client(user, venue_slug="downtown"):
+    """Authenticated API client pinned to a venue slug."""
+    from rest_framework.test import APIClient
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    if venue_slug is not None:
+        client.defaults["HTTP_X_VENUE_SLUG"] = venue_slug
+    return client
 
 
 def with_credit_pack(user, venue, credits=10):

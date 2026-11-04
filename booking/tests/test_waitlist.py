@@ -16,7 +16,6 @@ from django.core.exceptions import PermissionDenied
 from django.db import connection
 from django.test import TestCase
 from django.utils import timezone
-from rest_framework.test import APIClient
 
 from booking.cancellations import cancel_booking, cancel_session, mark_no_show
 from booking.errors import (
@@ -47,7 +46,8 @@ from tests.factories import (  # noqa: WPS235
     PlanFactory,
     PlanMembershipFactory,
     UserFactory,
-    VenueFactory,
+    api_client,
+    make_venue,
     user_with_role,
     with_monthly_plan,
 )
@@ -56,7 +56,7 @@ pytestmark = pytest.mark.django_db
 
 
 def _world(category=ClassCategory.GROUP, capacity=1, credits=10):
-    venue = VenueFactory(slug="waitlist-gym", name="Waitlist Gym")
+    venue = make_venue("waitlist-gym")
     teacher = UserFactory(username="waitlist-teacher")
     offering = ClassOfferingFactory(
         venue=venue, teacher=teacher, title="Spin", category=category
@@ -628,20 +628,13 @@ class TestCancelTriggersPromotion:
 
 
 class TestWaitlistApi:
-    def _client(self, member, venue):
-
-        client = APIClient()
-        client.force_authenticate(user=member)
-        client.defaults["HTTP_X_VENUE_SLUG"] = venue.slug
-        return client
-
     def test_full_group_waitlist_flag_returns_waitlisted(self, world):
         session, member = world
         venue = session.offering.venue
         seated = member("seated")
         queued = member("queued")
         book_session(session=session, member=seated)
-        client = self._client(queued, venue)
+        client = api_client(queued, venue_slug=venue.slug)
 
         response = client.post(
             "/api/v1/bookings/?waitlist=true", {"session": session.pk}
@@ -655,7 +648,7 @@ class TestWaitlistApi:
         session, member = world
         venue = session.offering.venue
         book_session(session=session, member=member("seated"))
-        client = self._client(member("turned-away"), venue)
+        client = api_client(member("turned-away"), venue_slug=venue.slug)
 
         response = client.post("/api/v1/bookings/", {"session": session.pk})
 
@@ -665,7 +658,7 @@ class TestWaitlistApi:
         session, member = _world(category=ClassCategory.PRIVATE, capacity=1)
         venue = session.offering.venue
         book_session(session=session, member=member("seated"))
-        client = self._client(member("queued"), venue)
+        client = api_client(member("queued"), venue_slug=venue.slug)
 
         response = client.post(
             "/api/v1/bookings/?waitlist=true", {"session": session.pk}
@@ -685,7 +678,7 @@ class TestWaitlistApi:
         )
         promote_next(session)
 
-        confirm = self._client(queued, venue).post(
+        confirm = api_client(queued, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{waiting.pk}/confirm/", {}
         )
 
@@ -699,7 +692,7 @@ class TestWaitlistApi:
         seated = member("seated")
         booking = book_session(session=session, member=seated)
 
-        confirm = self._client(seated, venue).post(
+        confirm = api_client(seated, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{booking.pk}/confirm/", {}
         )
 
@@ -711,11 +704,11 @@ class TestWaitlistApi:
         seated = member("seated")
         queued = member("queued")
         seated_booking = book_session(session=session, member=seated)
-        self._client(queued, venue).post(
+        api_client(queued, venue_slug=venue.slug).post(
             "/api/v1/bookings/?waitlist=true", {"session": session.pk}
         )
 
-        cancel = self._client(seated, venue).post(
+        cancel = api_client(seated, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{seated_booking.pk}/cancel/", {}
         )
 
