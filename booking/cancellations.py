@@ -33,9 +33,9 @@ from organizations.capabilities import (
     can_waive,
     is_staff,
 )
-from organizations.models import Organization, OrgRole
-from passes.models import CreditLedger, Membership
-from scheduling.models import ClassSession
+from organizations.models import Organization, OrgRole, Venue
+from passes.models import CreditLedger, Membership, PlanType
+from scheduling.models import ClassCategory, ClassSession
 
 
 @dataclasses.dataclass(frozen=True)
@@ -66,15 +66,15 @@ def cancel_booking(
         loaded = load_open_booking(BookingId(booking_id), moment)
         record = committed(
             _apply_cancel(
-                loaded.booking,
-                loaded.session,
-                loaded.venue,
-                loaded.venue.organization,
-                actor,
-                on_behalf_of,
-                waive_penalty,
-                moment,
-                reason,
+                booking=loaded.booking,
+                session=loaded.session,
+                venue=loaded.venue,
+                organization=loaded.venue.organization,
+                actor=actor,
+                on_behalf_of=on_behalf_of,
+                waive_penalty=waive_penalty,
+                moment=moment,
+                reason=reason,
             ),
             notify_member_cancel,
         )
@@ -84,62 +84,103 @@ def cancel_booking(
         return record
 
 
-def _check_actor(actor, booking, organization, behalf, waive, reason):
+def _check_actor(
+    *,
+    actor: User,
+    booking: Booking,
+    organization: Organization,
+    behalf: bool,
+    waive: bool,
+    reason: str,
+) -> bool:
     owner = actor.pk == booking.member_id
     if not owner:
-        _require_staff(actor, organization, reason)
-        _require_roster_or_desk(actor, booking, organization)
+        _require_staff(actor=actor, organization=organization, reason=reason)
+        _require_roster_or_desk(actor=actor, booking=booking, organization=organization)
     penalize = owner or behalf
     if waive:
         if not penalize:
             raise InvalidWaiver("waive_penalty with no penalty to waive.")
-        _require_waiver(actor, organization, reason)
+        _require_waiver(actor=actor, organization=organization, reason=reason)
     return penalize
 
 
-def _require_roster_or_desk(actor, booking, organization):
+def _require_roster_or_desk(
+    *, actor: User, booking: Booking, organization: Organization
+) -> None:
     # Desk roles cancel any booking; teachers only their own roster.
     teacher = booking.session.offering.teacher_id == actor.pk
-    if not teacher and not can_operate_desk(_roles(actor, organization)):
+    if not teacher and not can_operate_desk(
+        _roles(actor=actor, organization=organization)
+    ):
         raise PermissionDenied(
             "Teachers may only cancel bookings in classes they teach."
         )
 
 
 def _apply_cancel(
-    booking,
-    session,
-    venue,
-    organization,
-    actor,
-    on_behalf_of,
-    waive_penalty,
-    moment,
-    reason,
-):
+    *,
+    booking: Booking,
+    session: ClassSession,
+    venue: Venue,
+    organization: Organization,
+    actor: User,
+    on_behalf_of: bool,
+    waive_penalty: bool,
+    moment: datetime,
+    reason: str,
+) -> CancellationRecord:
     penalize = _check_actor(
-        actor, booking, organization, on_behalf_of, waive_penalty, reason
+        actor=actor,
+        booking=booking,
+        organization=organization,
+        behalf=on_behalf_of,
+        waive=waive_penalty,
+        reason=reason,
     )
     if booking.status == Booking.Status.HELD:
         # A held-but-unconfirmed seat releases as unclaimed regardless of
         # lateness or waiver: nothing was charged, so nothing is penalized.
-        return release_unclaimed(booking, session, organization, actor, reason)
+        return release_unclaimed(
+            booking=booking,
+            session=session,
+            organization=organization,
+            actor=actor,
+            reason=reason,
+        )
     policy = resolve_policy(
         OrgId(organization.pk),
         VenueId(venue.pk),
-        session.offering.category,
-        booking.membership.plan.plan_type,
+        ClassCategory(session.offering.category),
+        PlanType(booking.membership.plan.plan_type),
     )
     late = moment > session.starts_at - timedelta(hours=policy.late_cancel_hours)
     stamp = booking.credits_spent
-    outcome = _member_outcome(
-        policy, late, penalize, waive_penalty, stamp, on_behalf_of, reason
+    outcome = member_outcome(
+        policy=policy,
+        late=late,
+        penalize=penalize,
+        waive_penalty=waive_penalty,
+        stamp=stamp,
+        on_behalf=on_behalf_of,
+        reason=reason,
     )
     booking.status = outcome.status
     if outcome.refund:
-        _refund(booking, outcome.refund, actor, outcome.reason)
+        _refund(
+            booking=booking,
+            amount=outcome.refund,
+            actor=actor,
+            note=outcome.reason,
+        )
     return _write_record(
-        booking, session, organization, outcome, actor, late, waive_penalty
+        booking=booking,
+        session=session,
+        organization=organization,
+        outcome=outcome,
+        actor=actor,
+        late=late,
+        waive_penalty=waive_penalty,
     )
 
 
@@ -155,7 +196,7 @@ def cancel_session(
         session = lock_session(SessionId(session_id))
         venue = session.offering.venue
         organization = venue.organization
-        _require_session_cancel(actor, organization, session)
+        _require_session_cancel(actor=actor, organization=organization, session=session)
         if session.cancelled_at is not None:
             return list(
                 CancellationRecord.objects.filter(
@@ -166,7 +207,13 @@ def cancel_session(
         session.cancelled_at = timezone.now()
         session.save(update_fields=["cancelled_at"])
         records = [
-            _cancel_one_for_session(booking, session, venue, organization, actor)
+            _cancel_one_for_session(
+                booking=booking,
+                session=session,
+                venue=venue,
+                organization=organization,
+                actor=actor,
+            )
             for booking in _live_session_bookings(session)
         ]
     for record in records:
@@ -195,20 +242,37 @@ def mark_no_show(*, booking_id: BookingId, actor: User) -> CancellationRecord:
             # No-show is observed absence. A future booking cannot be
             # absent, and the flip is irreversible — refuse the fat finger.
             raise ValidationError("Session has not started.")
-        _require_door(actor, organization)
+        _require_door(actor=actor, organization=organization)
         if booking.status == Booking.Status.HELD:
-            record = release_unclaimed(booking, session, organization, actor, "")
+            record = release_unclaimed(
+                booking=booking,
+                session=session,
+                organization=organization,
+                actor=actor,
+                reason="",
+            )
             promote_waitlist.delay(session_id=session.pk)
             return record
         booking.status = Booking.Status.NO_SHOW
         booking.save(update_fields=["status"])
-        record = _write_no_show_record(booking, session, organization, actor)
+        record = _write_no_show_record(
+            booking=booking,
+            session=session,
+            organization=organization,
+            actor=actor,
+        )
         # The freed seat passes to the queue head.
         promote_waitlist.delay(session_id=session.pk)
         return record
 
 
-def _write_no_show_record(booking, session, organization, actor):
+def _write_no_show_record(
+    *,
+    booking: Booking,
+    session: ClassSession,
+    organization: Organization,
+    actor: User,
+) -> CancellationRecord:
     outcome = _Outcome(
         applied=CancellationPolicy.Enforcement.NONE,
         refund=0,
@@ -226,7 +290,13 @@ def _write_no_show_record(booking, session, organization, actor):
         was_late=True,
         enforcement_applied=outcome.applied,
         credits_refunded=0,
-        snapshot=_snapshot(booking, session, outcome, actor, False),
+        snapshot=_snapshot(
+            booking=booking,
+            session=session,
+            outcome=outcome,
+            actor=actor,
+            waived=False,
+        ),
     )
 
 
@@ -240,7 +310,7 @@ def check_in(*, booking_id: BookingId, actor: User) -> Booking:
         organization = loaded.venue.organization
         if booking.status != Booking.Status.BOOKED:
             raise AlreadyCancelled("Only confirmed bookings can check in.")
-        _require_door(actor, organization)
+        _require_door(actor=actor, organization=organization)
         booking.status = Booking.Status.ATTENDED
         booking.checked_in_at = timezone.now()
         booking.save(update_fields=["status", "checked_in_at"])
@@ -261,7 +331,7 @@ def waive_record(
         raise ValidationError("Waiving a penalty requires a reason.")
     with transaction.atomic():
         record = CancellationRecord.objects.select_for_update().get(pk=record_id)
-        _require_waiver(actor, record.organization, reason)
+        _require_waiver(actor=actor, organization=record.organization, reason=reason)
         if (
             record.penalty_waived
             or record.enforcement_applied != CancellationPolicy.Enforcement.LOSE_CREDIT
@@ -327,6 +397,7 @@ def strike_count(
 
 
 def release_unclaimed(
+    *,
     booking: Booking,
     session: ClassSession,
     organization: Organization,
@@ -355,11 +426,26 @@ def release_unclaimed(
         was_late=False,
         enforcement_applied=outcome.applied,
         credits_refunded=0,
-        snapshot=_snapshot(booking, session, outcome, actor, False),
+        snapshot=_snapshot(
+            booking=booking,
+            session=session,
+            outcome=outcome,
+            actor=actor,
+            waived=False,
+        ),
     )
 
 
-def _write_record(booking, session, organization, outcome, actor, late, waive_penalty):
+def _write_record(
+    *,
+    booking: Booking,
+    session: ClassSession,
+    organization: Organization,
+    outcome: _Outcome,
+    actor: User,
+    late: bool,
+    waive_penalty: bool,
+) -> CancellationRecord:
     record = CancellationRecord.objects.create(
         booking=booking,
         member=booking.member,
@@ -370,13 +456,20 @@ def _write_record(booking, session, organization, outcome, actor, late, waive_pe
         penalty_waived=waive_penalty,
         waived_by=actor if waive_penalty else None,
         credits_refunded=outcome.refund,
-        snapshot=_snapshot(booking, session, outcome, actor, waive_penalty),
+        snapshot=_snapshot(
+            booking=booking,
+            session=session,
+            outcome=outcome,
+            actor=actor,
+            waived=waive_penalty,
+        ),
     )
     booking.save(update_fields=["status"])
     return record
 
 
-def _member_outcome(
+def member_outcome(
+    *,
     policy: CancellationPolicy,
     late: bool,
     penalize: bool,
@@ -435,18 +528,25 @@ def _member_outcome(
     assert_never(enforcement)
 
 
-def _cancel_one_for_session(booking, session, venue, organization, actor):
+def _cancel_one_for_session(
+    *,
+    booking: Booking,
+    session: ClassSession,
+    venue: Venue,
+    organization: Organization,
+    actor: User,
+) -> CancellationRecord:
     stamp = booking.credits_spent
     booking.status = Booking.Status.CANCELLED
     booking.hold_expires_at = None
     booking.save(update_fields=["status", "hold_expires_at"])
     if stamp:
-        _refund(booking, stamp, actor)
+        _refund(booking=booking, amount=stamp, actor=actor)
     policy = resolve_policy(
         OrgId(organization.pk),
         VenueId(venue.pk),
-        session.offering.category,
-        booking.membership.plan.plan_type,
+        ClassCategory(session.offering.category),
+        PlanType(booking.membership.plan.plan_type),
     )
     outcome = _Outcome(
         applied=CancellationPolicy.Enforcement.NONE,
@@ -465,11 +565,17 @@ def _cancel_one_for_session(booking, session, venue, organization, actor):
         was_late=False,
         enforcement_applied=outcome.applied,
         credits_refunded=stamp,
-        snapshot=_snapshot(booking, session, outcome, actor, False),
+        snapshot=_snapshot(
+            booking=booking,
+            session=session,
+            outcome=outcome,
+            actor=actor,
+            waived=False,
+        ),
     )
 
 
-def _refund(booking, amount, actor, note=""):
+def _refund(*, booking: Booking, amount: int, actor: User, note: str = "") -> None:
     from passes.services import refund_for_booking
 
     membership = Membership.objects.get(pk=booking.membership_id)
@@ -482,7 +588,7 @@ def _refund(booking, amount, actor, note=""):
     )
 
 
-def _roles(actor, organization):
+def _roles(*, actor: User, organization: Organization) -> set[str]:
     return set(
         OrgRole.objects.filter(user=actor, organization=organization).values_list(
             "role", flat=True
@@ -490,35 +596,44 @@ def _roles(actor, organization):
     )
 
 
-def _require_staff(actor, organization, reason):
+def _require_staff(*, actor: User, organization: Organization, reason: str) -> None:
     if not reason:
         raise ValidationError("Staff cancellations require a reason.")
-    if not is_staff(_roles(actor, organization)):
+    if not is_staff(_roles(actor=actor, organization=organization)):
         raise PermissionDenied("Staff only.")
 
 
-def _require_session_cancel(actor, organization, session):
+def _require_session_cancel(
+    *, actor: User, organization: Organization, session: ClassSession
+) -> None:
     # Desk cancels any session; teachers cancel only the ones they teach.
-    if can_operate_desk(_roles(actor, organization)):
+    if can_operate_desk(_roles(actor=actor, organization=organization)):
         return
     if session.offering.teacher_id == actor.pk:
         return
     raise PermissionDenied("Front desk or the session's teacher only.")
 
 
-def _require_door(actor, organization):
-    if not can_staff_door(_roles(actor, organization)):
+def _require_door(*, actor: User, organization: Organization) -> None:
+    if not can_staff_door(_roles(actor=actor, organization=organization)):
         raise PermissionDenied("Door staff only.")
 
 
-def _require_waiver(actor, organization, reason):
+def _require_waiver(*, actor: User, organization: Organization, reason: str) -> None:
     if not reason:
         raise ValidationError("Waiving a penalty requires a reason.")
-    if not can_waive(_roles(actor, organization)):
+    if not can_waive(_roles(actor=actor, organization=organization)):
         raise PermissionDenied("Waiving penalties requires the capability.")
 
 
-def _snapshot(booking, session, outcome, actor, waived):
+def _snapshot(
+    *,
+    booking: Booking,
+    session: ClassSession,
+    outcome: _Outcome,
+    actor: User | None,
+    waived: bool,
+) -> dict:
     snapshot = {
         "cause": outcome.cause,
         "session_id": session.pk,
@@ -539,7 +654,7 @@ def _snapshot(booking, session, outcome, actor, waived):
         # Duplicates the columns on purpose: the snapshot must tell the
         # whole outcome story without joining back to the row.
         "penalty_waived": waived,
-        "waived_by_id": actor.pk if waived else None,
+        "waived_by_id": actor.pk if (waived and actor is not None) else None,
     }
     if outcome.policy is not None:
         snapshot["policy"] = {

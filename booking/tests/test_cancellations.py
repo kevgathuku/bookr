@@ -13,11 +13,11 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from booking.cancellations import (
-    _member_outcome,
     cancel_booking,
     cancel_session,
     check_in,
     mark_no_show,
+    member_outcome,
     resolve_policy,
     strike_count,
     waive_record,
@@ -246,7 +246,15 @@ class TestMemberOutcome:
     def test_late_unwaived_applies_policy(self, enforcement, applied, refund):
         policy = self._matrix_policy(enforcement)
 
-        outcome = _member_outcome(policy, True, True, False, 2, False, "overslept")
+        outcome = member_outcome(
+            policy=policy,
+            late=True,
+            penalize=True,
+            waive_penalty=False,
+            stamp=2,
+            on_behalf=False,
+            reason="overslept",
+        )
 
         assert (outcome.applied, outcome.refund) == (applied, refund)
         assert (outcome.cause, outcome.status) == (
@@ -261,8 +269,14 @@ class TestMemberOutcome:
     def test_early_cancel_is_free(self):
         policy = self._matrix_policy(LATE)
 
-        outcome = _member_outcome(
-            policy, False, True, False, 2, False, "change of plans"
+        outcome = member_outcome(
+            policy=policy,
+            late=False,
+            penalize=True,
+            waive_penalty=False,
+            stamp=2,
+            on_behalf=False,
+            reason="change of plans",
         )
 
         assert (outcome.applied, outcome.refund, outcome.cause, outcome.status) == (
@@ -275,7 +289,15 @@ class TestMemberOutcome:
     def test_waived_late_cancel_is_free_but_stays_late(self):
         policy = self._matrix_policy(LATE)
 
-        outcome = _member_outcome(policy, True, True, True, 2, False, "waived")
+        outcome = member_outcome(
+            policy=policy,
+            late=True,
+            penalize=True,
+            waive_penalty=True,
+            stamp=2,
+            on_behalf=False,
+            reason="waived",
+        )
 
         assert (outcome.applied, outcome.refund, outcome.cause, outcome.status) == (
             NONE,
@@ -287,7 +309,15 @@ class TestMemberOutcome:
     def test_waived_early_cancel_is_free(self):
         policy = self._matrix_policy(STRIKE)
 
-        outcome = _member_outcome(policy, False, True, True, 2, False, "waived")
+        outcome = member_outcome(
+            policy=policy,
+            late=False,
+            penalize=True,
+            waive_penalty=True,
+            stamp=2,
+            on_behalf=False,
+            reason="waived",
+        )
 
         assert (outcome.applied, outcome.refund, outcome.cause, outcome.status) == (
             NONE,
@@ -300,7 +330,15 @@ class TestMemberOutcome:
     def test_staff_decision_ignores_lateness(self, late):
         policy = self._matrix_policy(STRIKE)
 
-        outcome = _member_outcome(policy, late, False, False, 2, True, "desk call")
+        outcome = member_outcome(
+            policy=policy,
+            late=late,
+            penalize=False,
+            waive_penalty=False,
+            stamp=2,
+            on_behalf=True,
+            reason="desk call",
+        )
 
         assert (outcome.applied, outcome.refund, outcome.cause, outcome.status) == (
             NONE,
@@ -314,7 +352,15 @@ class TestMemberOutcome:
     def test_member_path_passes_through_context(self):
         policy = self._matrix_policy(NONE)
 
-        outcome = _member_outcome(policy, False, True, False, 2, True, "for sam")
+        outcome = member_outcome(
+            policy=policy,
+            late=False,
+            penalize=True,
+            waive_penalty=False,
+            stamp=2,
+            on_behalf=True,
+            reason="for sam",
+        )
 
         assert outcome.policy is policy
         assert outcome.on_behalf_of is True

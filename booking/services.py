@@ -3,7 +3,7 @@ and map typed errors to HTTP (SeatFull/DuplicateBooking → 409,
 CreditInsufficient → 402). Waitlist promotion and the hold-expiry sweep
 live here too; booking/tasks.py wraps them as shared tasks."""
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -32,7 +32,9 @@ from scheduling.models import ClassCategory, ClassSession
 HOLD_WINDOW_MINUTES = 60
 
 
-def _paying_membership(member, session, price):
+def _paying_membership(
+    *, member: User, session: ClassSession, price: int
+) -> Membership:
     """Unlimited first, else first-expiring credit pack that covers the price."""
     today = timezone.now().date()
     organization_id = OrgId(session.offering.venue.organization_id)
@@ -52,7 +54,11 @@ def _paying_membership(member, session, price):
     raise CreditInsufficient("No valid membership covers this booking.")
 
 
-def _validate_membership(membership, member, session, today):
+def _validate_membership(
+    *, membership: Membership, member: User, session: ClassSession, today: date
+) -> None:
+    # Mirrors Booking.clean's coherence rules (user-match, org-match) so the
+    # service fails fast; the model keeps them for every other write path.
     if membership.user_id != member.pk:
         raise ValidationError("Booking membership belongs to another user.")
     if membership.plan.organization_id != session.offering.venue.organization_id:
@@ -63,21 +69,21 @@ def _validate_membership(membership, member, session, today):
         raise ValidationError("Booking membership is not currently valid.")
 
 
-def _ensure_open(locked):
+def _ensure_open(locked: ClassSession) -> None:
     if locked.cancelled_at is not None:
         raise ValidationError("Session is cancelled.")
     if locked.starts_at <= timezone.now():
         raise ValidationError("Session has already started.")
 
 
-def _ensure_no_duplicate(locked, member):
+def _ensure_no_duplicate(*, locked: ClassSession, member: User) -> None:
     if Booking.objects.filter(
         session=locked, member=member, status__in=ACTIVE_STATUSES
     ).exists():
         raise DuplicateBooking(f"{member} already booked {locked}.")
 
 
-def _is_full(locked):
+def _is_full(locked: ClassSession) -> bool:
     # Seated bookings and held seats occupy capacity; the queue waits outside it.
     return (
         Booking.objects.filter(
@@ -87,7 +93,7 @@ def _is_full(locked):
     )
 
 
-def _next_waiter(locked):
+def _next_waiter(locked: ClassSession) -> Booking | None:
     return (
         Booking.objects.select_for_update()
         .filter(session=locked, status=Booking.Status.WAITLISTED)
@@ -97,13 +103,15 @@ def _next_waiter(locked):
     )
 
 
-def _charge_for(membership, price, spend_credits):
+def _charge_for(*, membership: Membership, price: int, spend_credits: bool) -> int:
     if membership.plan.entitlement == Entitlement.UNLIMITED or not spend_credits:
         return 0
     return price
 
 
-def _create_booking(locked, member, membership, amount):
+def _create_booking(
+    *, locked: ClassSession, member: User, membership: Membership, amount: int
+) -> Booking:
     try:
         return Booking.objects.create(
             session=locked,
@@ -142,16 +150,27 @@ def book_session(
     with transaction.atomic():
         locked = lock_session(SessionId(session.pk))
         _ensure_open(locked)
-        _ensure_no_duplicate(locked, member)
+        _ensure_no_duplicate(locked=locked, member=member)
         if _is_full(locked):
-            return _join_or_refuse(locked, member, membership, waitlist)
+            return _join_or_refuse(
+                locked=locked, member=member, membership=membership, waitlist=waitlist
+            )
         price = locked.offering.credit_cost
         if membership is None:
-            membership = _paying_membership(member, locked, price)
+            membership = _paying_membership(member=member, session=locked, price=price)
         else:
-            _validate_membership(membership, member, locked, timezone.now().date())
-        amount = _charge_for(membership, price, spend_credits)
-        booking = _create_booking(locked, member, membership, amount)
+            _validate_membership(
+                membership=membership,
+                member=member,
+                session=locked,
+                today=timezone.now().date(),
+            )
+        amount = _charge_for(
+            membership=membership, price=price, spend_credits=spend_credits
+        )
+        booking = _create_booking(
+            locked=locked, member=member, membership=membership, amount=amount
+        )
         try:
             spend_for_booking(membership, amount, booking)
         except IntegrityError:
@@ -161,15 +180,28 @@ def book_session(
     return booking
 
 
-def _join_or_refuse(locked, member, membership, waitlist):
+def _join_or_refuse(
+    *,
+    locked: ClassSession,
+    member: User,
+    membership: Membership | None,
+    waitlist: bool,
+) -> Booking:
     if not waitlist or locked.offering.category != ClassCategory.GROUP:
         raise SeatFull(f"{locked} is full.")
     # Joining needs a valid membership (org validity is all we check:
     # the credits move at confirm time, never here).
     if membership is None:
-        membership = _paying_membership(member, locked, locked.offering.credit_cost)
+        membership = _paying_membership(
+            member=member, session=locked, price=locked.offering.credit_cost
+        )
     else:
-        _validate_membership(membership, member, locked, timezone.now().date())
+        _validate_membership(
+            membership=membership,
+            member=member,
+            session=locked,
+            today=timezone.now().date(),
+        )
     return Booking.objects.create(
         session=locked,
         member=member,
@@ -194,10 +226,10 @@ def promote_next(session: ClassSession, now: datetime | None = None) -> Booking 
         head = _next_waiter(locked)
         if head is None:
             return None
-        return _seat_head(locked, head, moment)
+        return _seat_head(locked=locked, head=head, moment=moment)
 
 
-def _seat_head(locked, head, moment):
+def _seat_head(*, locked: ClassSession, head: Booking, moment: datetime) -> Booking:
     # The seated head leaves the queue: the waitlist holds waiters only,
     # so a held seat can never be re-promised from this list.
     head.status = Booking.Status.HELD
@@ -220,7 +252,9 @@ def confirm_booking(
         if booking.member_id != actor.pk:
             raise PermissionDenied("Only the holding member can confirm.")
         _ensure_open(session)
-        membership, amount = _confirmed_charge(actor, session, membership)
+        membership, amount = _confirmed_charge(
+            actor=actor, session=session, membership=membership
+        )
         booking.membership = membership
         booking.credits_spent = amount
         booking.status = Booking.Status.BOOKED
@@ -237,14 +271,23 @@ def confirm_booking(
     return booking
 
 
-def _confirmed_charge(actor, session, membership):
+def _confirmed_charge(
+    *, actor: User, session: ClassSession, membership: Membership | None
+) -> tuple[Membership, int]:
     """Price a held-seat confirmation: pick or validate the payer."""
     price = session.offering.credit_cost
     if membership is None:
-        membership = _paying_membership(actor, session, price)
+        membership = _paying_membership(member=actor, session=session, price=price)
     else:
-        _validate_membership(membership, actor, session, timezone.now().date())
-    return membership, _charge_for(membership, price, True)
+        _validate_membership(
+            membership=membership,
+            member=actor,
+            session=session,
+            today=timezone.now().date(),
+        )
+    return membership, _charge_for(
+        membership=membership, price=price, spend_credits=True
+    )
 
 
 def sweep_expired_holds(now: datetime | None = None) -> int:
@@ -278,7 +321,13 @@ def _lapse_hold(pk: BookingId, moment: datetime) -> bool:
         ):
             # Member confirmed first, or another worker won.
             return False
-        release_unclaimed(booking, session, organization, None, "")
+        release_unclaimed(
+            booking=booking,
+            session=session,
+            organization=organization,
+            actor=None,
+            reason="",
+        )
         committed(booking, notify_hold_expired)
     promote_next(session)
     return True
