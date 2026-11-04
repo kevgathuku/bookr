@@ -30,7 +30,7 @@ from passes.services import (
     refund_for_booking,
     spend_for_booking,
 )
-from tests.factories import (
+from tests.factories import (  # noqa: WPS235
     ClassOfferingFactory,
     ClassSessionFactory,
     CreditLedgerFactory,
@@ -39,6 +39,7 @@ from tests.factories import (
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
+    member_with_credit_pack,
 )
 
 pytestmark = pytest.mark.django_db
@@ -63,16 +64,6 @@ def _user(username):
 def _venue(slug="downtown"):
     org = Organization.objects.create(slug=f"org-{slug}", name=f"Org {slug}")
     return Venue.objects.create(organization=org, slug=slug, name=slug.title())
-
-
-def _member_with_plan(venue, username, credits=10):
-
-    member = _user(username)
-    plan = PlanFactory(organization=venue.organization)
-    membership = PlanMembershipFactory(
-        user=member, plan=plan, credits_remaining=credits
-    )
-    return member, membership
 
 
 def _plan(venue, name="Pack"):
@@ -192,7 +183,7 @@ class TestSpend:
     def test_spend_debits_and_links_booking(self):
 
         venue = _venue()
-        _, membership = _member_with_plan(venue, "m1", 10)
+        _, membership = member_with_credit_pack(venue, "m1", 10)
 
         spend_for_booking(membership, 3, booking=None)
 
@@ -204,7 +195,7 @@ class TestSpend:
     def test_zero_spend_writes_no_row(self):
 
         venue = _venue()
-        _, membership = _member_with_plan(venue, "m1", 10)
+        _, membership = member_with_credit_pack(venue, "m1", 10)
 
         assert spend_for_booking(membership, 0, None) is None
 
@@ -215,7 +206,7 @@ class TestSpend:
     def test_zero_refund_writes_no_row(self):
 
         venue = _venue()
-        _, membership = _member_with_plan(venue, "m1", 10)
+        _, membership = member_with_credit_pack(venue, "m1", 10)
 
         assert refund_for_booking(membership, 0, None) is None
 
@@ -226,7 +217,7 @@ class TestSpend:
     def test_insufficient_raises_and_writes_nothing(self):
 
         venue = _venue()
-        _, membership = _member_with_plan(venue, "m1", credits=2)
+        _, membership = member_with_credit_pack(venue, "m1", credits=2)
 
         with pytest.raises(CreditInsufficient):
             spend_for_booking(membership, 3, booking=None)
@@ -238,7 +229,7 @@ class TestSpend:
     def test_ledger_invariant_on_seed(self):
         venue = _venue()
         for name in ("a", "b", "c"):
-            _member_with_plan(venue, f"{name}-holder", credits=5)
+            member_with_credit_pack(venue, f"{name}-holder", credits=5)
 
         for membership in PlanMembership.objects.all():
             summed = membership.ledger_entries.aggregate(total=Sum("delta"))["total"]

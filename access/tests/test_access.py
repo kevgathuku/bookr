@@ -11,7 +11,7 @@ from access.services import decide
 from booking.models import Booking
 from booking.services import book_session
 from organizations.models import OrgRole
-from passes.models import Entitlement, PlanType, Validity
+from passes.models import PlanType
 from tests.factories import (  # noqa: WPS235 — access tests build every domain object via factories
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -21,6 +21,7 @@ from tests.factories import (  # noqa: WPS235 — access tests build every domai
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
+    member_with_credit_pack,
     user_with_role,
 )
 
@@ -76,15 +77,7 @@ def _session(venue, teacher=None, minutes_from_now=10):
 
 
 def _member_with_plan(venue, username, credits=5):
-    member = _user(username)
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=None,
-        user=member,
-        role=OrgRole.Role.MEMBER,
-    )
-    plan = PlanFactory(organization=venue.organization, name=f"{username}-pack")
-    PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
+    member, _membership = member_with_credit_pack(venue, username, credits)
     return member
 
 
@@ -386,14 +379,7 @@ class TestDoorPlanMemberships:
     def test_monthly_plan_grants_without_balance(self):
         venue = _venue()
         member = _user("monthly")
-        plan = PlanFactory(
-            organization=venue.organization,
-            plan_type=PlanType.MONTHLY,
-            entitlement=Entitlement.UNLIMITED,
-            credits_included=None,
-            validity=Validity.RECURRING,
-            duration_days=30,
-        )
+        plan = PlanFactory(organization=venue.organization, monthly=True)
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=None)
 
         verdict = self._check_decide(venue, member)

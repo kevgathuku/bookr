@@ -27,9 +27,9 @@ from booking.models import Booking, CancellationPolicy, CancellationRecord
 from booking.services import book_session
 from organizations.ids import OrgId, VenueId
 from organizations.models import OrgRole
-from passes.models import CreditLedger, Entitlement, PlanType, Validity
+from passes.models import CreditLedger, PlanType
 from scheduling.models import ClassCategory, ClassSession
-from tests.factories import (
+from tests.factories import (  # noqa: WPS235
     CancellationPolicyFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -38,6 +38,7 @@ from tests.factories import (
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
+    member_with_monthly_plan,
 )
 
 pytestmark = pytest.mark.django_db
@@ -69,26 +70,6 @@ def _member(username, venue, credits=10, plan_type=PlanType.CREDIT_PACK):
     )
     plan = PlanFactory(organization=venue.organization, plan_type=plan_type)
     PlanMembershipFactory(user=user, plan=plan, credits_remaining=credits)
-    return user
-
-
-def _monthly(username, venue):
-    user = UserFactory(username=username)
-    OrgRoleFactory(
-        organization=venue.organization,
-        venue=None,
-        user=user,
-        role=OrgRole.Role.MEMBER,
-    )
-    plan = PlanFactory(
-        organization=venue.organization,
-        plan_type=PlanType.MONTHLY,
-        entitlement=Entitlement.UNLIMITED,
-        credits_included=None,
-        validity=Validity.RECURRING,
-        duration_days=30,
-    )
-    PlanMembershipFactory(user=user, plan=plan, credits_remaining=None)
     return user
 
 
@@ -992,7 +973,7 @@ class TestWaiver:
     def test_retroactive_waive_of_zero_spend_raises(self):
         venue = _venue()
         session = _session(venue, starts_in_hours=2)
-        member = _monthly("m1", venue)
+        member = member_with_monthly_plan(venue, "m1")
         desk = _staff("desk", venue)
         _policy(venue.organization, LATE, late_cancel_hours=12)
         booking = _book(member, session, price=0)

@@ -11,7 +11,7 @@ from booking.errors import CreditInsufficient, DuplicateBooking, SeatFull
 from booking.models import Booking
 from booking.services import book_session
 from organizations.models import OrgRole
-from passes.models import CreditLedger, Entitlement, PlanType, Validity
+from passes.models import CreditLedger, PlanType
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -20,6 +20,7 @@ from tests.factories import (
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
+    member_with_monthly_plan,
 )
 
 pytestmark = pytest.mark.django_db
@@ -63,26 +64,6 @@ def _member(username, venue, credits=10, plan=None):
         plan=plan,
         credits_remaining=credits,
         starts_on=timezone.now().date(),
-    )
-    return user
-
-
-def _monthly(username, venue):
-    user = UserFactory(username=username)
-    OrgRoleFactory(
-        organization=venue.organization, venue=None, user=user, role=OrgRole.Role.MEMBER
-    )
-    plan = PlanFactory(
-        organization=venue.organization,
-        name=f"{username}-monthly",
-        plan_type=PlanType.MONTHLY,
-        entitlement=Entitlement.UNLIMITED,
-        credits_included=None,
-        validity=Validity.RECURRING,
-        duration_days=30,
-    )
-    PlanMembershipFactory(
-        user=user, plan=plan, credits_remaining=None, starts_on=timezone.now().date()
     )
     return user
 
@@ -234,7 +215,7 @@ class TestBookSession:
     def test_monthly_books_free_without_balance(self):
         venue = _venue("monthly")
         session = _session(venue, price=2)
-        member = _monthly("m1", venue)
+        member = member_with_monthly_plan(venue, "m1")
 
         booking = book_session(session=session, member=member)
 
@@ -246,7 +227,7 @@ class TestBookSession:
     def test_monthly_preferred_over_pack(self):
         venue = _venue("prefer")
         session = _session(venue, price=2)
-        member = _monthly("m1", venue)
+        member = member_with_monthly_plan(venue, "m1")
         pack = _pack(venue, "m1-pack")
         PlanMembershipFactory(
             user=member,

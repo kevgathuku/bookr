@@ -37,9 +37,9 @@ from booking.services import (
     sweep_expired_holds,
 )
 from organizations.models import OrgRole
-from passes.models import CreditLedger, Entitlement, Membership, PlanType, Validity
+from passes.models import CreditLedger, Membership, PlanType
 from scheduling.models import ClassCategory, ClassSession
-from tests.factories import (
+from tests.factories import (  # noqa: WPS235
     CancellationPolicyFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -48,6 +48,7 @@ from tests.factories import (
     PlanMembershipFactory,
     UserFactory,
     VenueFactory,
+    member_with_monthly_plan,
 )
 
 pytestmark = pytest.mark.django_db
@@ -431,22 +432,7 @@ class TestConfirmHold:
     def test_confirm_monthly_books_without_ledger(self):
         session, member = _world(capacity=1)
         seated = member("seated")
-        monthly_user = UserFactory(username="monthly")
-        OrgRoleFactory(
-            organization=session.offering.venue.organization,
-            venue=None,
-            user=monthly_user,
-            role=OrgRole.Role.MEMBER,
-        )
-        plan = PlanFactory(
-            organization=session.offering.venue.organization,
-            plan_type=PlanType.MONTHLY,
-            entitlement=Entitlement.UNLIMITED,
-            credits_included=None,
-            validity=Validity.RECURRING,
-            duration_days=30,
-        )
-        PlanMembershipFactory(user=monthly_user, plan=plan, credits_remaining=None)
+        monthly_user = member_with_monthly_plan(session.offering.venue, "monthly")
         book_session(session=session, member=seated)
         waiting = book_session(session=session, member=monthly_user, waitlist=True)
         Booking.objects.filter(member=seated).update(status=Booking.Status.CANCELLED)
