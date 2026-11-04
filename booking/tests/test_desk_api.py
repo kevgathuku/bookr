@@ -31,24 +31,17 @@ def _session(venue):
     )
 
 
-_ids = iter(range(1000000))
-
-
-def _unique(username):
-    return f"{username}-{next(_ids)}"
-
-
 def _venue(slug="downtown"):
     org = Organization.objects.create(slug=f"org-{slug}", name=f"Org {slug}")
     return Venue.objects.create(organization=org, slug=slug, name=slug.title())
 
 
-def _staff(venue, username="manager", role=OrgRole.Role.MANAGER):
-    return user_with_role(venue, role, _unique(username))
+def _staff(venue, username=None, role=OrgRole.Role.MANAGER):
+    return user_with_role(venue, role, username)
 
 
-def _member(venue, username="member"):
-    return user_with_role(venue, OrgRole.Role.MEMBER, _unique(username))
+def _member(venue, username=None):
+    return user_with_role(venue, OrgRole.Role.MEMBER, username)
 
 
 def _member_with_plan(venue, username):
