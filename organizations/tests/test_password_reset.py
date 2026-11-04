@@ -6,6 +6,8 @@ claimer has no credentials yet), but the request endpoint never
 reveals whether an address exists.
 """
 
+import re
+
 import pytest
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
@@ -21,10 +23,6 @@ RESET_URL = "/api/v1/auth/password-reset/"
 CONFIRM_URL = "/api/v1/auth/password-reset-confirm/"
 
 
-def _link(uid, token):
-    return f"/claim/?uid={uid}&token={token}"
-
-
 class TestRequestReset:
     def test_known_email_gets_claim_link(self):
         member = UserFactory(username="invited", email="invited@example.com")
@@ -34,9 +32,14 @@ class TestRequestReset:
         assert response.status_code == 200
         assert len(mail.outbox) == 1
         assert member.email in mail.outbox[0].to
-        uid = urlsafe_base64_encode(force_bytes(member.pk))
-        token = default_token_generator.make_token(member)
-        assert _link(uid, token) in mail.outbox[0].body
+        # The token embeds the generation second: recomputing it here races
+        # the request across a second boundary, so validate the emailed
+        # link itself instead.
+        match = re.search(r"/claim/\?uid=(\S+)&token=(\S+)", mail.outbox[0].body)
+        assert match is not None
+        uid, token = match.groups()
+        assert uid == urlsafe_base64_encode(force_bytes(member.pk))
+        assert default_token_generator.check_token(member, token)
 
     def test_unknown_email_gets_same_response_no_mail(self):
         response = APIClient().post(RESET_URL, {"email": "nobody@example.com"})
