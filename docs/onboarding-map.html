@@ -72,8 +72,9 @@
 <p><strong>Organization</strong> is the tenant root (the business).
 <strong>Venue</strong> is one location under it (<span class="fn">organizations/models.py</span>;
 slugs unique per org). There is no per-venue database: every tenant-scoped row
-carries its venue/organization FK, and middleware + <span class="fn">VenueScopedManager</span>
-scope each request to one venue.</p>
+carries its venue/organization FK; middleware resolves the request venue, and
+venue-scoped querysets (<span class="fn">VenueScopedQuerySet</span>, via
+<span class="fn">as_manager()</span>) scope model reads to it.</p>
 <p><strong>Duties live in <span class="fn">OrgRole</span>, never on User.</strong>
 One user holds many rows: member at venue A, teacher at venue B.
 <span class="fn">venue=None</span> means the role applies org-wide.
@@ -264,7 +265,7 @@ and zero-balance members get in).</li>
 <section class="card">
 <table>
 <tr><th>Question</th><th>Read</th></tr>
-<tr><td>How does a booking really work?</td><td><span class="fn">booking/services.py</span> (~260 lines, linear)</td></tr>
+<tr><td>How does a booking really work?</td><td><span class="fn">booking/services.py</span> (~340 lines, linear)</td></tr>
 <tr><td>How do cancels/refunds/waivers work?</td><td><span class="fn">booking/cancellations.py</span>, <span class="fn">booking/policies.py</span></td></tr>
 <tr><td>Where does money move?</td><td><span class="fn">passes/services.py</span> (<span class="fn">post_entry</span>, <span class="fn">grant_goodwill</span>)</td></tr>
 <tr><td>Who can do what?</td><td><span class="fn">organizations/capabilities.py</span>, <span class="fn">organizations/permissions.py</span>, ADR-0005/0007</td></tr>
