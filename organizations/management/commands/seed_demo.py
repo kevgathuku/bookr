@@ -66,6 +66,9 @@ def _per_venue_org():
     ensure_org_role(org, pinned, OrgRole.Role.MEMBER, box)
     coach = create_user("demo-coach")
     ensure_org_role(org, coach, OrgRole.Role.TEACHER, annex)
+    # Coach teaches at both venues, so the role must cover box too:
+    # offering save() validates the teacher role and is not suppressed.
+    ensure_org_role(org, coach, OrgRole.Role.TEACHER, box)
     seed_sessions(box, coach, "Box", ClassCategory.GROUP, [0, 2, 4], 7, capacity=20)
     seed_sessions(annex, coach, "Box", ClassCategory.GROUP, [1, 3], 18)
 
@@ -141,6 +144,10 @@ def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, boo
     for username, credits in roster.items():
         user = create_user(username)
         users[username] = user
+        # Boot seeding re-runs on every cold start: one membership per
+        # user+plan, or demo credits grow on each restart.
+        if PlanMembership.objects.filter(user=user, plan=plan).exists():
+            continue
         membership = PlanMembership.objects.create(
             user=user,
             plan=plan,

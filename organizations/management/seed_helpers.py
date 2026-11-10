@@ -66,6 +66,12 @@ def seed_sessions(venue, teacher, title, category, weekdays, hour, capacity=20):
         category=category,
         defaults={"duration_minutes": 60, "credit_cost": 1},
     )
+    # Boot seeding re-runs: prune only unbooked past occurrences, so the
+    # table converges instead of growing a batch every week. Sessions with
+    # bookings are history and are never deleted here.
+    offering.sessions.filter(
+        starts_at__lte=timezone.now(), bookings__isnull=True
+    ).delete()
     made = []
     for weekday in weekdays:
         start = next_weekday(timezone.now(), weekday, hour)
