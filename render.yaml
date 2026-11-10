@@ -1,0 +1,47 @@
+# Render blueprint: $0 demo (web + Postgres, no Redis/worker/beat).
+# Faithful path (worker + KV + cron) is commented at the bottom.
+# Wake the URL once before demoing — free webs sleep ~50s on cold hit.
+
+services:
+  - type: web
+    name: bookr-web
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    preDeployCommand: python manage.py migrate
+    startCommand: sh -c "gunicorn config.wsgi --bind 0.0.0.0:$PORT --workers 2"
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CELERY_EAGER
+        value: 1
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bookr-db
+          property: connectionString
+      - key: ALLOWED_HOSTNAMES
+        value: bookr-oi9o.onrender.com,bookr.kevgathuku.dev
+      # Fill in dashboard (Brevo/Resend over 587/TLS — port 25 is blocked):
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_USERNAME
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: EMAIL_USE_TLS
+        value: "True"
+
+databases:
+  - name: bookr-db
+    plan: free
+
+# Faithful path (paid, always-warm): add Render Key Value (Redis) free/small,
+# set CELERY_EAGER=0, CELERY_BROKER_URL=<redis>/0, CACHE_URL=<redis>/1,
+# add a background worker (celery -A config.celery worker --concurrency 2)
+# and a cron job `python manage.py sweep_holds` every 15 min instead of beat.
+# Free Render PG is scratch (deleted after inactivity) — point DATABASE_URL
+# at Neon pooled URL for anything you want to keep.
