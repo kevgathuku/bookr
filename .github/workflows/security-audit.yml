@@ -1,0 +1,40 @@
+name: Security audit
+
+on:
+  schedule:
+    # CVEs land against pinned deps with no repo change; the paths
+    # filters below would otherwise never refire.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+  push:
+    paths:
+      - "uv.lock"
+      - "pyproject.toml"
+      - ".github/workflows/security-audit.yml"
+  pull_request:
+    paths:
+      - "uv.lock"
+      - "pyproject.toml"
+      - ".github/workflows/security-audit.yml"
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - run: uv sync --frozen
+
+      # uv venvs ship without pip, so pip-audit's default pip-API mode
+      # crashes; hashed-requirements mode sidesteps it (--disable-pip
+      # demands hashes). Blocking: the baseline is clean, so findings
+      # fail the run.
+      - run: uv export -o /tmp/reqs.txt
+      - run: uv run pip-audit --disable-pip -r /tmp/reqs.txt --desc
