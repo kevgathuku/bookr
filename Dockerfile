@@ -27,6 +27,7 @@ RUN useradd --create-home --uid 10001 bookr
 COPY --from=builder /app/.venv /app/.venv
 COPY manage.py pyproject.toml ./
 COPY --chmod=755 scripts/start-web.sh ./scripts/start-web.sh
+COPY common/ ./common/
 COPY config/ ./config/
 COPY organizations/ ./organizations/
 COPY scheduling/ ./scheduling/
