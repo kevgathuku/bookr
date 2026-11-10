@@ -8,8 +8,7 @@ services:
     runtime: docker
     plan: free
     healthCheckPath: /healthz
-    preDeployCommand: python manage.py migrate
-    startCommand: sh -c "gunicorn config.wsgi --bind 0.0.0.0:$PORT --workers 2"
+    startCommand: /app/scripts/start-web.sh
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings.prod
