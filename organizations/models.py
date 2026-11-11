@@ -44,9 +44,21 @@ class Venue(models.Model):
         return f"{self.name} ({self.organization})"
 
 
+class OrgRoleQuerySet(models.QuerySet):
+    def covering(self, venue: Venue):
+        """Rows granting access at `venue`: pinned to it, or org-wide
+        within its organization. The organization filter keeps other
+        orgs' org-wide rows out."""
+        pinned = models.Q(venue=venue)
+        org_wide = models.Q(venue__isnull=True)
+        return self.filter(pinned | org_wide, organization_id=venue.organization_id)
+
+
 class OrgRole(models.Model):
     """Duties live here, not on User. One user can be a member at one venue
     and a teacher at another. venue=None means the role applies org-wide."""
+
+    objects = OrgRoleQuerySet.as_manager()
 
     class Role(models.TextChoices):
         MEMBER = "member", "Member"
@@ -61,6 +73,27 @@ class OrgRole(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     venue = models.ForeignKey(Venue, null=True, blank=True, on_delete=models.CASCADE)
     role = models.CharField(max_length=20, choices=Role.choices)
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["organization", "user", "role"],
+                condition=models.Q(venue__isnull=True),
+                name="org_role_unique_org_wide",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "venue", "user", "role"],
+                condition=models.Q(venue__isnull=False),
+                name="org_role_unique_per_venue",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        # Like ClassOffering: the cross-org check in clean() must run on
+        # ORM writes, not just forms/admin. Bulk writes and raw SQL skip
+        # save() and must call full_clean() themselves.
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def clean(self):
         # Cross-table coherence has no CHECK equivalent (constraints can't

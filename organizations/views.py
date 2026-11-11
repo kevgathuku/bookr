@@ -155,13 +155,10 @@ class MemberSearchView(APIView):
         parameters=[OpenApiParameter("q", str, required=False)],
     )
     def get(self, request):
-        from django.db.models import Q
-
         fragment = request.query_params.get("q", "")
         members = (
-            OrgRole.objects.filter(
-                Q(venue=request.venue)
-                | Q(venue=None, organization=request.venue.organization),
+            OrgRole.objects.covering(request.venue)
+            .filter(
                 user__username__icontains=fragment,
             )
             .select_related("user")

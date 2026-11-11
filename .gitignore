@@ -184,3 +184,5 @@ pyrightconfig.json
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+.neon
+node_modules/

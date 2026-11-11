@@ -4,8 +4,6 @@ Gates reference these capabilities, never role values. Rank sets live here
 so adding a rank touches exactly one module (ADR-0007).
 """
 
-from django.db.models import Q
-
 from organizations.models import OrgRole
 
 OPERATE_DESK_ROLES = frozenset(
@@ -25,9 +23,7 @@ DOOR_STAFF_ROLES = frozenset(
 def roles_for(user, venue) -> set[str]:
     """Role values the user holds covering the venue (pinned or org-wide)."""
     return set(
-        OrgRole.objects.filter(user=user, organization_id=venue.organization_id)
-        .filter(Q(venue=venue) | Q(venue__isnull=True))
-        .values_list("role", flat=True)
+        OrgRole.objects.filter(user=user).covering(venue).values_list("role", flat=True)
     )
 
 
