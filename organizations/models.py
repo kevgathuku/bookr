@@ -73,6 +73,17 @@ class OrgRole(models.Model):
                 ),
                 name="orgrole_role_valid",
             ),
+            # With pinned venue - enforce unique org / user / venue per role
+            models.UniqueConstraint(
+                fields=["organization", "user", "venue"],
+                name="orgrole_one_role_per_slot",
+            ),
+            # For org-wide roles, ensure uniqueness by org / user
+            models.UniqueConstraint(
+                fields=["organization", "user"],
+                condition=models.Q(venue__isnull=True),
+                name="orgrole_one_org_wide_role",
+            ),
         ]
 
     def clean(self):
