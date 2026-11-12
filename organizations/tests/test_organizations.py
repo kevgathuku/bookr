@@ -3,7 +3,12 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from organizations.models import Organization, OrgRole, Venue
-from tests.factories import OrganizationFactory, OrgRoleFactory, VenueFactory
+from tests.factories import (
+    OrganizationFactory,
+    OrgRoleFactory,
+    UserFactory,
+    VenueFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -100,3 +105,14 @@ class TestOrgRole:
         role = OrgRoleFactory(venue=None)
 
         role.full_clean()
+
+    def test_invalid_org_role_rejected(self):
+        role = OrgRoleFactory.build(
+            user=UserFactory(),
+            organization=OrganizationFactory(),
+            venue=None,
+            role="invalid",
+        )
+
+        with pytest.raises(IntegrityError):
+            role.save()

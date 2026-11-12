@@ -62,6 +62,19 @@ class OrgRole(models.Model):
     venue = models.ForeignKey(Venue, null=True, blank=True, on_delete=models.CASCADE)
     role = models.CharField(max_length=20, choices=Role.choices)
 
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            # Literal parity with Role.values: Meta can't see the sibling
+            # Role name (nested-class scope), and migrations serialize
+            # plain lists more stably than a Choices reference.
+            models.CheckConstraint(
+                condition=models.Q(
+                    role__in=["member", "teacher", "frontdesk", "manager", "owner"]
+                ),
+                name="orgrole_role_valid",
+            ),
+        ]
+
     def clean(self):
         # Cross-table coherence has no CHECK equivalent (constraints can't
         # join): writers construct coherent rows (organization matches the
