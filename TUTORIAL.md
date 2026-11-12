@@ -89,7 +89,7 @@ You'll need: Python 3.14+, Docker (services run in containers until Chapter 10 o
 
 1. New app: `... startapp access`. Models: `AccessPoint(controller_id, venue)`, `AccessEvent(member NULL, point, granted, reason, booking NULL)`. Grant iff: active pass OR confirmed booking in `[-15min, +duration]` OR staff role. Controllers use per-device tokens, dedicated lightweight view (no DRF bloat in the hot path if needed).
 2. Redis cache member-validity TTL 60s, DB fallback. **Fail-closed**: DB down → deny + log. Anti-passback: same member 60s → replay prior decision.
-3. Log everything, expose recent events to frontdesk; metrics `door_grants_total`.
+3. Log everything, expose recent events to frontdesk.
 
 **Run it:** E2E #2: member with upcoming booking → grant; expired pass + no booking → deny; both rows in `AccessEvent`. Kill DB in staging → deny (fail-closed drill).
 **Exercises:** 1) Load test the check endpoint (k6/locust, p95 target). 2) Passback test.

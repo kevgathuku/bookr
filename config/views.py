@@ -13,12 +13,6 @@ def healthz(request):
     return JsonResponse({"status": "ok"})
 
 
-def metrics(request):
-    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-
-    return HttpResponse(generate_latest(), content_type=CONTENT_TYPE_LATEST)
-
-
 def spa(request):
     """Same-origin SPA fallback: every non-API route serves the Vite build."""
     from pathlib import Path

@@ -22,13 +22,12 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
-from config.views import healthz, metrics, spa
+from config.views import healthz, spa
 from organizations.admin_mixins import bookr_site
 
 urlpatterns = [
     path("admin/", bookr_site.urls),
     path("healthz", healthz),
-    path("metrics/", metrics),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/v1/auth/token/", TokenObtainPairView.as_view(), name="token_obtain"),
     path("api/v1/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),

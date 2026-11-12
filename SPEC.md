@@ -551,7 +551,7 @@ Every model, every field, grouped by section. `datetime` = tz-aware UTC; `→` =
 - Validation at trust boundary: serializers validate; constraints (`Check/Unique/Exclusion`) enforce at DB as backstop. `select_related/prefetch_related` everywhere list-shaped; assert `assertNumQueries` in list tests.
 - AuthZ: `IsAuthenticated` + per-venue permission class (`IsVenueMember`) on every viewset; tests hit cross-venue access (must 404, not 403, to avoid id leaks).
 - Migrations: generated, reviewed, `sqlmigrate` for exclusion constraints; data migrations batched. Never `RunPython` without reverse.
-- Observability: structured logs with `venue_id/booking_id`, Sentry, `/healthz`, Prometheus metrics (`bookings_total{status}`, `door_grants_total`).
+- Observability: structured logs with `venue_id/booking_id`, Sentry, `/healthz`.
 
 ### Testing
 - Unit (pytest-django + factory-boy, fast, no I/O): service functions — FIFO pass deduction, late-cancel forfeit vs refund boundary (±1 min), waitlist ordering, availability math (DST edge), allotment enforcement. Target ≥80% on `services.py`/ledger.
