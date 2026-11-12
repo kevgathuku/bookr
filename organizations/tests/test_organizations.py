@@ -116,3 +116,41 @@ class TestOrgRole:
 
         with pytest.raises(IntegrityError):
             role.save()
+
+    def test_duplicate_pinned_slot_rejected(self):
+        org = OrganizationFactory(slug="slot-home")
+        venue = VenueFactory(organization=org, slug="slot-main")
+        user = UserFactory()
+        OrgRoleFactory(
+            organization=org, venue=venue, user=user, role=OrgRole.Role.MEMBER
+        )
+
+        # Same org and pinned venue, different role - rejected
+        with pytest.raises(IntegrityError):
+            OrgRoleFactory(
+                organization=org, venue=venue, user=user, role=OrgRole.Role.TEACHER
+            )
+
+    def test_duplicate_org_wide_role_rejected(self):
+        org = OrganizationFactory(slug="wide-home")
+        user = UserFactory()
+        OrgRoleFactory(organization=org, venue=None, user=user)
+
+        with pytest.raises(IntegrityError):
+            OrgRoleFactory(
+                organization=org,
+                venue=None,
+                user=user,
+                role=OrgRole.Role.TEACHER,
+            )
+
+    def test_org_wide_and_pinned_coexist(self):
+        # demo-teacher shape: org-wide row plus a pinned row, same user/org.
+        org = OrganizationFactory(slug="coexist-home")
+        venue = VenueFactory(organization=org, slug="coexist-main")
+        user = UserFactory()
+        OrgRoleFactory(organization=org, venue=None, user=user)
+
+        pinned = OrgRoleFactory(organization=org, venue=venue, user=user)
+
+        assert pinned.pk is not None
