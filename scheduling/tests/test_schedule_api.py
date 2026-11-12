@@ -181,7 +181,7 @@ class TestGenerateSessionsEndpoint:
 
     def test_desk_generates_series(self):
         venue = VenueFactory(slug="series")
-        offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
+        offering = ClassOfferingFactory(venue=venue, duration=timedelta(minutes=60))
         start = timezone.now() + timedelta(days=1)
 
         response = api_client(self._desk(venue), venue.slug).post(
@@ -195,7 +195,7 @@ class TestGenerateSessionsEndpoint:
 
     def test_member_cannot_generate(self):
         venue = VenueFactory(slug="series-member")
-        offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
+        offering = ClassOfferingFactory(venue=venue, duration=timedelta(minutes=60))
         member = user_with_role(
             venue, OrgRole.Role.MEMBER, username="member-gen", org_wide=True
         )
@@ -211,7 +211,7 @@ class TestGenerateSessionsEndpoint:
 
     def test_bad_rule_is_400(self):
         venue = VenueFactory(slug="series-bad")
-        offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
+        offering = ClassOfferingFactory(venue=venue, duration=timedelta(minutes=60))
         start = timezone.now() + timedelta(days=1)
         payload = self._payload(start)
         payload["rrule"] = "not a rule"
@@ -270,9 +270,9 @@ class TestPolicyListEndpoint:
 
     def test_session_list_filters_by_category(self):
         venue = VenueFactory(slug="series-filter")
-        group = ClassOfferingFactory(venue=venue, category="group", duration_minutes=60)
+        group = ClassOfferingFactory(venue=venue, category="group", duration=timedelta(minutes=60))
         private = ClassOfferingFactory(
-            venue=venue, category="private", duration_minutes=60
+            venue=venue, category="private", duration=timedelta(minutes=60)
         )
         start = timezone.now() + timedelta(days=1)
         ClassSessionFactory(offering=group, starts_at=start)

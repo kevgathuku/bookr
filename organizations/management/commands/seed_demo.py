@@ -165,7 +165,7 @@ def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, boo
         teacher=teacher,
         title="Spin",
         category=ClassCategory.GROUP,
-        defaults={"duration_minutes": 60, "credit_cost": 1},
+        defaults={"duration": timedelta(minutes=60), "credit_cost": 1},
     )
     ClassSession.objects.filter(
         offering=offering, starts_at__lte=timezone.now()

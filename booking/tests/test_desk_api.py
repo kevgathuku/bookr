@@ -103,7 +103,7 @@ class TestDeskCancelFlows:
         member = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
         plan = PlanFactory(organization=venue.organization)
         PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
-        offering = ClassOfferingFactory(venue=venue, duration_minutes=60)
+        offering = ClassOfferingFactory(venue=venue, duration=timedelta(minutes=60))
         session = ClassSessionFactory(
             offering=offering,
             starts_at=timezone.now() + timedelta(hours=2),

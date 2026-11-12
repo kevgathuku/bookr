@@ -117,7 +117,7 @@ def _is_staff(member, venue):
 def _live_booking(member, venue, now):
     for booking in _bookings(member, venue):
         start = booking.session.starts_at
-        end = start + timedelta(minutes=booking.session.offering.duration_minutes)
+        end = start + booking.session.offering.duration
         if _window_ok(start, end, now):
             return booking
     return None
