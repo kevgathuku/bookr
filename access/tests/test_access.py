@@ -43,7 +43,7 @@ def _clear_cache():
 #  - Every identified attempt logs an AccessEvent with reason...
 #  - ...except 60s passback replays, which return the prior decision rowless.
 #  - DB outage denies (fail-closed drill) — cache is latency only.
-#  - door_grants_total increments per grant; frontdesk reads recent events.
+#  - Every grant is an AccessEvent row; frontdesk reads recent events.
 
 
 def _point(venue):
@@ -185,23 +185,6 @@ class TestGrantDeny:
         response = _check("wrong-token", member.pk, point.pk)
 
         assert response.status_code == 401
-
-    def test_metric_counts_grants(self, venue):
-        # Line counts in /metrics/ only grow for new venue_id labels, and
-        # sqlite reuses PKs across rolled-back tests (postgres sequences
-        # do not) — so assert this venue's sample value instead.
-        from prometheus_client import REGISTRY
-
-        point, token = _point(venue)
-        member = make_member("member", venue, credits=5)
-        label = {"venue_id": str(venue.pk)}
-        before = REGISTRY.get_sample_value("door_grants_total", label) or 0
-
-        response = _check(token, member.pk, point.pk)
-
-        assert response.data["granted"] is True
-        after = REGISTRY.get_sample_value("door_grants_total", label) or 0
-        assert after == before + 1
 
 
 class TestPassback:

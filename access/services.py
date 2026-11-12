@@ -10,15 +10,12 @@ from datetime import timedelta
 from django.core.cache import cache
 from django.db.models import Q
 from django.utils import timezone
-from prometheus_client import Counter
 
 from access.models import AccessEvent
 from booking.models import ACTIVE_STATUSES, Booking
 from organizations.capabilities import is_duty_staff, roles_for
 from passes.models import Entitlement
 from passes.services import valid_memberships
-
-grants_total = Counter("door_grants_total", "Granted door checks", ["venue_id"])
 
 CACHE_TTL_SECONDS = 60
 ENTRY_WINDOW_MINUTES = 15
