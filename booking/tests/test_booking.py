@@ -125,6 +125,21 @@ class TestBookingModel:
                 hold_expires_at=timezone.now() + timedelta(hours=1),
             )
 
+    def test_invalid_status_rejected_by_db(self):
+        venue = make_venue("status-db")
+        member = make_member("status-db-member", venue)
+        session = make_session(venue)
+        membership = member.plan_memberships.get()
+
+        with pytest.raises(IntegrityError):
+            Booking.objects.create(
+                session=session,
+                member=member,
+                membership=membership,
+                credits_spent=0,
+                status="bogus",
+            )
+
 
 class TestBookSession:
     def test_confirmed_while_seats_remain(self):

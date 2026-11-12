@@ -58,6 +58,20 @@ class Booking(models.Model):
                 | models.Q(status="held"),
                 name="hold_requires_held",
             ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    status__in=[
+                        "booked",
+                        "waitlisted",
+                        "held",
+                        "cancelled",
+                        "late_cancelled",
+                        "no_show",
+                        "attended",
+                    ]
+                ),
+                name="booking_status_valid",
+            ),
         ]
 
     def clean(self):
