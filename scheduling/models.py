@@ -3,15 +3,40 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import DateTimeField, ExpressionWrapper, F, Value
+from django.db.models import DateTimeField, F
+
+
+class SessionEndsAt(models.Func):
+    """Session end = starts_at + offering duration, on any backend.
+
+    Django compiles duration multiplication on Postgres but not sqlite
+    (its guard allowlists exact field types; duration_minutes is a
+    PositiveIntegerField), so each backend renders natively.
+    """
+
+    output_field = DateTimeField()
+    arity = 2
+
+    def as_postgresql(self, compiler, connection):
+        lhs, lhs_params = compiler.compile(self.source_expressions[0])
+        rhs, rhs_params = compiler.compile(self.source_expressions[1])
+        return (
+            f"({lhs} + ({rhs} || ' minutes')::interval)",
+            (*lhs_params, *rhs_params),
+        )
+
+    def as_sqlite(self, compiler, connection):
+        lhs, lhs_params = compiler.compile(self.source_expressions[0])
+        rhs, rhs_params = compiler.compile(self.source_expressions[1])
+        return (
+            f"(datetime({lhs}, '+' || {rhs} || ' minutes'))",
+            (*lhs_params, *rhs_params),
+        )
 
 
 def derived_end():
     """DB expression matching ClassSession.ends_at (start + duration)."""
-    return ExpressionWrapper(
-        F("starts_at") + F("offering__duration_minutes") * Value(timedelta(minutes=1)),
-        output_field=DateTimeField(),
-    )
+    return SessionEndsAt(F("starts_at"), F("offering__duration_minutes"))
 
 
 class ClassSessionQuerySet(models.QuerySet):
