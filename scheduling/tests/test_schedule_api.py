@@ -270,7 +270,9 @@ class TestPolicyListEndpoint:
 
     def test_session_list_filters_by_category(self):
         venue = VenueFactory(slug="series-filter")
-        group = ClassOfferingFactory(venue=venue, category="group", duration=timedelta(minutes=60))
+        group = ClassOfferingFactory(
+            venue=venue, category="group", duration=timedelta(minutes=60)
+        )
         private = ClassOfferingFactory(
             venue=venue, category="private", duration=timedelta(minutes=60)
         )
