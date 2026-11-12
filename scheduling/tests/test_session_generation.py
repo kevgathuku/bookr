@@ -14,7 +14,7 @@ pytestmark = pytest.mark.django_db
 
 class TestGenerateSessions:
     def _offering(self, venue):
-        return ClassOfferingFactory(venue=venue, duration_minutes=60)
+        return ClassOfferingFactory(venue=venue, duration=timedelta(minutes=60))
 
     def test_weekly_rule_expands_in_window(self):
         venue = VenueFactory(slug="gen")

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import ClassVar
 
 from rest_framework import serializers
@@ -18,6 +19,12 @@ class SessionCancelSerializer(serializers.Serializer):
 
 class OfferingSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source="teacher.username", read_only=True)
+    # Wire contract stays minutes (SPEC duration_min int; SPA reads a
+    # number) while the model stores a DurationField.
+    duration_minutes = serializers.SerializerMethodField()
+
+    def get_duration_minutes(self, obj) -> int:
+        return int(obj.duration // timedelta(minutes=1))
 
     class Meta:
         model = ClassOffering

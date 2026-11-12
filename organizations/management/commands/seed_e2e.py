@@ -3,6 +3,7 @@ smoke suite touches. Re-runnable by construction; invoked directly as
 `manage.py seed_e2e` (boot.sh, pytest fixture)."""
 
 import contextlib
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
@@ -109,7 +110,7 @@ def _seed_annex_session(annex, people):
         teacher=people["teacher"],
         title="Yoga",
         category=ClassCategory.GROUP,
-        defaults={"duration_minutes": 60, "credit_cost": 1},
+        defaults={"duration": timedelta(minutes=60), "credit_cost": 1},
     )
     from django.core.exceptions import ValidationError
 

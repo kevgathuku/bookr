@@ -64,7 +64,7 @@ def seed_sessions(venue, teacher, title, category, weekdays, hour, capacity=20):
         teacher=teacher,
         title=title,
         category=category,
-        defaults={"duration_minutes": 60, "credit_cost": 1},
+        defaults={"duration": timedelta(minutes=60), "credit_cost": 1},
     )
     # Boot seeding re-runs: prune only unbooked past occurrences, so the
     # table converges instead of growing a batch every week. Sessions with
@@ -103,7 +103,7 @@ def seed_new_graph(venue, people):
         teacher=people["teacher"],
         title="Spin",
         category=ClassCategory.GROUP,
-        defaults={"duration_minutes": 60, "credit_cost": 1},
+        defaults={"duration": timedelta(minutes=60), "credit_cost": 1},
     )
     start = timezone.now() + timedelta(days=class_days_out())
     session = ClassSession.objects.filter(

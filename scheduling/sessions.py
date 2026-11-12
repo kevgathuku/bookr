@@ -7,7 +7,6 @@ Cross-offering teacher clashes are checked best-effort: admin-created
 sessions are not a hot race path.
 """
 
-from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from dateutil.rrule import rrulestr
@@ -27,7 +26,7 @@ def schedule_session(*, offering, starts_at, capacity=None):
         .get(pk=offering.pk)
     )
     starts_at = _ensure_aware(starts_at, offering)
-    end = starts_at + timedelta(minutes=offering.duration_minutes)
+    end = starts_at + offering.duration
     _reject_overlap(offering, starts_at, end)
     fields = {"offering": offering, "starts_at": starts_at}
     if capacity is not None:
@@ -79,7 +78,7 @@ def _ensure_aware(starts_at, offering):
 
 
 def _reject_overlap(offering, starts_at, end):
-    window = timedelta(minutes=offering.duration_minutes)
+    window = offering.duration
     clash = ClassSession.objects.filter(
         offering=offering,
         cancelled_at__isnull=True,
@@ -94,9 +93,9 @@ def _reject_overlap(offering, starts_at, end):
 def _reject_teacher_clash(offering, starts_at, end):
     longest = (
         ClassOffering.objects.filter(teacher=offering.teacher).aggregate(
-            longest=models.Max("duration_minutes")
+            longest=models.Max("duration")
         )["longest"]
-        or offering.duration_minutes
+        or offering.duration
     )
     candidates = (
         ClassSession.objects.select_related("offering")
@@ -104,13 +103,11 @@ def _reject_teacher_clash(offering, starts_at, end):
             offering__teacher=offering.teacher,
             cancelled_at__isnull=True,
             starts_at__lt=end,
-            starts_at__gt=starts_at - timedelta(minutes=longest),
+            starts_at__gt=starts_at - longest,
         )
         .exclude(offering=offering)
     )
     for session in candidates:
-        other_end = session.starts_at + timedelta(
-            minutes=session.offering.duration_minutes
-        )
+        other_end = session.starts_at + session.offering.duration
         if session.starts_at < end and starts_at < other_end:
             raise ValidationError("Teacher is already booked at this time.")

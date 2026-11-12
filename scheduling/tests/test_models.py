@@ -31,7 +31,7 @@ def _base():
 
 class TestEndsAt:
     def test_derives_from_offering_duration(self):
-        offering = ClassOfferingFactory(duration_minutes=90)
+        offering = ClassOfferingFactory(duration=timedelta(minutes=90))
         session = ClassSessionFactory(offering=offering)
 
         assert session.ends_at == session.starts_at + timedelta(minutes=90)
@@ -91,7 +91,7 @@ class TestSessionQuerySet:
 
 class TestScheduleSession:
     def test_back_to_back_allowed(self):
-        offering = ClassOfferingFactory(duration_minutes=60)
+        offering = ClassOfferingFactory(duration=timedelta(minutes=60))
         first = schedule_session(offering=offering, starts_at=_base())
 
         second = schedule_session(offering=offering, starts_at=first.ends_at)
@@ -99,7 +99,7 @@ class TestScheduleSession:
         assert second.starts_at == first.ends_at
 
     def test_partial_overlap_rejected(self):
-        offering = ClassOfferingFactory(duration_minutes=60)
+        offering = ClassOfferingFactory(duration=timedelta(minutes=60))
         first = schedule_session(offering=offering, starts_at=_base())
 
         with pytest.raises(ValidationError):
@@ -109,7 +109,7 @@ class TestScheduleSession:
             )
 
     def test_cancelled_session_frees_slot(self):
-        offering = ClassOfferingFactory(duration_minutes=60)
+        offering = ClassOfferingFactory(duration=timedelta(minutes=60))
         first = schedule_session(offering=offering, starts_at=_base())
         first.cancelled_at = timezone.now()
         first.save(update_fields=["cancelled_at"])
@@ -152,7 +152,7 @@ class TestScheduleSession:
 
 class TestGenerateSessions:
     def test_over_limit_rejected(self):
-        offering = ClassOfferingFactory(duration_minutes=60)
+        offering = ClassOfferingFactory(duration=timedelta(minutes=60))
         start = _base()
         rule = start.strftime("DTSTART:%Y%m%dT%H%M%S\nRRULE:FREQ=DAILY;COUNT=300")
 

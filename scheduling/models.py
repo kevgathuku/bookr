@@ -1,17 +1,16 @@
 from datetime import timedelta
+from typing import ClassVar
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
-from django.db.models import DateTimeField, ExpressionWrapper, F, Value
+from django.db.models import F
 
 
 def derived_end():
     """DB expression matching ClassSession.ends_at (start + duration)."""
-    return ExpressionWrapper(
-        F("starts_at") + F("offering__duration_minutes") * Value(timedelta(minutes=1)),
-        output_field=DateTimeField(),
-    )
+    return F("starts_at") + F("offering__duration")
 
 
 class ClassSessionQuerySet(models.QuerySet):
@@ -47,8 +46,21 @@ class ClassOffering(models.Model):
     )
     title = models.CharField(max_length=200)
     category = models.CharField(max_length=20, choices=ClassCategory.choices)
-    duration_minutes = models.PositiveIntegerField(default=60)
+    duration = models.DurationField(
+        default=timedelta(minutes=60),
+        validators=[MinValueValidator(timedelta(0))],
+    )
     credit_cost = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            # Parity with the old PositiveIntegerField: zero is storable,
+            # negatives are not.
+            models.CheckConstraint(
+                condition=models.Q(duration__gte=timedelta(0)),
+                name="offering_duration_nonnegative",
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         # Offerings are single-row domain objects: validate on every ORM
@@ -95,7 +107,7 @@ class ClassSession(models.Model):
 
     @property
     def ends_at(self):
-        return self.starts_at + timedelta(minutes=self.offering.duration_minutes)
+        return self.starts_at + self.offering.duration
 
     def __str__(self):
         title = self.offering.title

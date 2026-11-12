@@ -85,7 +85,7 @@ class ClassOfferingFactory(factory.django.DjangoModelFactory):
     teacher = factory.SubFactory(UserFactory)
     title = factory.Sequence(lambda n: f"Offering {n}")
     category = ClassCategory.GROUP
-    duration_minutes = 60
+    duration = timedelta(minutes=60)
     credit_cost = 1
 
     @classmethod
