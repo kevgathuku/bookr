@@ -3,7 +3,6 @@ from unittest import mock
 
 import pytest
 from django.db import OperationalError
-from django.test import Client
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -188,14 +187,21 @@ class TestGrantDeny:
         assert response.status_code == 401
 
     def test_metric_counts_grants(self, venue):
+        # Line counts in /metrics/ only grow for new venue_id labels, and
+        # sqlite reuses PKs across rolled-back tests (postgres sequences
+        # do not) — so assert this venue's sample value instead.
+        from prometheus_client import REGISTRY
+
         point, token = _point(venue)
         member = make_member("member", venue, credits=5)
-        before = Client().get("/metrics/").content.decode().count("door_grants_total")
+        label = {"venue_id": str(venue.pk)}
+        before = REGISTRY.get_sample_value("door_grants_total", label) or 0
 
-        _check(token, member.pk, point.pk)
+        response = _check(token, member.pk, point.pk)
 
-        after = Client().get("/metrics/").content.decode().count("door_grants_total")
-        assert after > before
+        assert response.data["granted"] is True
+        after = REGISTRY.get_sample_value("door_grants_total", label) or 0
+        assert after == before + 1
 
 
 class TestPassback:
