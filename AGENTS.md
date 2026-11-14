@@ -63,6 +63,9 @@ no API key, $0).
   constraint lists (RUF012); no code before its lesson.
 - CHECK constraints: NULL satisfies a check, so nullable columns need
   explicit `isnull` conjuncts (`Q(plan=..., field__isnull=False, field__gt=0)`).
+- Postgres-only DDL is banned: the app stays SQLite-compatible, so no
+  `NULLS NOT DISTINCT` (use partial uniques per null combination), no
+exclusion constraints, no advisory locks outside Postgres-guarded tests.
 - Tests build rows via `tests/factories.py` (bare factory for boilerplate,
   explicit kwargs where the field is the assertion subject); direct
   `objects.create` only with a why-comment (uniqueness tests, `get_or_create`
