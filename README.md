@@ -1,6 +1,6 @@
 # Bookr — multi-tenant venue management (classes, bookings, credit passes, aggregators, door access)
 
-Contract in `SPEC.md`; build path in `TUTORIAL.md` ( lessons in `lessons/`, start at `0001`).
+Contract in `SPEC.md`.
 
 ## Setup
 
