@@ -53,10 +53,7 @@ jobs:
 
       - run: uv sync --frozen
 
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-
-      - run: uv run python manage.py check
+      - run: make lint
 
       # Unit suite runs parallel (per-worker test DBs via pytest-django);
       # live-server smoke specs stay serial (excluded from -n auto).

@@ -29,6 +29,7 @@ test-sqlite:
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
+	uv run python manage.py check
 
 # Seed demo orgs (re-runnable): one spanning + one per-venue.
 seed:
