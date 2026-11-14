@@ -181,6 +181,65 @@ class TestResolution:
         assert CancellationPolicy.objects.filter(organization=org).count() == 2
         assert baseline.pk is not None
 
+    def test_duplicate_scope_priority_rejected_at_db(self, venue):
+        org = venue.organization
+        make_policy(org, NONE, venue=venue)
+
+        # bulk_create skips clean(): this proves the DB constraint, which
+        # treats null scopes as equal (one partial per null combination).
+        with pytest.raises(IntegrityError):
+            CancellationPolicy.objects.bulk_create(
+                [
+                    CancellationPolicy(
+                        organization=org,
+                        venue=venue,
+                        class_category=None,
+                        plan_type=None,
+                        priority=0,
+                        late_cancel_hours=12,
+                        enforcement=NONE,
+                    )
+                ]
+            )
+
+    @pytest.mark.django_db(transaction=True)
+    @requires_postgres
+    def test_concurrent_baseline_creation_creates_once(self, venue):
+        org = venue.organization
+
+        def attempt(_i):
+            try:
+                return resolve_policy(
+                    OrgId(org.pk),
+                    VenueId(venue.pk),
+                    ClassCategory.GROUP,
+                    PlanType.CREDIT_PACK,
+                ).pk
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(attempt, range(4)))
+
+        assert CancellationPolicy.objects.filter(organization=org).count() == 1
+
+    def test_same_scope_distinct_priorities_resolve_deterministically(self, venue):
+        org = venue.organization
+        make_policy(org, NONE, venue=venue, priority=0)
+        high = make_policy(org, STRIKE, venue=venue, priority=5)
+
+        winners = {
+            resolve_policy(
+                OrgId(org.pk),
+                VenueId(venue.pk),
+                ClassCategory.GROUP,
+                PlanType.CREDIT_PACK,
+            ).pk
+            for _ in range(3)
+        }
+
+        assert winners == {high.pk}
+
 
 # Late, unwaived, penalized: the policy enforcement applies. A new
 # Enforcement member breaks test_late_matrix_covers_every_enforcement

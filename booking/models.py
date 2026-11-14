@@ -142,6 +142,94 @@ class CancellationPolicy(models.Model):
         "plan_type",
     )
 
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            # Scope identity, one partial per null combination: plain
+            # uniques treat nulls as distinct, so each shape lists its
+            # set fields and asserts the rest are null. Priority is in
+            # every key (the baseline at -1 coexists with explicit
+            # org-wide rules), and the eight shapes below partition all
+            # rows. Portable across backends (no NULLS NOT DISTINCT).
+            models.UniqueConstraint(
+                fields=[
+                    "organization",
+                    "venue",
+                    "class_category",
+                    "plan_type",
+                    "priority",
+                ],
+                condition=models.Q(
+                    venue__isnull=False,
+                    class_category__isnull=False,
+                    plan_type__isnull=False,
+                ),
+                name="policy_scope_all_set_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "class_category", "plan_type", "priority"],
+                condition=models.Q(
+                    venue__isnull=True,
+                    class_category__isnull=False,
+                    plan_type__isnull=False,
+                ),
+                name="policy_scope_no_venue_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "venue", "plan_type", "priority"],
+                condition=models.Q(
+                    venue__isnull=False,
+                    class_category__isnull=True,
+                    plan_type__isnull=False,
+                ),
+                name="policy_scope_no_category_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "venue", "class_category", "priority"],
+                condition=models.Q(
+                    venue__isnull=False,
+                    class_category__isnull=False,
+                    plan_type__isnull=True,
+                ),
+                name="policy_scope_no_plan_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "venue", "priority"],
+                condition=models.Q(
+                    venue__isnull=False,
+                    class_category__isnull=True,
+                    plan_type__isnull=True,
+                ),
+                name="policy_scope_venue_only_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "class_category", "priority"],
+                condition=models.Q(
+                    venue__isnull=True,
+                    class_category__isnull=False,
+                    plan_type__isnull=True,
+                ),
+                name="policy_scope_category_only_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "plan_type", "priority"],
+                condition=models.Q(
+                    venue__isnull=True,
+                    class_category__isnull=True,
+                    plan_type__isnull=False,
+                ),
+                name="policy_scope_plan_only_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "priority"],
+                condition=models.Q(
+                    venue__isnull=True,
+                    class_category__isnull=True,
+                    plan_type__isnull=True,
+                ),
+                name="policy_scope_org_wide_unique",
+            ),
+        ]
+
     @property
     def specificity(self) -> int:
         return sum(getattr(self, field) is not None for field in self.SCOPE_FIELDS)
