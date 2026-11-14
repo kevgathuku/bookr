@@ -7,16 +7,18 @@ on:
       - "**.py"
       - "pyproject.toml"
       - "uv.lock"
+      - "Makefile"
       - ".github/workflows/ci-python.yml"
   pull_request:
     paths:
       - "**.py"
       - "pyproject.toml"
       - "uv.lock"
+      - "Makefile"
       - ".github/workflows/ci-python.yml"
 
 jobs:
-  test:
+  test-postgres:
     runs-on: ubuntu-latest
 
     services:
@@ -73,3 +75,22 @@ jobs:
             echo "## Coverage"
             uv run coverage report --format=markdown
           } >> "$GITHUB_STEP_SUMMARY"
+
+  test-sqlite:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - run: uv sync --frozen
+
+      # Throwaway sqlite file, serial (single writer). Proves the suite
+      # degrades gracefully where Postgres-only tests self-skip (bookr-30p).
+      # No coverage gate here; the Postgres job owns it.
+      - run: make test-sqlite
