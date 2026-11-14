@@ -1,4 +1,4 @@
-.PHONY: test test-all test-smoke test-e2e test-fresh lint seed seed-e2e migrate help
+.PHONY: test test-sqlite test-all test-smoke test-e2e test-fresh lint seed seed-e2e migrate help
 
 PYTEST := uv run pytest -q
 
@@ -22,6 +22,10 @@ test-e2e:
 test-fresh:
 	$(PYTEST) -n auto -m "not e2e and not smoke" --create-db
 
+# Fast Unit + API suite on sqlite 
+test-sqlite:
+	DATABASE_URL=sqlite:///$(CURDIR)/tmp/test.sqlite3 $(PYTEST) -m "not e2e and not smoke" --create-db
+
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
@@ -43,6 +47,7 @@ help:
 	@echo "test-smoke  live-server smoke only"
 	@echo "test-e2e    full e2e (needs worker, mailpit, frontend)"
 	@echo "test-fresh  like test, rebuilds test DBs (after migration edits)"
+	@echo "test-sqlite unit+API on sqlite"
 	@echo "lint        ruff check + format check"
 	@echo "seed        demo orgs (re-runnable)"
 	@echo "seed-e2e    fixed e2e-run org only"

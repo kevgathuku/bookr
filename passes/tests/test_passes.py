@@ -44,6 +44,7 @@ from tests.factories import (  # noqa: WPS235
     user_with_role,
     with_credit_pack,
 )
+from tests.markers import race_requires_postgres
 
 pytestmark = pytest.mark.django_db
 
@@ -584,6 +585,7 @@ class TestGrantGoodwill:
 
 @pytest.mark.django_db(transaction=True)
 class TestGrantRace:
+    @race_requires_postgres
     def test_concurrent_same_key_grants_once(self):
         venue = make_venue("grant-race")
         member = UserFactory(username="racer")
