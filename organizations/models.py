@@ -45,7 +45,7 @@ class Venue(models.Model):
 
 
 class OrgRoleQuerySet(models.QuerySet):
-    def covering(self, venue: Venue):
+    def covering(self, venue: Venue) -> OrgRoleQuerySet:
         """Rows granting access at `venue`: pinned to it, or org-wide
         within its organization. The organization filter keeps other
         orgs' org-wide rows out."""
@@ -100,7 +100,7 @@ class OrgRole(models.Model):
         # join): writers construct coherent rows (organization matches the
         # venue's), this is the backstop.
         super().clean()
-        if self.venue_id is None or self.organization_id is None:
+        if self.venue is None or self.organization is None:
             return
         if self.venue.organization_id != self.organization_id:
             raise ValidationError(
