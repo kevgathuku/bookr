@@ -186,6 +186,12 @@ raw grep): if something exists that's ~80% of the need, extend it; if
 about to copy-paste, extract to a shared module instead. Prefer the
 smallest complete change (see ponytail rules in the session prompt).
 
+## Search (merged from workspace template)
+
+Prefer `rg` over `grep`: it respects `.gitignore` (skips `.venv`,
+build output), is faster, and prints cleaner paths. Fall back to raw
+`grep` only where `rg` is unavailable.
+
 ## File size (merged from workspace template)
 
 One module = one concern; split on unrelated exports or when a file
