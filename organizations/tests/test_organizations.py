@@ -89,7 +89,9 @@ class TestOrgRole:
         org = OrganizationFactory(slug="home")
         other = OrganizationFactory(slug="away")
         venue = VenueFactory(organization=other, slug="away-main")
-        role = OrgRoleFactory(organization=org, venue=venue)
+        # build: save() runs full_clean, so a coherent factory create
+        # would raise before the explicit assertion below.
+        role = OrgRoleFactory.build(organization=org, venue=venue)
 
         with pytest.raises(ValidationError):
             role.full_clean()
@@ -154,3 +156,47 @@ class TestOrgRole:
         pinned = OrgRoleFactory(organization=org, venue=venue, user=user)
 
         assert pinned.pk is not None
+
+    def test_duplicate_org_wide_role_rejected_at_db(self):
+        existing = OrgRoleFactory(venue=None, role=OrgRole.Role.MEMBER)
+
+        # bulk_create skips save()/full_clean: this proves the DB
+        # constraint, not model validation (Postgres NULL != NULL trap).
+        with pytest.raises(IntegrityError):
+            OrgRole.objects.bulk_create(
+                [
+                    OrgRole(
+                        organization=existing.organization,
+                        venue=None,
+                        user=existing.user,
+                        role=existing.role,
+                    )
+                ]
+            )
+
+    def test_duplicate_pinned_slot_rejected_at_db(self):
+        venue = VenueFactory()
+        existing = OrgRoleFactory(venue=venue, role=OrgRole.Role.TEACHER)
+
+        # bulk_create skips save()/full_clean: this proves the DB constraint.
+        with pytest.raises(IntegrityError):
+            OrgRole.objects.bulk_create(
+                [
+                    OrgRole(
+                        organization=existing.organization,
+                        venue=venue,
+                        user=existing.user,
+                        role=existing.role,
+                    )
+                ]
+            )
+
+    def test_covering_excludes_other_org_org_wide_rows(self):
+        venue = VenueFactory()
+        mine = OrgRoleFactory(organization=venue.organization, venue=None)
+        other = OrgRoleFactory(venue=None, role=OrgRole.Role.MEMBER)
+
+        covered_ids = set(OrgRole.objects.covering(venue).values_list("pk", flat=True))
+
+        assert mine.pk in covered_ids
+        assert other.pk not in covered_ids

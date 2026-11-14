@@ -86,7 +86,11 @@ class TestSessionQuerySet:
             pk=session.pk
         )
 
-        assert row.computed_end == session.ends_at
+        # Second precision: sqlite datetime() drops sub-second parts and
+        # the domain books whole minutes, so microseconds assert nothing.
+        assert row.computed_end.replace(microsecond=0) == session.ends_at.replace(
+            microsecond=0
+        )
 
 
 class TestScheduleSession:

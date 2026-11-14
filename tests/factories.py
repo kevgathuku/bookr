@@ -66,9 +66,14 @@ class OrgRoleFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = OrgRole
 
-    organization = factory.SubFactory(OrganizationFactory)
-    # org-wide default; venue-pinned callers pass venue explicitly
+    # org-wide default; venue-pinned callers pass venue explicitly.
+    # Organization derives from the venue so the factory always builds a
+    # coherent row (save() runs full_clean); pass organization explicitly
+    # only for org-wide roles or the cross-org rejection test.
     venue = None
+    organization = factory.LazyAttribute(
+        lambda role: role.venue.organization if role.venue else OrganizationFactory()
+    )
     user = factory.SubFactory(UserFactory)
     role = OrgRole.Role.MEMBER
 
