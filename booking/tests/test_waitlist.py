@@ -51,6 +51,7 @@ from tests.factories import (  # noqa: WPS235
     user_with_role,
     with_monthly_plan,
 )
+from tests.markers import race_requires_postgres
 
 pytestmark = pytest.mark.django_db
 
@@ -237,6 +238,7 @@ class TestPromoteNext:
         assert promote_next(session) is None
 
     @pytest.mark.django_db(transaction=True)
+    @race_requires_postgres
     def test_promote_is_retry_safe_under_races(self, world):
         session, member = world
         book_session(session=session, member=member("seated"))

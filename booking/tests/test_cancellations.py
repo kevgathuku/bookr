@@ -44,6 +44,7 @@ from tests.factories import (  # noqa: WPS235
     user_with_role,
     with_monthly_plan,
 )
+from tests.markers import race_requires_postgres
 
 pytestmark = pytest.mark.django_db
 
@@ -997,6 +998,7 @@ class TestWaiver:
 
 @pytest.mark.django_db(transaction=True)
 class TestSessionCancelRace:
+    @race_requires_postgres
     def test_concurrent_session_cancels_refund_once(self, venue):
         session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
         member = make_member("m1", venue, credits=10)
@@ -1018,6 +1020,7 @@ class TestSessionCancelRace:
         assert first == second
         assert CancellationRecord.objects.filter(booking__session=session).count() == 1
 
+    @race_requires_postgres
     def test_concurrent_member_cancels_keep_one_refund(self, venue):
         from concurrent.futures import ThreadPoolExecutor
 
