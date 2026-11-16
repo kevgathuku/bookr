@@ -29,6 +29,7 @@ test-sqlite:
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
+	uv run python manage.py check
 
 # Apply ruff formatting + safe autofixes in place.
 format:
