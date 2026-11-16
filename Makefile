@@ -22,9 +22,9 @@ test-e2e:
 test-fresh:
 	$(PYTEST) -n auto -m "not e2e and not smoke" --create-db
 
-# Fast Unit + API suite on sqlite 
+# Unit + API suite on sqlite, parallel (in-memory DB per worker).
 test-sqlite:
-	DATABASE_URL=sqlite:///$(CURDIR)/tmp/test.sqlite3 $(PYTEST) -m "not e2e and not smoke" --create-db
+	DATABASE_URL=sqlite://:memory: $(PYTEST) -n auto -m "not e2e and not smoke"
 
 lint:
 	uv run ruff check .
