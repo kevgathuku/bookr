@@ -7,10 +7,6 @@ from booking.models import CancellationPolicy
 from booking.services import book_session
 from organizations.models import OrgRole
 from tests.factories import (
-    ClassOfferingFactory,
-    ClassSessionFactory,
-    PlanFactory,
-    PlanMembershipFactory,
     api_client,
     book,
     make_member,
@@ -100,14 +96,8 @@ class TestDeskCancelFlows:
         return venue, desk
 
     def _book(self, venue, username, credits=10):
-        member = user_with_role(venue, OrgRole.Role.MEMBER, username, org_wide=True)
-        plan = PlanFactory(organization=venue.organization)
-        PlanMembershipFactory(user=member, plan=plan, credits_remaining=credits)
-        offering = ClassOfferingFactory(venue=venue, duration=timedelta(minutes=60))
-        session = ClassSessionFactory(
-            offering=offering,
-            starts_at=timezone.now() + timedelta(hours=2),
-        )
+        member = make_member(username, venue, credits=credits)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
         booking = book_session(session=session, member=member)
         return member, booking, session
 
