@@ -60,6 +60,12 @@ class ClassOffering(models.Model):
                 condition=models.Q(duration__gte=timedelta(0)),
                 name="offering_duration_nonnegative",
             ),
+            # save() full_cleans (choices checked), but bulk writes and
+            # queryset .update() bypass it: the CHECK covers those.
+            models.CheckConstraint(
+                condition=models.Q(category__in=ClassCategory.values),
+                name="offering_category_valid",
+            ),
         ]
 
     def save(self, *args, **kwargs):
