@@ -1073,7 +1073,8 @@ class TestSessionCancelRace:
 
         from django.db import connection
 
-        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
+        # On-time under the regular 12h seed, so the winner refunds.
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=48))
         member = make_member("m1", venue, credits=10)
         booking = book(member, session)
         before = member.plan_memberships.get().credits_remaining
