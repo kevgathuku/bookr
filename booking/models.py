@@ -10,15 +10,23 @@ from scheduling.models import ClassCategory
 ACTIVE_STATUSES = ("booked", "waitlisted", "held")
 
 
+class BookingStatus(models.TextChoices):
+    """Booking lifecycle; use via Booking.Status. Adding one needs a
+    migration: the booking_status_valid CHECK pins the allowed values."""
+
+    BOOKED = "booked", "Booked"
+    WAITLISTED = "waitlisted", "Waitlisted"
+    HELD = "held", "Held"
+    CANCELLED = "cancelled", "Cancelled"
+    LATE_CANCELLED = "late_cancelled", "Late cancelled"
+    NO_SHOW = "no_show", "No-show"
+    ATTENDED = "attended", "Attended"
+
+
 class Booking(models.Model):
-    class Status(models.TextChoices):
-        BOOKED = "booked", "Booked"
-        WAITLISTED = "waitlisted", "Waitlisted"
-        HELD = "held", "Held"
-        CANCELLED = "cancelled", "Cancelled"
-        LATE_CANCELLED = "late_cancelled", "Late cancelled"
-        NO_SHOW = "no_show", "No-show"
-        ATTENDED = "attended", "Attended"
+    # Alias, not a nested definition: Meta's CHECK below needs the values,
+    # and class bodies don't see their enclosing class's names.
+    Status = BookingStatus  # noqa: WPS115 — public Booking.Status API
 
     session = models.ForeignKey(
         "scheduling.ClassSession", on_delete=models.CASCADE, related_name="bookings"
@@ -58,6 +66,20 @@ class Booking(models.Model):
                 | models.Q(status="held"),
                 name="hold_requires_held",
             ),
+            # The reverse of hold_requires_held: a held seat without an
+            # expiry is never swept (the sweep filters hold_expires_at__lte)
+            # and never confirmable, so it would pin the seat forever.
+            models.CheckConstraint(
+                condition=~models.Q(status="held")
+                | models.Q(hold_expires_at__isnull=False),
+                name="held_requires_hold",
+            ),
+            # save() runs clean() only (never full_clean, see save), so
+            # choices= is never checked on write: this is the only guard.
+            models.CheckConstraint(
+                condition=models.Q(status__in=BookingStatus.values),
+                name="booking_status_valid",
+            ),
         ]
 
     def clean(self):
@@ -89,14 +111,22 @@ class Booking(models.Model):
         return f"{self.member} → {self.session} ({self.status})"
 
 
+class CancellationEnforcement(models.TextChoices):
+    """Penalty a late cancel incurs; use via CancellationPolicy.Enforcement.
+    Adding one needs a migration: policy and record CHECKs pin the values."""
+
+    NONE = "none", "None"
+    STRIKE = "strike", "Strike"
+    LOSE_CREDIT = "lose_credit", "Lose credit"
+
+
 class CancellationPolicy(models.Model):
     """Scoped cancellation rule. NULL scope fields mean "any". The most
     specific matching rule wins; priority breaks ties. No fee path."""
 
-    class Enforcement(models.TextChoices):
-        NONE = "none", "None"
-        STRIKE = "strike", "Strike"
-        LOSE_CREDIT = "lose_credit", "Lose credit"
+    # Alias, not a nested definition: Meta's CHECK below needs the values,
+    # and class bodies don't see their enclosing class's names.
+    Enforcement = CancellationEnforcement  # noqa: WPS115 — public API
 
     organization = models.ForeignKey(
         "organizations.Organization",
@@ -127,6 +157,115 @@ class CancellationPolicy(models.Model):
         "class_category",
         "plan_type",
     )
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            # Scope identity, one partial per null combination: plain
+            # uniques treat nulls as distinct, so each shape lists its
+            # set fields and asserts the rest are null. Priority is in
+            # every key (the baseline at -1 coexists with explicit
+            # org-wide rules), and the eight shapes below partition all
+            # rows. Portable across backends (no NULLS NOT DISTINCT).
+            models.UniqueConstraint(
+                fields=[
+                    "organization",
+                    "venue",
+                    "class_category",
+                    "plan_type",
+                    "priority",
+                ],
+                condition=models.Q(
+                    venue__isnull=False,
+                    class_category__isnull=False,
+                    plan_type__isnull=False,
+                ),
+                name="policy_scope_all_set_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "class_category", "plan_type", "priority"],
+                condition=models.Q(
+                    venue__isnull=True,
+                    class_category__isnull=False,
+                    plan_type__isnull=False,
+                ),
+                name="policy_scope_no_venue_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "venue", "plan_type", "priority"],
+                condition=models.Q(
+                    venue__isnull=False,
+                    class_category__isnull=True,
+                    plan_type__isnull=False,
+                ),
+                name="policy_scope_no_category_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "venue", "class_category", "priority"],
+                condition=models.Q(
+                    venue__isnull=False,
+                    class_category__isnull=False,
+                    plan_type__isnull=True,
+                ),
+                name="policy_scope_no_plan_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "venue", "priority"],
+                condition=models.Q(
+                    venue__isnull=False,
+                    class_category__isnull=True,
+                    plan_type__isnull=True,
+                ),
+                name="policy_scope_venue_only_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "class_category", "priority"],
+                condition=models.Q(
+                    venue__isnull=True,
+                    class_category__isnull=False,
+                    plan_type__isnull=True,
+                ),
+                name="policy_scope_category_only_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "plan_type", "priority"],
+                condition=models.Q(
+                    venue__isnull=True,
+                    class_category__isnull=True,
+                    plan_type__isnull=False,
+                ),
+                name="policy_scope_plan_only_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "priority"],
+                condition=models.Q(
+                    venue__isnull=True,
+                    class_category__isnull=True,
+                    plan_type__isnull=True,
+                ),
+                name="policy_scope_org_wide_unique",
+            ),
+            # choices= is Python-only and save() never full_cleans, so a
+            # bad value would reach resolution and match no penalty branch.
+            models.CheckConstraint(
+                condition=models.Q(enforcement__in=CancellationEnforcement.values),
+                name="cancellationpolicy_enforcement_valid",
+            ),
+            # Nullable scopes: NULL means "any" and must stay storable (the
+            # auto baseline is all-NULL). The isnull arm states that intent
+            # explicitly rather than leaning on NULL IN (...) being unknown.
+            # Blank "" is rejected: resolution tests `is None`, so "" would
+            # count as a scope that matches no booking — a dead rule.
+            models.CheckConstraint(
+                condition=models.Q(class_category__isnull=True)
+                | models.Q(class_category__in=ClassCategory.values),
+                name="cancellationpolicy_class_category_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(plan_type__isnull=True)
+                | models.Q(plan_type__in=PlanType.values),
+                name="cancellationpolicy_plan_type_valid",
+            ),
+        ]
 
     @property
     def specificity(self) -> int:
@@ -168,18 +307,26 @@ class CancellationPolicy(models.Model):
         return super().delete(*args, **kwargs)
 
 
+class CancellationCause(models.TextChoices):
+    """Why a booking ended; use via CancellationRecord.Cause. Adding one
+    needs a migration: the cancellationrecord_cause_valid CHECK pins it."""
+
+    MEMBER_CANCEL = "member_cancel", "Member cancel"
+    STAFF_DECISION = "staff_decision", "Staff decision"
+    SESSION_CANCELLED = "session_cancelled", "Session cancelled"
+    NO_SHOW = "no_show", "No-show"
+    UNCLAIMED = "unclaimed", "Unclaimed"
+
+
 class CancellationRecord(models.Model):
     """One immutable row per cancellation outcome. The snapshot pins the
     full context (session, member, plan, policy, actor, cause) so history
     stays readable after rules change. Never edited: forgiveness arrives
     as a linked ledger adjustment, never a rewrite."""
 
-    class Cause(models.TextChoices):
-        MEMBER_CANCEL = "member_cancel", "Member cancel"
-        STAFF_DECISION = "staff_decision", "Staff decision"
-        SESSION_CANCELLED = "session_cancelled", "Session cancelled"
-        NO_SHOW = "no_show", "No-show"
-        UNCLAIMED = "unclaimed", "Unclaimed"
+    # Alias, not a nested definition: Meta's CHECK below needs the values,
+    # and class bodies don't see their enclosing class's names.
+    Cause = CancellationCause  # noqa: WPS115 — public API
 
     booking = models.ForeignKey(
         Booking, on_delete=models.PROTECT, related_name="cancellation_records"
@@ -222,6 +369,18 @@ class CancellationRecord(models.Model):
                 condition=models.Q(was_late=True)
                 | models.Q(enforcement_applied="none"),
                 name="ontime_enforcement_none",
+            ),
+            # Append-only audit rows: a bad value written once can never be
+            # corrected in place, so reject it at the door.
+            models.CheckConstraint(
+                condition=models.Q(cause__in=CancellationCause.values),
+                name="cancellationrecord_cause_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    enforcement_applied__in=CancellationEnforcement.values
+                ),
+                name="cancellationrecord_enforcement_applied_valid",
             ),
         ]
 

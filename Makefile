@@ -1,4 +1,4 @@
-.PHONY: test test-sqlite test-all test-smoke test-e2e test-fresh lint seed seed-e2e migrate help
+.PHONY: test test-sqlite test-all test-smoke test-e2e test-fresh lint format seed seed-e2e migrate help
 
 PYTEST := uv run pytest -q
 
@@ -31,6 +31,11 @@ lint:
 	uv run ruff format --check .
 	uv run python manage.py check
 
+# Apply ruff formatting + safe autofixes in place.
+format:
+	uv run ruff format .
+	uv run ruff check --fix .
+
 # Seed demo orgs (re-runnable): one spanning + one per-venue.
 seed:
 	uv run python manage.py seed_demo
@@ -50,6 +55,7 @@ help:
 	@echo "test-fresh  like test, rebuilds test DBs (after migration edits)"
 	@echo "test-sqlite unit+API on sqlite"
 	@echo "lint        ruff check + format check"
+	@echo "format      apply ruff format + autofix"
 	@echo "seed        demo orgs (re-runnable)"
 	@echo "seed-e2e    fixed e2e-run org only"
 	@echo "migrate     apply migrations"

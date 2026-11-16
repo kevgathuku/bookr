@@ -32,11 +32,14 @@ from passes.models import CreditLedger, PlanType
 from scheduling.models import ClassCategory, ClassSession
 from tests.factories import (  # noqa: WPS235
     CancellationPolicyFactory,
+    CancellationRecordFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
+    OrganizationFactory,
     UserFactory,
     VenueFactory,
     book,
+    direct_booking,
     make_member,
     make_policy,
     make_session,
@@ -51,20 +54,6 @@ pytestmark = pytest.mark.django_db
 LATE = CancellationPolicy.Enforcement.LOSE_CREDIT
 STRIKE = CancellationPolicy.Enforcement.STRIKE
 NONE = CancellationPolicy.Enforcement.NONE
-
-
-def _direct_booking(member, session, spent=2):
-    # Started sessions cannot be booked through the service by design;
-    # cancelling/no-showing them needs a row the service would refuse.
-    membership = member.plan_memberships.get()
-    membership.credits_remaining -= spent
-    membership.save(update_fields=["credits_remaining"])
-    return Booking.objects.create(
-        session=session,
-        member=member,
-        membership=membership,
-        credits_spent=spent,
-    )
 
 
 class TestResolution:
@@ -180,6 +169,65 @@ class TestResolution:
 
         assert CancellationPolicy.objects.filter(organization=org).count() == 2
         assert baseline.pk is not None
+
+    def test_duplicate_scope_priority_rejected_at_db(self, venue):
+        org = venue.organization
+        make_policy(org, NONE, venue=venue)
+
+        # bulk_create skips clean(): this proves the DB constraint, which
+        # treats null scopes as equal (one partial per null combination).
+        with pytest.raises(IntegrityError):
+            CancellationPolicy.objects.bulk_create(
+                [
+                    CancellationPolicy(
+                        organization=org,
+                        venue=venue,
+                        class_category=None,
+                        plan_type=None,
+                        priority=0,
+                        late_cancel_hours=12,
+                        enforcement=NONE,
+                    )
+                ]
+            )
+
+    @pytest.mark.django_db(transaction=True)
+    @requires_postgres
+    def test_concurrent_baseline_creation_creates_once(self, venue):
+        org = venue.organization
+
+        def attempt(_i):
+            try:
+                return resolve_policy(
+                    OrgId(org.pk),
+                    VenueId(venue.pk),
+                    ClassCategory.GROUP,
+                    PlanType.CREDIT_PACK,
+                ).pk
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(attempt, range(4)))
+
+        assert CancellationPolicy.objects.filter(organization=org).count() == 1
+
+    def test_same_scope_distinct_priorities_resolve_deterministically(self, venue):
+        org = venue.organization
+        make_policy(org, NONE, venue=venue, priority=0)
+        high = make_policy(org, STRIKE, venue=venue, priority=5)
+
+        winners = {
+            resolve_policy(
+                OrgId(org.pk),
+                VenueId(venue.pk),
+                ClassCategory.GROUP,
+                PlanType.CREDIT_PACK,
+            ).pk
+            for _ in range(3)
+        }
+
+        assert winners == {high.pk}
 
 
 # Late, unwaived, penalized: the policy enforcement applies. A new
@@ -409,6 +457,163 @@ class TestPolicyModel:
             record.save(update_fields=["snapshot"])
 
 
+# Out-of-choices values: garbage, blank, and a case-variant typo.
+INVALID_CHOICES = ("bogus", "", "NONE")
+
+
+class TestCancellationChoiceConstraints:
+    """CHECKs pin enforcement/cause to their choices: neither model's save()
+    full_cleans, so the DB is the only write-path guard."""
+
+    @pytest.mark.parametrize("enforcement", list(CancellationPolicy.Enforcement))
+    def test_valid_policy_enforcement_persists(self, enforcement):
+        policy = CancellationPolicyFactory(enforcement=enforcement)
+
+        policy.refresh_from_db()
+        assert policy.enforcement == enforcement
+
+    @pytest.mark.parametrize("enforcement", INVALID_CHOICES)
+    def test_invalid_policy_enforcement_rejected_by_full_clean(self, enforcement):
+        # Admin/make_policy path: full_clean flags it before any write.
+        policy = CancellationPolicyFactory.build(
+            organization=OrganizationFactory(), enforcement=enforcement
+        )
+
+        with pytest.raises(ValidationError):
+            policy.full_clean()
+
+    @pytest.mark.parametrize("enforcement", INVALID_CHOICES)
+    def test_invalid_policy_enforcement_rejected_at_db(self, enforcement):
+        with pytest.raises(IntegrityError):
+            CancellationPolicyFactory(enforcement=enforcement)
+
+    @pytest.mark.parametrize("enforcement", INVALID_CHOICES)
+    def test_invalid_policy_enforcement_update_rejected_at_db(self, enforcement):
+        policy = CancellationPolicyFactory()
+
+        with pytest.raises(IntegrityError):
+            CancellationPolicy.objects.filter(pk=policy.pk).update(
+                enforcement=enforcement
+            )
+
+    @pytest.mark.parametrize("cause", list(CancellationRecord.Cause))
+    def test_valid_record_cause_persists(self, cause):
+        record = CancellationRecordFactory(cause=cause)
+
+        record.refresh_from_db()
+        assert record.cause == cause
+
+    @pytest.mark.parametrize("enforcement", list(CancellationPolicy.Enforcement))
+    def test_valid_record_enforcement_applied_persists(self, enforcement):
+        # was_late=True: ontime_enforcement_none allows any value when late.
+        record = CancellationRecordFactory(enforcement_applied=enforcement)
+
+        record.refresh_from_db()
+        assert record.enforcement_applied == enforcement
+
+    @pytest.mark.parametrize("cause", INVALID_CHOICES)
+    def test_invalid_record_cause_rejected_at_db(self, cause):
+        with pytest.raises(IntegrityError):
+            CancellationRecordFactory(cause=cause)
+
+    @pytest.mark.parametrize("enforcement", INVALID_CHOICES)
+    def test_invalid_record_enforcement_applied_rejected_at_db(self, enforcement):
+        with pytest.raises(IntegrityError):
+            CancellationRecordFactory(enforcement_applied=enforcement)
+
+    @pytest.mark.parametrize(
+        "field", ["cause", "enforcement_applied"], ids=["cause", "enforcement"]
+    )
+    def test_invalid_record_update_rejected_at_db(self, field):
+        # Append-only lives in save(); queryset update() bypasses it, so
+        # the CHECK is what keeps a rewrite from storing a bad value.
+        record = CancellationRecordFactory()
+
+        with pytest.raises(IntegrityError):
+            CancellationRecord.objects.filter(pk=record.pk).update(**{field: "bogus"})
+
+
+# (field, constraint, every valid value incl. NULL="any", invalid values).
+# Invalid: garbage, blank "" (a dead scope: resolution tests `is None`),
+# and a case-variant typo of a real value.
+SCOPE_FIELDS = (
+    (
+        "class_category",
+        "cancellationpolicy_class_category_valid",
+        [*ClassCategory, None],
+        ("bogus", "", "Group"),
+    ),
+    (
+        "plan_type",
+        "cancellationpolicy_plan_type_valid",
+        [*PlanType, None],
+        ("bogus", "", "Monthly"),
+    ),
+)
+VALID_SCOPES = tuple(
+    pytest.param(field, value, id=f"{field}-{value}")
+    for field, _, valid, _ in SCOPE_FIELDS
+    for value in valid
+)
+INVALID_SCOPES = tuple(
+    pytest.param(field, name, value, id=f"{field}-{value!r}")
+    for field, name, _, invalid in SCOPE_FIELDS
+    for value in invalid
+)
+
+
+class TestPolicyScopeConstraints:
+    """Nullable scope choices: NULL ("any") or a listed value, never else."""
+
+    @pytest.mark.parametrize(("field", "value"), VALID_SCOPES)
+    def test_valid_scope_persists(self, field, value):
+        policy = CancellationPolicyFactory(**{field: value})
+
+        policy.refresh_from_db()
+        assert getattr(policy, field) == value
+
+    def test_all_null_baseline_persists(self, venue):
+        # resolve_policy auto-creates the all-NULL baseline on first use.
+        policy = resolve_policy(OrgId(venue.organization_id), None, None, None)
+
+        assert (policy.class_category, policy.plan_type) == (None, None)
+
+    @pytest.mark.parametrize(("field", "name", "value"), INVALID_SCOPES)
+    def test_invalid_scope_rejected_by_full_clean(self, field, name, value):
+        policy = CancellationPolicyFactory.build(
+            organization=OrganizationFactory(), **{field: value}
+        )
+
+        with pytest.raises(ValidationError):
+            policy.full_clean()
+
+    @pytest.mark.parametrize(
+        ("field", "name"), [(field, name) for field, name, _, _ in SCOPE_FIELDS]
+    )
+    def test_blank_scope_caught_by_check_in_full_clean(self, field, name):
+        # blank=True makes field validation skip "", so choices never see
+        # it: full_clean's validate_constraints (this CHECK) is what flags
+        # it. Other bad values fail the choices check first instead.
+        policy = CancellationPolicyFactory.build(
+            organization=OrganizationFactory(), **{field: ""}
+        )
+
+        with pytest.raises(ValidationError, match=name):
+            policy.full_clean()
+
+    @pytest.mark.parametrize(("field", "name", "value"), INVALID_SCOPES)
+    def test_invalid_scope_rejected_at_db(self, field, name, value):
+        with pytest.raises(IntegrityError, match=name):
+            CancellationPolicyFactory(**{field: value})
+
+    @pytest.mark.parametrize(("field", "name", "value"), INVALID_SCOPES)
+    def test_invalid_scope_update_rejected_at_db(self, field, name, value):
+        policy = CancellationPolicyFactory()
+
+        with pytest.raises(IntegrityError, match=name):
+            CancellationPolicy.objects.filter(pk=policy.pk).update(**{field: value})
+
+
 class TestHeldRelease:
     def _held_world(self, starts_in_hours=48):
         venue = make_venue()
@@ -632,7 +837,7 @@ class TestMemberCancel:
     def test_cancel_started_session_raises(self, venue):
         session = make_session(venue, starts_at=timezone.now() + timedelta(hours=-1))
         member = make_member("m1", venue)
-        booking = _direct_booking(member, session)
+        booking = direct_booking(member, session)
 
         with pytest.raises(SessionStarted):
             cancel_booking(
@@ -1135,7 +1340,7 @@ class TestNoShowAndCheckin:
         member = make_member("m1", venue, credits=10)
         desk = user_with_role(venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True)
         make_policy(venue.organization, STRIKE, late_cancel_hours=12)
-        booking = _direct_booking(member, session)
+        booking = direct_booking(member, session)
 
         record = mark_no_show(booking_id=BookingId(booking.pk), actor=desk)
 
@@ -1157,7 +1362,7 @@ class TestNoShowAndCheckin:
     def test_member_cannot_mark_no_show(self, venue):
         session = make_session(venue, starts_at=timezone.now() + timedelta(hours=-2))
         member = make_member("m1", venue)
-        booking = _direct_booking(member, session)
+        booking = direct_booking(member, session)
 
         with pytest.raises(PermissionDenied):
             mark_no_show(booking_id=BookingId(booking.pk), actor=member)

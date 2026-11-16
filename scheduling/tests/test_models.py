@@ -10,10 +10,16 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.utils import timezone
 
 from organizations.models import OrgRole
-from scheduling.models import ClassSession, derived_end
+from scheduling.models import (
+    ClassCategory,
+    ClassOffering,
+    ClassSession,
+    derived_end,
+)
 from scheduling.sessions import generate_sessions, schedule_session
 from tests.factories import (
     ClassOfferingFactory,
@@ -86,7 +92,11 @@ class TestSessionQuerySet:
             pk=session.pk
         )
 
-        assert row.computed_end == session.ends_at
+        # Second precision: sqlite datetime() drops sub-second parts and
+        # the domain books whole minutes, so microseconds assert nothing.
+        assert row.computed_end.replace(microsecond=0) == session.ends_at.replace(
+            microsecond=0
+        )
 
 
 class TestScheduleSession:
@@ -219,6 +229,44 @@ class TestOfferingTeacherRole:
 
         with pytest.raises(ValidationError):
             offering.full_clean()
+
+
+# Out-of-choices values: garbage, blank, and a case-variant typo.
+INVALID_CATEGORIES = ("bogus", "", "Group")
+
+
+class TestOfferingCategoryConstraint:
+    """offering_category_valid: category must be a ClassCategory value."""
+
+    @pytest.mark.parametrize("category", list(ClassCategory))
+    def test_valid_category_persists(self, category):
+        offering = ClassOfferingFactory(category=category)
+
+        offering.refresh_from_db()
+        assert offering.category == category
+
+    @pytest.mark.parametrize("category", INVALID_CATEGORIES)
+    def test_invalid_category_rejected_on_save(self, category):
+        with pytest.raises(ValidationError):
+            ClassOfferingFactory(category=category)
+
+    @pytest.mark.parametrize("category", INVALID_CATEGORIES)
+    def test_invalid_category_insert_rejected_at_db(self, category):
+        # bulk_create skips save()/full_clean: only the CHECK stands guard.
+        # build() leaves SubFactories unsaved, so pass persisted parents.
+        row = ClassOfferingFactory.build(
+            venue=VenueFactory(), teacher=UserFactory(), category=category
+        )
+
+        with pytest.raises(IntegrityError, match="offering_category_valid"):
+            ClassOffering.objects.bulk_create([row])
+
+    @pytest.mark.parametrize("category", INVALID_CATEGORIES)
+    def test_invalid_category_update_rejected_at_db(self, category):
+        offering = ClassOfferingFactory()
+
+        with pytest.raises(IntegrityError, match="offering_category_valid"):
+            ClassOffering.objects.filter(pk=offering.pk).update(category=category)
 
 
 class TestStr:

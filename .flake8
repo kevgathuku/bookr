@@ -123,6 +123,8 @@ per-file-ignores =
         WPS202,
     booking/cancellations.py:
         WPS201,
+    booking/tests/test_cancellations.py:
+        WPS203,
         WPS202,
         WPS211,
     booking/errors.py:

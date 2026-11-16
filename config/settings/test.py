@@ -3,9 +3,10 @@
 Defaults point at a dedicated `bookr_test` database on the documented
 compose-mapped Postgres (`docker-compose.yml` maps db to host :5433) — never
 the dev `bookr` database; CI overrides via env
-(`setdefault` never clobbers an existing value). SECRET_KEY has a dummy
-default so `uv run pytest` needs no prefixes. MD5 hasher keeps the suite
-fast; debug toolbar stays off.
+(`setdefault` never clobbers an existing value).
+To run the suite on SQLite instead (no Postgres needed; `make test-sqlite` does this):
+export DATABASE_URL=sqlite:///tmp/test.sqlite3. SECRET_KEY has a dummy
+default so `uv run pytest` needs no prefixes.
 """
 
 import os

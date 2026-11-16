@@ -9,7 +9,7 @@ from faker import Faker
 
 from aggregators.models import Aggregator
 from aggregators.tokens import new_token
-from booking.models import CancellationPolicy
+from booking.models import Booking, CancellationPolicy, CancellationRecord
 from organizations.models import Organization, OrgRole, Venue
 from passes.models import (
     CreditLedger,
@@ -66,9 +66,14 @@ class OrgRoleFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = OrgRole
 
-    organization = factory.SubFactory(OrganizationFactory)
-    # org-wide default; venue-pinned callers pass venue explicitly
+    # org-wide default; venue-pinned callers pass venue explicitly.
+    # Organization derives from the venue so the factory always builds a
+    # coherent row (save() runs full_clean); pass organization explicitly
+    # only for org-wide roles or the cross-org rejection test.
     venue = None
+    organization = factory.LazyAttribute(
+        lambda role: role.venue.organization if role.venue else OrganizationFactory()
+    )
     user = factory.SubFactory(UserFactory)
     role = OrgRole.Role.MEMBER
 
@@ -187,6 +192,48 @@ class AggregatorFactory(factory.django.DjangoModelFactory):
     service_user = factory.SubFactory(UserFactory)
 
 
+class BookingFactory(factory.django.DjangoModelFactory):
+    """Direct Booking rows (any status, incl. invalid): goes through save()
+    so clean() coherence applies. Member and membership derive from the
+    session's venue; pass all three explicitly to override as a unit."""
+
+    class Meta:
+        model = Booking
+
+    session = factory.SubFactory(ClassSessionFactory)
+    member = factory.LazyAttribute(
+        lambda booking: make_member(None, booking.session.offering.venue)
+    )
+    membership = factory.LazyAttribute(
+        lambda booking: booking.member.plan_memberships.get()
+    )
+    # Real bookings stamp the session price (waitlisted/held stamp zero:
+    # pass credits_spent=0 explicitly for those).
+    credits_spent = factory.LazyAttribute(
+        lambda booking: booking.session.offering.credit_cost
+    )
+    status = Booking.Status.BOOKED
+
+
+class CancellationRecordFactory(factory.django.DjangoModelFactory):
+    """Direct record rows (any cause/enforcement, incl. invalid): save()
+    only guards append-only, so member and organization derive from the
+    booking for coherence. Pass booking explicitly to anchor the venue;
+    never pass member alone."""
+
+    class Meta:
+        model = CancellationRecord
+        exclude = ("venue",)
+
+    booking = factory.SubFactory(BookingFactory)
+    member = factory.LazyAttribute(lambda record: record.booking.member)
+    venue = factory.LazyAttribute(lambda record: record.booking.session.offering.venue)
+    organization = factory.LazyAttribute(lambda record: record.venue.organization)
+    cause = CancellationRecord.Cause.MEMBER_CANCEL
+    was_late = True
+    enforcement_applied = CancellationPolicy.Enforcement.LOSE_CREDIT
+
+
 def user_with_roles(
     venue: Venue,
     roles: Iterable[tuple[OrgRole.Role, bool]],
@@ -284,6 +331,21 @@ def book(member, session, price=2):
     session.offering.credit_cost = price
     session.offering.save(update_fields=["credit_cost"])
     return book_session(session=session, member=member)
+
+
+def direct_booking(member, session, spent=2):
+    """Direct Booking row for a session the service would refuse (started).
+
+    book() goes through the service, which rejects started sessions;
+    cancel/no-show tests need a row the service can't make. The manual
+    debit is a ledger-skipping shortcut — factories only build the row,
+    this helper is where the test-level debit lives."""
+    membership = member.plan_memberships.get()
+    membership.credits_remaining -= spent
+    membership.save(update_fields=["credits_remaining"])
+    return BookingFactory(
+        session=session, member=member, membership=membership, credits_spent=spent
+    )
 
 
 def make_policy(org, enforcement, late_cancel_hours=12, **scopes):

@@ -8,6 +8,8 @@ Implement the work described by the user in the spec or tickets.
 
 If the user passes a ticket reference, fetch it from the issue tracker and state its title before starting. If the reference is ambiguous, ask.
 
+Work on every ticket in its own new branch, cut from `develop` before any other step (name it after the ticket, e.g. `bookr-1n1-short-slug`). Never implement two tickets on the same branch, and never work a ticket directly on `develop` or `main`.
+
 Explore the codebase with graft first (`ask --source`, `skeleton`, `callers`, `grep`) — prefer it over raw grep or reading whole files; open source only at exact spans graft returns.
 
 Call the Skill tool with "tdd" where possible, at pre-agreed seams.

@@ -13,6 +13,7 @@ from booking.services import book_session
 from organizations.models import OrgRole
 from passes.models import CreditLedger, PlanType
 from tests.factories import (  # noqa: WPS235
+    BookingFactory,
     PlanFactory,
     PlanMembershipFactory,
     UserFactory,
@@ -126,6 +127,66 @@ class TestBookingModel:
                 hold_expires_at=timezone.now() + timedelta(hours=1),
             )
 
+    def test_invalid_status_rejected_by_db(self):
+        venue = make_venue("status-db")
+        member = make_member("status-db-member", venue)
+        session = make_session(venue)
+        membership = member.plan_memberships.get()
+
+        with pytest.raises(IntegrityError):
+            Booking.objects.create(
+                session=session,
+                member=member,
+                membership=membership,
+                credits_spent=0,
+                status="bogus",
+            )
+
+    def test_held_without_hold_rejected_at_db(self):
+        # held_requires_hold: an expiry-less hold is never swept or
+        # confirmable, so it would pin the seat forever.
+        with pytest.raises(IntegrityError):
+            BookingFactory(status=Booking.Status.HELD)
+
+    def test_clearing_hold_on_held_row_rejected_at_db(self):
+        booking = BookingFactory(
+            status=Booking.Status.HELD,
+            hold_expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        # Exits must flip status and clear the expiry together.
+        with pytest.raises(IntegrityError):
+            Booking.objects.filter(pk=booking.pk).update(hold_expires_at=None)
+
+
+class TestBookingStatusConstraint:
+    """booking_status_valid: status must be a Booking.Status value in the
+    DB. save() runs clean() only, so the CHECK is the sole write guard."""
+
+    @pytest.mark.parametrize("status", list(Booking.Status))
+    def test_valid_status_persists(self, status):
+        # Held rows carry their expiry (hold_requires_held pins the reverse).
+        hold = None
+        if status == Booking.Status.HELD:
+            hold = timezone.now() + timedelta(hours=1)
+
+        booking = BookingFactory(status=status, hold_expires_at=hold)
+
+        booking.refresh_from_db()
+        assert booking.status == status
+
+    @pytest.mark.parametrize("status", ["bogus", "", "Booked"])
+    def test_invalid_status_create_rejected_at_db(self, status):
+        with pytest.raises(IntegrityError):
+            BookingFactory(status=status)
+
+    @pytest.mark.parametrize("status", ["bogus", "", "Booked"])
+    def test_invalid_status_update_rejected_at_db(self, status):
+        booking = BookingFactory(status=Booking.Status.BOOKED)
+
+        with pytest.raises(IntegrityError):
+            Booking.objects.filter(pk=booking.pk).update(status=status)
+
 
 class TestBookSession:
     def test_confirmed_while_seats_remain(self):
@@ -224,7 +285,11 @@ class TestBookSession:
     def test_expired_plan_rejected(self):
         venue = make_venue("expired")
         session = make_session(venue)
-        member = _user_expired(venue)
+        member = make_member("m1", venue)
+        membership = member.plan_memberships.get()
+        membership.starts_on = timezone.now().date() - timedelta(days=60)
+        membership.valid_until = timezone.now().date() - timedelta(days=30)
+        membership.save(update_fields=["starts_on", "valid_until"])
 
         with pytest.raises(CreditInsufficient):
             book_session(session=session, member=member)
@@ -269,24 +334,6 @@ class TestBookSession:
 
         with pytest.raises(ValidationError):
             book_session(session=session, member=member, membership=stranger_membership)
-
-
-def _user_expired(venue):
-    user = UserFactory(username="expired")
-    plan = PlanFactory(
-        organization=venue.organization,
-        name="expired-pack",
-        plan_type=PlanType.CREDIT_PACK,
-        duration_days=30,
-    )
-    PlanMembershipFactory(
-        user=user,
-        plan=plan,
-        credits_remaining=10,
-        starts_on=timezone.now().date() - timedelta(days=60),
-        valid_until=timezone.now().date() - timedelta(days=30),
-    )
-    return user
 
 
 @pytest.mark.django_db(transaction=True)
