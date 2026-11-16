@@ -32,11 +32,15 @@ dependencies = [
 
 [tool.ruff]
 # Installer-dropped agent scaffolding is not project source.
+# NOTE: setting `exclude` replaces ruff's defaults (which cover .venv,
+# .git, __pycache__), so the venv must be listed here explicitly — the
+# only thing excluding it otherwise is .gitignore file discovery.
 exclude = [
     ".agent",
     ".claude",
     ".codex",
     ".cursor",
+    ".venv",
     "graft",
     "assets",
 ]
