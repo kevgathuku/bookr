@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from threading import Barrier
+from types import MappingProxyType
 
 import pytest
 from django.core.exceptions import ValidationError
@@ -13,16 +14,8 @@ from booking.errors import CreditInsufficient
 from booking.models import Booking, CancellationRecord
 from booking.services import book_session
 from organizations.models import OrgRole
-from passes.models import (
-    CreditLedger,
-    Entitlement,
-    Plan,
-    PlanType,
-    Validity,
-)
-from passes.models import (
-    Membership as PlanMembership,
-)
+from passes.models import CreditLedger, Entitlement, Plan, PlanType, Validity
+from passes.models import Membership as PlanMembership
 from passes.services import (
     grant_goodwill,
     post_entry,
@@ -411,6 +404,115 @@ class TestPlanAxes:
                 starts_on=timezone.now().date(),
                 valid_until=timezone.now().date() - timedelta(days=1),
             )
+
+
+# Out-of-choices values: garbage, blank, and a case-variant typo.
+INVALID_CHOICES = ("bogus", "", "Monthly")
+
+# Axis-consistent companions: the match CHECKs pair each entitlement and
+# validity with its count/duration, so valid-value rows must carry them.
+ENTITLEMENT_ROWS = MappingProxyType(
+    {
+        Entitlement.UNLIMITED: {"credits_included": None},
+        Entitlement.CREDITS: {"credits_included": 10},
+    }
+)
+VALIDITY_ROWS = MappingProxyType(
+    {
+        Validity.OPEN_ENDED: {"duration_days": None},
+        Validity.FIXED_DURATION: {"duration_days": 30},
+        Validity.RECURRING: {"duration_days": 30},
+    }
+)
+
+
+def _plan_table_checks():
+    with connection.cursor() as cursor:
+        found = connection.introspection.get_constraints(cursor, Plan._meta.db_table)
+    return {name for name, spec in found.items() if spec["check"]}
+
+
+class TestPlanChoiceConstraints:
+    """Plan.save() never full_cleans: the CHECKs are the write-path guard.
+    plan_type has its own CHECK only. entitlement/validity are also held by
+    the match CHECKs (which fire first), so rejection is asserted by
+    behavior and the named CHECK by schema introspection."""
+
+    @pytest.mark.parametrize("plan_type", list(PlanType))
+    def test_valid_plan_type_persists(self, plan_type):
+        plan = PlanFactory(plan_type=plan_type)
+
+        plan.refresh_from_db()
+        assert plan.plan_type == plan_type
+
+    @pytest.mark.parametrize("entitlement", list(Entitlement))
+    def test_valid_entitlement_persists(self, entitlement):
+        plan = PlanFactory(entitlement=entitlement, **ENTITLEMENT_ROWS[entitlement])
+
+        plan.refresh_from_db()
+        assert plan.entitlement == entitlement
+
+    @pytest.mark.parametrize("validity", list(Validity))
+    def test_valid_validity_persists(self, validity):
+        plan = PlanFactory(validity=validity, **VALIDITY_ROWS[validity])
+
+        plan.refresh_from_db()
+        assert plan.validity == validity
+
+    @pytest.mark.parametrize("plan_type", INVALID_CHOICES)
+    def test_invalid_plan_type_rejected_at_db(self, plan_type):
+        with pytest.raises(IntegrityError, match="plan_plan_type_valid"):
+            PlanFactory(plan_type=plan_type)
+
+    @pytest.mark.parametrize("plan_type", INVALID_CHOICES)
+    def test_invalid_plan_type_update_rejected_at_db(self, plan_type):
+        plan = PlanFactory()
+
+        with pytest.raises(IntegrityError, match="plan_plan_type_valid"):
+            Plan.objects.filter(pk=plan.pk).update(plan_type=plan_type)
+
+    @pytest.mark.parametrize("field", ["entitlement", "validity"])
+    @pytest.mark.parametrize("value", INVALID_CHOICES)
+    def test_invalid_axis_rejected_at_db(self, field, value):
+        with pytest.raises(IntegrityError):
+            PlanFactory(**{field: value})
+
+    @pytest.mark.parametrize("field", ["entitlement", "validity"])
+    @pytest.mark.parametrize("value", INVALID_CHOICES)
+    def test_invalid_axis_update_rejected_at_db(self, field, value):
+        plan = PlanFactory()
+
+        with pytest.raises(IntegrityError):
+            Plan.objects.filter(pk=plan.pk).update(**{field: value})
+
+    @pytest.mark.parametrize("name", ["plan_entitlement_valid", "plan_validity_valid"])
+    def test_axis_choice_check_installed(self, name):
+        assert name in _plan_table_checks()
+
+
+class TestLedgerReasonConstraint:
+    """CreditLedger.save() never full_cleans (append-only guard only)."""
+
+    @pytest.mark.parametrize("reason", list(CreditLedger.Reason))
+    def test_valid_reason_persists(self, reason):
+        entry = CreditLedgerFactory(reason=reason)
+
+        entry.refresh_from_db()
+        assert entry.reason == reason
+
+    @pytest.mark.parametrize("reason", INVALID_CHOICES)
+    def test_invalid_reason_rejected_at_db(self, reason):
+        with pytest.raises(IntegrityError, match="creditledger_reason_valid"):
+            CreditLedgerFactory(reason=reason)
+
+    @pytest.mark.parametrize("reason", INVALID_CHOICES)
+    def test_invalid_reason_update_rejected_at_db(self, reason):
+        # Append-only lives in save(); queryset update() bypasses it, so
+        # the CHECK is what keeps a rewrite from storing a bad value.
+        entry = CreditLedgerFactory()
+
+        with pytest.raises(IntegrityError, match="creditledger_reason_valid"):
+            CreditLedger.objects.filter(pk=entry.pk).update(reason=reason)
 
 
 class TestPostEntry:
