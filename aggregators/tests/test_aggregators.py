@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 from aggregators.models import AggregatorBooking, AggregatorEventLog
 from aggregators.tokens import new_token, rotate, verify
 from aggregators.webhooks import SIGNATURE_HEADER, send_webhook, sign, verify_signature
-from booking.models import Booking, CancellationPolicy
+from booking.models import Booking
 from organizations.models import OrgRole
 from passes.models import CreditLedger, Membership, PlanType
 from tests.factories import (
@@ -195,13 +195,11 @@ class TestPartnerCancel:
         assert cancelled.status_code == 200
         assert cancelled.json()["status"] == "cancelled"
 
-    def test_late_cancel_marks_late_without_charges(self):
+    def test_late_cancel_is_free_of_house_charges(self):
+        # Partner bookings sit outside house policy: even past the
+        # regular seed window, the house claims nothing and the record
+        # stays on-time.
         session, _partner, client = self._client_for("agg-late", "lateco")
-        CancellationPolicy.objects.create(
-            organization=session.offering.venue.organization,
-            late_cancel_hours=12,
-            enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
-        )
         session.starts_at = timezone.now() + timedelta(minutes=10)
         session.save(update_fields=["starts_at"])
         url = "/api/v1/aggregators/lateco/bookings/"
@@ -212,7 +210,7 @@ class TestPartnerCancel:
 
         cancelled = client.post(f"{url}l1/cancel/")
 
-        assert cancelled.json()["status"] == "late_cancelled"
+        assert cancelled.json()["status"] == "cancelled"
         assert CreditLedger.objects.count() == 0
 
 

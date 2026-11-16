@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 
 from booking.services import book_session
 from organizations.models import OrgRole
+from passes.models import PlanTier
 from tests.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -16,6 +17,7 @@ from tests.factories import (
     UserFactory,
     VenueFactory,
     api_client,
+    make_policy,
     user_with_role,
 )
 
@@ -236,30 +238,25 @@ class TestPolicyListEndpoint:
         )
         return venue, staff, member
 
-    def test_staff_filters_by_category(self):
+    def test_staff_filters_by_tier(self):
         from booking.models import CancellationPolicy
 
         venue, staff, _member = self._setup()
         org = venue.organization
-        CancellationPolicy.objects.create(
-            organization=org,
-            late_cancel_hours=12,
-            enforcement=CancellationPolicy.Enforcement.STRIKE,
+        make_policy(
+            org,
+            CancellationPolicy.Enforcement.STRIKE,
+            tier=PlanTier.TRIAL,
         )
-        CancellationPolicy.objects.create(
-            organization=org,
-            class_category="private",
-            late_cancel_hours=12,
-            enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
-        )
+        make_policy(org, CancellationPolicy.Enforcement.LOSE_CREDIT)
 
         response = api_client(staff, venue.slug).get(
-            "/api/v1/cancellation-policies/?class_category=private"
+            "/api/v1/cancellation-policies/?tier=trial"
         )
 
         assert response.status_code == 200
         assert len(response.data) == 1
-        assert response.data[0]["class_category"] == "private"
+        assert response.data[0]["tier"] == "trial"
 
     def test_member_cannot_list_policies(self):
         venue, _staff, member = self._setup(slug="policies-member")

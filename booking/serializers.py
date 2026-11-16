@@ -35,12 +35,9 @@ class PolicySerializer(serializers.ModelSerializer):
         fields: ClassVar[list[str]] = [
             "id",
             "organization",
-            "venue",
-            "class_category",
-            "plan_type",
+            "tier",
             "late_cancel_hours",
             "enforcement",
-            "priority",
         ]
         read_only_fields: ClassVar[list[str]] = fields
 

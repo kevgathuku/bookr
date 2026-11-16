@@ -35,6 +35,9 @@
 # Per-file: access/services.py ignores WPS202 — the door decision needs one
 # predicate per grant path (pass, booking, staff) plus shared helpers;
 # splitting it would scatter a single verdict.
+# Per-file: passes/models.py ignores WPS202 — plan vocabulary TextChoices
+# (type, tier, entitlement, validity) live at module level by repo pattern;
+# nesting them to satisfy the cap would break the PlanType precedent.
 # Per-file: passes/services.py ignores WPS201/WPS211 — post_entry() takes the
 # full ledger-row shape in one call by design; bundling the row extras
 # would obscure the choke-point signature every writer funnels through.
@@ -171,6 +174,8 @@ per-file-ignores =
         WPS211,
         WPS221,
     access/services.py:
+        WPS202,
+    passes/models.py:
         WPS202,
     passes/services.py:
         WPS201,

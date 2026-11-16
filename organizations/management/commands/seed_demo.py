@@ -101,8 +101,9 @@ def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, boo
     from django.utils import timezone
 
     from booking.errors import DuplicateBooking, SeatFull
-    from booking.models import CancellationPolicy
+    from booking.policies import ensure_tier_policies
     from booking.services import book_session
+    from common.ids import OrgId
     from organizations.models import OrgRole
     from passes.models import CreditLedger, Entitlement, Plan, PlanType, Validity
     from passes.models import Membership as PlanMembership
@@ -118,21 +119,13 @@ def _remodel_spot(org_slug, venue_slug, teacher_username, plan_name, roster, boo
         role=OrgRole.Role.TEACHER,
     )
 
-    CancellationPolicy.objects.get_or_create(
-        organization=org,
-        venue=None,
-        class_category=None,
-        plan_type=None,
-        defaults={
-            "late_cancel_hours": 12,
-            "enforcement": CancellationPolicy.Enforcement.NONE,
-        },
-    )
+    ensure_tier_policies(OrgId(org.pk))
     plan, _ = Plan.objects.get_or_create(
         organization=org,
         name=plan_name,
         defaults={
             "plan_type": PlanType.CREDIT_PACK,
+            "tier": Plan.tier_for(PlanType.CREDIT_PACK),
             "entitlement": Entitlement.CREDITS,
             "credits_included": 10,
             "validity": Validity.FIXED_DURATION,

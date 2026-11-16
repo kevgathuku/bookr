@@ -4,8 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from passes.models import PlanType
-from scheduling.models import ClassCategory
+from passes.models import PlanTier
 
 ACTIVE_STATUSES = ("booked", "waitlisted", "held")
 
@@ -121,8 +120,9 @@ class CancellationEnforcement(models.TextChoices):
 
 
 class CancellationPolicy(models.Model):
-    """Scoped cancellation rule. NULL scope fields mean "any". The most
-    specific matching rule wins; priority breaks ties. No fee path."""
+    """One rule per behavioral tier. Tiers never overlap, so there is no
+    specificity ranking and no baseline: the trio always covers every
+    house booking. No fee path."""
 
     # Alias, not a nested definition: Meta's CHECK below needs the values,
     # and class bodies don't see their enclosing class's names.
@@ -133,116 +133,20 @@ class CancellationPolicy(models.Model):
         on_delete=models.CASCADE,
         related_name="cancellation_policies",
     )
-    venue = models.ForeignKey(
-        "organizations.Venue", null=True, blank=True, on_delete=models.CASCADE
-    )
-    class_category = models.CharField(
-        max_length=20, choices=ClassCategory.choices, null=True, blank=True
-    )
-    plan_type = models.CharField(
-        max_length=20, choices=PlanType.choices, null=True, blank=True
-    )
+    tier = models.CharField(max_length=20, choices=PlanTier.choices)
     late_cancel_hours = models.PositiveIntegerField(
         help_text="Cancel at least this many hours before start."
     )
     enforcement = models.CharField(max_length=20, choices=Enforcement.choices)
-    priority = models.IntegerField(
-        default=0,
-        help_text="Higher wins ties between equally specific rules."
-        " The auto baseline sits at -1 so any explicit rule beats it.",
-    )
-
-    SCOPE_FIELDS = (  # noqa: WPS115 — scope tuple lives on the model per design
-        "venue_id",
-        "class_category",
-        "plan_type",
-    )
 
     class Meta:
         constraints: ClassVar[list[models.BaseConstraint]] = [
-            # Scope identity, one partial per null combination: plain
-            # uniques treat nulls as distinct, so each shape lists its
-            # set fields and asserts the rest are null. Priority is in
-            # every key (the baseline at -1 coexists with explicit
-            # org-wide rules), and the eight shapes below partition all
-            # rows. Portable across backends (no NULLS NOT DISTINCT).
+            # One rule per tier: the trio is created at org setup, so
+            # exactly one row per tier exists structurally, not by
+            # convention. A plain unique suffices (tier is non-nullable).
             models.UniqueConstraint(
-                fields=[
-                    "organization",
-                    "venue",
-                    "class_category",
-                    "plan_type",
-                    "priority",
-                ],
-                condition=models.Q(
-                    venue__isnull=False,
-                    class_category__isnull=False,
-                    plan_type__isnull=False,
-                ),
-                name="policy_scope_all_set_unique",
-            ),
-            models.UniqueConstraint(
-                fields=["organization", "class_category", "plan_type", "priority"],
-                condition=models.Q(
-                    venue__isnull=True,
-                    class_category__isnull=False,
-                    plan_type__isnull=False,
-                ),
-                name="policy_scope_no_venue_unique",
-            ),
-            models.UniqueConstraint(
-                fields=["organization", "venue", "plan_type", "priority"],
-                condition=models.Q(
-                    venue__isnull=False,
-                    class_category__isnull=True,
-                    plan_type__isnull=False,
-                ),
-                name="policy_scope_no_category_unique",
-            ),
-            models.UniqueConstraint(
-                fields=["organization", "venue", "class_category", "priority"],
-                condition=models.Q(
-                    venue__isnull=False,
-                    class_category__isnull=False,
-                    plan_type__isnull=True,
-                ),
-                name="policy_scope_no_plan_unique",
-            ),
-            models.UniqueConstraint(
-                fields=["organization", "venue", "priority"],
-                condition=models.Q(
-                    venue__isnull=False,
-                    class_category__isnull=True,
-                    plan_type__isnull=True,
-                ),
-                name="policy_scope_venue_only_unique",
-            ),
-            models.UniqueConstraint(
-                fields=["organization", "class_category", "priority"],
-                condition=models.Q(
-                    venue__isnull=True,
-                    class_category__isnull=False,
-                    plan_type__isnull=True,
-                ),
-                name="policy_scope_category_only_unique",
-            ),
-            models.UniqueConstraint(
-                fields=["organization", "plan_type", "priority"],
-                condition=models.Q(
-                    venue__isnull=True,
-                    class_category__isnull=True,
-                    plan_type__isnull=False,
-                ),
-                name="policy_scope_plan_only_unique",
-            ),
-            models.UniqueConstraint(
-                fields=["organization", "priority"],
-                condition=models.Q(
-                    venue__isnull=True,
-                    class_category__isnull=True,
-                    plan_type__isnull=True,
-                ),
-                name="policy_scope_org_wide_unique",
+                fields=["organization", "tier"],
+                name="policy_org_tier_unique",
             ),
             # choices= is Python-only and save() never full_cleans, so a
             # bad value would reach resolution and match no penalty branch.
@@ -250,61 +154,16 @@ class CancellationPolicy(models.Model):
                 condition=models.Q(enforcement__in=CancellationEnforcement.values),
                 name="cancellationpolicy_enforcement_valid",
             ),
-            # Nullable scopes: NULL means "any" and must stay storable (the
-            # auto baseline is all-NULL). The isnull arm states that intent
-            # explicitly rather than leaning on NULL IN (...) being unknown.
-            # Blank "" is rejected: resolution tests `is None`, so "" would
-            # count as a scope that matches no booking — a dead rule.
+            # Blank "" is rejected: resolution compares tier equality, so
+            # "" would be a rule that matches no booking — a dead rule.
             models.CheckConstraint(
-                condition=models.Q(class_category__isnull=True)
-                | models.Q(class_category__in=ClassCategory.values),
-                name="cancellationpolicy_class_category_valid",
-            ),
-            models.CheckConstraint(
-                condition=models.Q(plan_type__isnull=True)
-                | models.Q(plan_type__in=PlanType.values),
-                name="cancellationpolicy_plan_type_valid",
+                condition=models.Q(tier__in=PlanTier.values),
+                name="cancellationpolicy_tier_valid",
             ),
         ]
 
-    @property
-    def specificity(self) -> int:
-        return sum(getattr(self, field) is not None for field in self.SCOPE_FIELDS)
-
-    def overlaps(self, other: CancellationPolicy) -> bool:
-        """True if some booking context could match both rules."""
-        for field in self.SCOPE_FIELDS:
-            mine, theirs = getattr(self, field), getattr(other, field)
-            if mine is not None and theirs is not None and mine != theirs:
-                return False
-        return True
-
-    def clean(self):
-        # Reject ambiguous rules: equally specific, same priority,
-        # overlapping scope.
-        rivals = CancellationPolicy.objects.filter(
-            organization_id=self.organization_id, priority=self.priority
-        ).exclude(pk=self.pk)
-        for rival in rivals:
-            if rival.specificity == self.specificity and self.overlaps(rival):
-                raise ValidationError(
-                    f"Ambiguous: overlaps equally specific rule #{rival.pk}."
-                )
-
     def __str__(self):
-        return f"policy #{self.pk} ({self.specificity} scopes)"
-
-    def delete(self, *args, **kwargs):
-        # Last-rule protection: resolution always needs a rule to apply.
-        # (Model-level only; queryset deletes bypass it by Django design.)
-        remaining = CancellationPolicy.objects.filter(
-            organization_id=self.organization_id
-        ).count()
-        if remaining <= 1:
-            raise ValidationError(
-                "Cannot delete the last cancellation rule of an organization."
-            )
-        return super().delete(*args, **kwargs)
+        return f"policy #{self.pk} ({self.tier})"
 
 
 class CancellationCause(models.TextChoices):

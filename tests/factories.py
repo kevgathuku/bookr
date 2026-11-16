@@ -15,6 +15,7 @@ from passes.models import (
     CreditLedger,
     Entitlement,
     Plan,
+    PlanTier,
     PlanType,
     Validity,
 )
@@ -129,6 +130,7 @@ class CancellationPolicyFactory(factory.django.DjangoModelFactory):
         model = CancellationPolicy
 
     organization = factory.SubFactory(OrganizationFactory)
+    tier = PlanTier.REGULAR
     late_cancel_hours = 12
     enforcement = CancellationPolicy.Enforcement.NONE
 
@@ -148,6 +150,9 @@ class PlanFactory(factory.django.DjangoModelFactory):
     organization = factory.SubFactory(OrganizationFactory)
     name = factory.Sequence(lambda n: f"Plan {n}")
     plan_type = PlanType.CREDIT_PACK
+    # Unknown plan types (invalid-choice tests) fall back to a valid tier
+    # so the plan_type CHECK is the one that fires, deterministically.
+    tier = factory.LazyAttribute(lambda plan: _tier_or_regular(plan.plan_type))
     entitlement = Entitlement.CREDITS
     credits_included = 10
     validity = Validity.FIXED_DURATION
@@ -348,17 +353,24 @@ def direct_booking(member, session, spent=2):
     )
 
 
-def make_policy(org, enforcement, late_cancel_hours=12, **scopes):
-    """One validated policy. full_clean runs so ambiguous scope sets fail
-    at setup, not at resolve time."""
-    policy = CancellationPolicyFactory(
+def _tier_or_regular(plan_type):
+    try:
+        return Plan.tier_for(plan_type)
+    except KeyError:
+        return PlanTier.REGULAR
+
+
+def make_policy(org, enforcement, tier=PlanTier.REGULAR, late_cancel_hours=12):
+    """Set the org's row for a tier. The trio auto-exists, so this updates
+    the tier row in place (seeds win unless a test says otherwise)."""
+    policy, _ = CancellationPolicy.objects.update_or_create(
         organization=org,
-        enforcement=enforcement,
-        late_cancel_hours=late_cancel_hours,
-        **scopes,
+        tier=tier,
+        defaults={
+            "enforcement": enforcement,
+            "late_cancel_hours": late_cancel_hours,
+        },
     )
-    policy.full_clean()
-    policy.save()
     return policy
 
 

@@ -61,6 +61,7 @@ def _plan(venue, name="Pack"):
         name=name,
         defaults={
             "plan_type": "credit_pack",
+            "tier": Plan.tier_for(PlanType.CREDIT_PACK),
             "entitlement": Entitlement.CREDITS,
             "credits_included": 10,
             "validity": Validity.FIXED_DURATION,
@@ -300,6 +301,7 @@ class TestPlanAxes:
             "duration_days": 30,
         }
         base.update(overrides)
+        base.setdefault("tier", Plan.tier_for(base["plan_type"]))
         return Plan.objects.create(**base)
 
     def test_unlimited_with_count_rejected(self):
@@ -554,6 +556,7 @@ class TestPostEntry:
             organization=venue.organization,
             name="Monthly",
             plan_type="monthly",
+            tier=Plan.tier_for(PlanType.MONTHLY),
             entitlement=Entitlement.UNLIMITED,
             validity=Validity.RECURRING,
             duration_days=30,
@@ -721,3 +724,42 @@ class TestGrantRace:
             ).count()
             == 1
         )
+
+
+TIER_BY_PLAN_TYPE = (
+    (PlanType.COMPLIMENTARY, "trial"),
+    (PlanType.STAFF, "trial"),
+    (PlanType.CREDIT_PACK, "regular"),
+    (PlanType.DROP_IN, "regular"),
+    (PlanType.MONTHLY, "monthly"),
+)
+
+
+class TestPlanTier:
+    @pytest.mark.parametrize(("plan_type", "tier"), TIER_BY_PLAN_TYPE)
+    def test_tier_defaults_from_plan_type(self, plan_type, tier):
+        plan = PlanFactory(plan_type=plan_type)
+
+        assert plan.tier == tier
+
+    def test_aggregator_plan_is_tierless(self):
+        plan = PlanFactory(plan_type=PlanType.AGGREGATOR)
+
+        assert plan.tier is None
+
+    def test_non_aggregator_without_tier_rejected_at_db(self):
+        with pytest.raises(IntegrityError):
+            Plan.objects.create(
+                organization=VenueFactory().organization,
+                name="tierless pack",
+                plan_type=PlanType.CREDIT_PACK,
+                tier=None,
+                entitlement=Entitlement.CREDITS,
+                credits_included=10,
+                validity=Validity.FIXED_DURATION,
+                duration_days=30,
+            )
+
+    def test_aggregator_with_tier_rejected_at_db(self):
+        with pytest.raises(IntegrityError):
+            PlanFactory(plan_type=PlanType.AGGREGATOR, tier="regular")

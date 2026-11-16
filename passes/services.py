@@ -142,6 +142,7 @@ def grant_goodwill(
             name=f"Goodwill — {incident_key}",
             defaults={
                 "plan_type": PlanType.COMPLIMENTARY,
+                "tier": Plan.tier_for(PlanType.COMPLIMENTARY),
                 "entitlement": Entitlement.CREDITS,
                 "credits_included": credits,
                 "validity": Validity.FIXED_DURATION,

@@ -178,16 +178,14 @@ class PolicyListView(generics.ListAPIView):
     ]
     filter_backends: ClassVar[list] = [DjangoFilterBackend]  # type: ignore[misc]
     filterset_fields: ClassVar[list[str]] = [
-        "venue",
-        "class_category",
-        "plan_type",
+        "tier",
         "enforcement",
     ]
 
     def get_queryset(self):
         return CancellationPolicy.objects.filter(
             organization=self.request.venue.organization
-        ).order_by("venue", "class_category", "plan_type")
+        ).order_by("tier")
 
 
 def _record_response(request, pk, call):

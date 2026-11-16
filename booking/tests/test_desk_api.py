@@ -10,6 +10,7 @@ from tests.factories import (
     api_client,
     book,
     make_member,
+    make_policy,
     make_session,
     make_venue,
     user_with_role,
@@ -104,10 +105,10 @@ class TestDeskCancelFlows:
     def test_desk_cancels_on_behalf_late_forfeits(self):
         venue, desk = self._world()
         _member, booking, _session = self._book(venue, "m-flow")
-        CancellationPolicy.objects.create(
-            organization=venue.organization,
+        make_policy(
+            venue.organization,
+            CancellationPolicy.Enforcement.LOSE_CREDIT,
             late_cancel_hours=12,
-            enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
         )
 
         response = api_client(desk, venue_slug=venue.slug).post(
@@ -137,6 +138,7 @@ class TestDeskCancelFlows:
     def test_member_cancels_own_booking(self):
         venue, _desk = self._world(slug="desk-own")
         member, booking, _session = self._book(venue, "m-own")
+        make_policy(venue.organization, CancellationPolicy.Enforcement.NONE)
 
         response = api_client(member, venue_slug=venue.slug).post(
             f"/api/v1/bookings/{booking.pk}/cancel/",
@@ -162,10 +164,10 @@ class TestDeskCancelFlows:
     def test_desk_waives_forfeit(self):
         venue, desk = self._world(slug="desk-waive")
         member, booking, _session = self._book(venue, "m-waive")
-        CancellationPolicy.objects.create(
-            organization=venue.organization,
+        make_policy(
+            venue.organization,
+            CancellationPolicy.Enforcement.LOSE_CREDIT,
             late_cancel_hours=12,
-            enforcement=CancellationPolicy.Enforcement.LOSE_CREDIT,
         )
         record_id = (
             api_client(member, venue_slug=venue.slug)

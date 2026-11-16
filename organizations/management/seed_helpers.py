@@ -127,6 +127,7 @@ def booker_membership(venue, user, name="Credits", credits=10, duration_days=30)
         name=name,
         defaults={
             "plan_type": PlanType.CREDIT_PACK,
+            "tier": Plan.tier_for(PlanType.CREDIT_PACK),
             "entitlement": Entitlement.CREDITS,
             "credits_included": credits,
             "validity": Validity.FIXED_DURATION,

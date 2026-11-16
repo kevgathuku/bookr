@@ -8,11 +8,12 @@ from access.models import AccessEvent, AccessPoint
 from booking.models import CancellationPolicy
 from organizations.admin_mixins import bookr_site
 from organizations.models import OrgRole
-from passes.models import CreditLedger
+from passes.models import CreditLedger, PlanTier
 from tests.factories import (
     OrganizationFactory,
     UserFactory,
     VenueFactory,
+    make_policy,
     make_session,
     user_with_role,
 )
@@ -52,6 +53,24 @@ class TestVenueScoping:
         assert response.status_code == 200
         assert response.context["cl"].result_count == 1
         assert list(response.context["cl"].result_list) == [class_a]
+
+    def test_policy_changelist_hides_other_org(self):
+        org_a = OrganizationFactory(slug="org-a", name="Org A")
+        venue_a = VenueFactory(organization=org_a, slug="a-main", name="A-Main")
+        org_b = OrganizationFactory(slug="org-b", name="Org B")
+        VenueFactory(organization=org_b, slug="b-main", name="B-Main")
+        make_policy(org_a, CancellationPolicy.Enforcement.NONE)
+        make_policy(org_b, CancellationPolicy.Enforcement.STRIKE)
+        manager = user_with_role(
+            venue_a, OrgRole.Role.MANAGER, "pol-manager", staff=True
+        )
+
+        response = _admin_client(manager).get("/admin/booking/cancellationpolicy/")
+
+        assert response.status_code == 200
+        assert {
+            row.organization_id for row in response.context["cl"].result_list
+        } == {org_a.pk}
 
     def test_spanning_owner_sees_both(self):
         org = OrganizationFactory(slug="org", name="Org")
@@ -233,14 +252,14 @@ class TestCoverageMatrix:
         )
         return _admin_client(user)
 
-    def test_matrix_shows_winner_and_free(self):
+    def test_matrix_shows_tier_winners(self):
         venue = VenueFactory(slug="matrix")
         org = venue.organization
-        CancellationPolicy.objects.create(
-            organization=org,
-            venue=venue,
+        make_policy(
+            org,
+            CancellationPolicy.Enforcement.STRIKE,
+            tier=PlanTier.REGULAR,
             late_cancel_hours=12,
-            enforcement=CancellationPolicy.Enforcement.STRIKE,
         )
 
         response = self._staff_client(venue).get(
@@ -249,8 +268,10 @@ class TestCoverageMatrix:
 
         assert response.status_code == 200
         body = response.content.decode()
+        assert "trial" in body
+        assert "regular" in body
+        assert "monthly" in body
         assert "strike" in body
-        assert "free by design" in body
 
     def test_member_cannot_see_matrix(self):
         VenueFactory(slug="matrix-member")

@@ -124,6 +124,15 @@ class CreditLedger(models.Model):
         return f"{self.membership}: {sign}{self.delta} ({self.reason})"
 
 
+class PlanTier(models.TextChoices):
+    """Behavioral tier: which cancellation rule covers the plan. Aggregator
+    plans carry no tier (partner contract governs, not house policy)."""
+
+    TRIAL = "trial", "Trial"
+    REGULAR = "regular", "Regular"
+    MONTHLY = "monthly", "Monthly"
+
+
 class Plan(models.Model):
     organization = models.ForeignKey(
         "organizations.Organization", on_delete=models.CASCADE, related_name="plans"
@@ -132,6 +141,25 @@ class Plan(models.Model):
     # Product label only: charge and window behavior come from
     # entitlement/validity below, never from this field.
     plan_type = models.CharField(max_length=20, choices=PlanType.choices)
+    # Cancellation tier: derived from plan_type at creation (aggregator
+    # stays NULL — tierless by design, outside policy resolution).
+    tier = models.CharField(
+        max_length=20, choices=PlanTier.choices, null=True, blank=True
+    )
+
+    @classmethod
+    def tier_for(cls, plan_type: str) -> str | None:
+        """Tier covering a plan type, or None for the tierless aggregator."""
+        mapping: dict[str, str | None] = {
+            PlanType.COMPLIMENTARY: PlanTier.TRIAL,
+            PlanType.STAFF: PlanTier.TRIAL,
+            PlanType.CREDIT_PACK: PlanTier.REGULAR,
+            PlanType.DROP_IN: PlanTier.REGULAR,
+            PlanType.MONTHLY: PlanTier.MONTHLY,
+            PlanType.AGGREGATOR: None,
+        }
+        return mapping[plan_type]
+
     entitlement = models.CharField(max_length=10, choices=Entitlement.choices)
     credits_included = models.PositiveIntegerField(null=True, blank=True)
     validity = models.CharField(max_length=20, choices=Validity.choices)
@@ -173,6 +201,20 @@ class Plan(models.Model):
             models.CheckConstraint(
                 condition=models.Q(plan_type__in=PlanType.values),
                 name="plan_plan_type_valid",
+            ),
+            # Tier coherence: aggregator rows are tierless and house rows
+            # always carry a valid tier. NULL satisfies a CHECK, so the
+            # house arm states tier__isnull=False explicitly.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(plan_type=PlanType.AGGREGATOR, tier__isnull=True)
+                    | (
+                        models.Q(tier__isnull=False)
+                        & models.Q(tier__in=PlanTier.values)
+                        & ~models.Q(plan_type=PlanType.AGGREGATOR)
+                    )
+                ),
+                name="plan_tier_matches_plan_type",
             ),
             models.CheckConstraint(
                 condition=models.Q(entitlement__in=Entitlement.values),

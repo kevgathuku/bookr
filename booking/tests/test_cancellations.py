@@ -1,8 +1,8 @@
-"""Cancel paths on scoped rules (bookr-0sr.4).
+"""Cancel paths on tier rules (bookr-1n1).
 
-Resolution: most-specific-wins, higher priority breaks ties, equally
-specific same-priority overlaps rejected at creation, uncovered contexts
-fall back to the auto-created org-wide NONE baseline (free by design).
+Resolution: booking to membership to plan to tier to the organization's
+row for that tier. The trio is auto-created on first use; aggregator
+(tierless) bookings resolve to a transient free policy by design.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -19,16 +19,16 @@ from booking.cancellations import (
     check_in,
     mark_no_show,
     member_outcome,
-    resolve_policy,
     strike_count,
     waive_record,
 )
 from booking.errors import AlreadyCancelled, InvalidWaiver, SessionStarted
 from booking.models import Booking, CancellationPolicy, CancellationRecord
+from booking.policies import ensure_tier_policies, resolve_policy
 from booking.services import book_session, promote_next
-from common.ids import BookingId, OrgId, SessionId, VenueId
+from common.ids import BookingId, OrgId, SessionId
 from organizations.models import OrgRole
-from passes.models import CreditLedger, PlanType
+from passes.models import CreditLedger, PlanTier, PlanType
 from scheduling.models import ClassCategory, ClassSession
 from tests.factories import (  # noqa: WPS235
     CancellationPolicyFactory,
@@ -36,8 +36,8 @@ from tests.factories import (  # noqa: WPS235
     ClassOfferingFactory,
     ClassSessionFactory,
     OrganizationFactory,
+    PlanFactory,
     UserFactory,
-    VenueFactory,
     book,
     direct_booking,
     make_member,
@@ -56,178 +56,100 @@ STRIKE = CancellationPolicy.Enforcement.STRIKE
 NONE = CancellationPolicy.Enforcement.NONE
 
 
-class TestResolution:
-    def test_most_specific_wins(self, venue):
-        org = venue.organization
-        base = make_policy(org, NONE)
-        specific = make_policy(org, STRIKE, venue=venue)
-
-        assert (
-            resolve_policy(
-                OrgId(org.pk),
-                VenueId(venue.pk),
-                ClassCategory.GROUP,
-                PlanType.CREDIT_PACK,
-            )
-            == specific
-        )
-        assert base.pk is not None
-
-    def test_more_scopes_beat_fewer(self, venue):
-        org = venue.organization
-        make_policy(org, NONE, venue=venue)
-        both = make_policy(org, STRIKE, venue=venue, class_category=ClassCategory.GROUP)
-
-        assert (
-            resolve_policy(
-                OrgId(org.pk),
-                VenueId(venue.pk),
-                ClassCategory.GROUP,
-                PlanType.CREDIT_PACK,
-            )
-            == both
-        )
-
-    def test_higher_priority_breaks_ties(self, venue):
-        org = venue.organization
-        low = make_policy(org, NONE, venue=venue, priority=0)
-        high = make_policy(org, STRIKE, class_category=ClassCategory.GROUP, priority=5)
-
-        assert (
-            resolve_policy(
-                OrgId(org.pk),
-                VenueId(venue.pk),
-                ClassCategory.GROUP,
-                PlanType.CREDIT_PACK,
-            )
-            == high
-        )
-        assert low.pk is not None
-
-    def test_ambiguous_rules_rejected_at_creation(self, venue):
-        org = venue.organization
-        make_policy(org, NONE, venue=venue)
-        rival = CancellationPolicyFactory(
-            organization=org,
-            enforcement=STRIKE,
-            late_cancel_hours=12,
-            class_category=ClassCategory.GROUP,
-        )
-
-        with pytest.raises(ValidationError):
-            rival.full_clean()
-
-    def test_uncovered_context_falls_back_to_baseline(self, venue):
+class TestTierResolution:
+    def test_first_use_creates_trio(self, venue):
         org = venue.organization
 
-        policy = resolve_policy(
-            OrgId(org.pk),
-            VenueId(venue.pk),
-            ClassCategory.GROUP,
-            PlanType.CREDIT_PACK,
-        )
+        resolve_policy(OrgId(org.pk), PlanTier.REGULAR)
+
+        assert {
+            row.tier for row in CancellationPolicy.objects.filter(organization=org)
+        } == {
+            PlanTier.TRIAL,
+            PlanTier.REGULAR,
+            PlanTier.MONTHLY,
+        }
+
+    def test_resolves_each_tier_row(self, venue):
+        org = venue.organization
+        ensure_tier_policies(OrgId(org.pk))
+
+        for tier in PlanTier:
+            assert resolve_policy(OrgId(org.pk), tier).tier == tier
+
+    def test_resolution_is_stable_across_calls(self, venue):
+        org = venue.organization
+
+        first = resolve_policy(OrgId(org.pk), PlanTier.REGULAR)
+        second = resolve_policy(OrgId(org.pk), PlanTier.REGULAR)
+
+        assert second.pk == first.pk
+        assert CancellationPolicy.objects.filter(organization=org).count() == 3
+
+    def test_staff_plan_membership_resolves_trial(self, venue):
+        org = venue.organization
+        member = make_member("staffer", venue)
+        staff_plan = PlanFactory(organization=org, plan_type=PlanType.STAFF)
+        membership = member.plan_memberships.get()
+        membership.plan = staff_plan
+        membership.save(update_fields=["plan"])
+
+        policy = resolve_policy(OrgId(org.pk), membership.plan.tier)
+
+        assert membership.plan.tier == PlanTier.TRIAL
+        assert policy.tier == PlanTier.TRIAL
+
+    def test_aggregator_booking_resolves_free(self, venue):
+        org = venue.organization
+
+        policy = resolve_policy(OrgId(org.pk), None)
 
         assert policy.enforcement == NONE
-        assert policy.venue is None
-        assert policy.specificity == 0
+        assert policy.late_cancel_hours == 0
+        assert policy.pk is None
 
-    def test_baseline_created_once(self, venue):
+    def test_duplicate_tier_rejected_at_db(self, venue):
         org = venue.organization
-        resolve_policy(
-            OrgId(org.pk), VenueId(venue.pk), ClassCategory.GROUP, PlanType.CREDIT_PACK
-        )
-        resolve_policy(
-            OrgId(org.pk), VenueId(venue.pk), ClassCategory.PRIVATE, PlanType.MONTHLY
-        )
+        ensure_tier_policies(OrgId(org.pk))
 
-        assert CancellationPolicy.objects.filter(organization=org).count() == 1
-
-    def test_last_rule_deletion_protected(self, venue):
-        org = venue.organization
-        only = resolve_policy(
-            OrgId(org.pk),
-            VenueId(venue.pk),
-            ClassCategory.GROUP,
-            PlanType.CREDIT_PACK,
-        )
-
-        with pytest.raises(ValidationError):
-            only.delete()
-
-    def test_non_last_rule_deletes(self, venue):
-        org = venue.organization
-        make_policy(org, STRIKE, venue=venue)
-        baseline = resolve_policy(
-            OrgId(org.pk),
-            VenueId(venue.pk),
-            ClassCategory.GROUP,
-            PlanType.CREDIT_PACK,
-        )
-        extra = make_policy(org, NONE, class_category=ClassCategory.PRIVATE, priority=5)
-
-        extra.delete()
-
-        assert CancellationPolicy.objects.filter(organization=org).count() == 2
-        assert baseline.pk is not None
-
-    def test_duplicate_scope_priority_rejected_at_db(self, venue):
-        org = venue.organization
-        make_policy(org, NONE, venue=venue)
-
-        # bulk_create skips clean(): this proves the DB constraint, which
-        # treats null scopes as equal (one partial per null combination).
+        # bulk_create skips clean(): this proves the plain (org, tier) unique.
         with pytest.raises(IntegrityError):
             CancellationPolicy.objects.bulk_create(
                 [
                     CancellationPolicy(
                         organization=org,
-                        venue=venue,
-                        class_category=None,
-                        plan_type=None,
-                        priority=0,
+                        tier=PlanTier.REGULAR,
                         late_cancel_hours=12,
                         enforcement=NONE,
                     )
                 ]
             )
 
+    def test_deleted_tier_recreates_on_next_resolve(self, venue):
+        org = venue.organization
+        doomed = resolve_policy(OrgId(org.pk), PlanTier.REGULAR)
+        doomed.delete()
+
+        revived = resolve_policy(OrgId(org.pk), PlanTier.REGULAR)
+
+        assert revived.pk != doomed.pk
+        assert CancellationPolicy.objects.filter(organization=org).count() == 3
+
     @pytest.mark.django_db(transaction=True)
     @requires_postgres
-    def test_concurrent_baseline_creation_creates_once(self, venue):
+    def test_concurrent_setup_yields_three_rows(self, venue):
         org = venue.organization
 
         def attempt(_i):
             try:
-                return resolve_policy(
-                    OrgId(org.pk),
-                    VenueId(venue.pk),
-                    ClassCategory.GROUP,
-                    PlanType.CREDIT_PACK,
-                ).pk
+                return resolve_policy(OrgId(org.pk), PlanTier.REGULAR).pk
             finally:
                 connection.close()
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(attempt, range(4)))
 
-        assert CancellationPolicy.objects.filter(organization=org).count() == 1
-
-    def test_same_scope_distinct_priorities_resolve_deterministically(self, venue):
-        org = venue.organization
-        make_policy(org, NONE, venue=venue, priority=0)
-        high = make_policy(org, STRIKE, venue=venue, priority=5)
-
-        winners = {
-            resolve_policy(
-                OrgId(org.pk),
-                VenueId(venue.pk),
-                ClassCategory.GROUP,
-                PlanType.CREDIT_PACK,
-            ).pk
-            for _ in range(3)
-        }
-
-        assert winners == {high.pk}
+        assert CancellationPolicy.objects.filter(organization=org).count() == 3
 
 
 # Late, unwaived, penalized: the policy enforcement applies. A new
@@ -372,44 +294,10 @@ class TestMemberOutcome:
 
 
 class TestPolicyModel:
-    def test_specificity_counts_scopes(self, venue):
-        org = venue.organization
-
-        assert make_policy(org, NONE).specificity == 0
-        assert make_policy(org, NONE, venue=venue, priority=1).specificity == 1
-        assert (
-            make_policy(
-                org, NONE, venue=venue, plan_type=PlanType.CREDIT_PACK, priority=2
-            ).specificity
-            == 2
-        )
-        assert (
-            make_policy(
-                org,
-                NONE,
-                venue=venue,
-                class_category=ClassCategory.GROUP,
-                plan_type=PlanType.CREDIT_PACK,
-                priority=3,
-            ).specificity
-            == 3
-        )
-
-    def test_overlaps(self, venue):
-        org = venue.organization
-        plain = make_policy(org, NONE)
-        pinned = make_policy(org, NONE, venue=venue, priority=1)
-        far = VenueFactory(organization=org, slug="far")
-        elsewhere = make_policy(org, NONE, venue=far, priority=2)
-
-        assert plain.overlaps(pinned) is True
-        assert pinned.overlaps(plain) is True
-        assert pinned.overlaps(elsewhere) is False
-
     def test_str(self):
         policy = make_policy(make_venue().organization, STRIKE)
 
-        assert str(policy) == f"policy #{policy.pk} (0 scopes)"
+        assert str(policy) == f"policy #{policy.pk} (regular)"
 
     def test_record_str(self, venue):
         session = make_session(venue)
@@ -533,85 +421,45 @@ class TestCancellationChoiceConstraints:
             CancellationRecord.objects.filter(pk=record.pk).update(**{field: "bogus"})
 
 
-# (field, constraint, every valid value incl. NULL="any", invalid values).
-# Invalid: garbage, blank "" (a dead scope: resolution tests `is None`),
-# and a case-variant typo of a real value.
-SCOPE_FIELDS = (
-    (
-        "class_category",
-        "cancellationpolicy_class_category_valid",
-        [*ClassCategory, None],
-        ("bogus", "", "Group"),
-    ),
-    (
-        "plan_type",
-        "cancellationpolicy_plan_type_valid",
-        [*PlanType, None],
-        ("bogus", "", "Monthly"),
-    ),
-)
-VALID_SCOPES = tuple(
-    pytest.param(field, value, id=f"{field}-{value}")
-    for field, _, valid, _ in SCOPE_FIELDS
-    for value in valid
-)
-INVALID_SCOPES = tuple(
-    pytest.param(field, name, value, id=f"{field}-{value!r}")
-    for field, name, _, invalid in SCOPE_FIELDS
-    for value in invalid
+# Every valid tier plus invalid values: garbage, blank "" (a dead rule:
+# resolution compares tier equality, so "" matches no booking), and a
+# case-variant typo of a real value.
+VALID_TIERS = tuple(pytest.param(tier, id=f"{tier}") for tier in PlanTier.values)
+INVALID_TIERS = tuple(
+    pytest.param(value, id=f"{value!r}") for value in ("bogus", "", "Trial")
 )
 
 
-class TestPolicyScopeConstraints:
-    """Nullable scope choices: NULL ("any") or a listed value, never else."""
+class TestPolicyTierConstraints:
+    """Tier is always a listed value, never blank or anything else."""
 
-    @pytest.mark.parametrize(("field", "value"), VALID_SCOPES)
-    def test_valid_scope_persists(self, field, value):
-        policy = CancellationPolicyFactory(**{field: value})
+    @pytest.mark.parametrize("tier", VALID_TIERS)
+    def test_valid_tier_persists(self, tier):
+        policy = CancellationPolicyFactory(tier=tier)
 
         policy.refresh_from_db()
-        assert getattr(policy, field) == value
+        assert policy.tier == tier
 
-    def test_all_null_baseline_persists(self, venue):
-        # resolve_policy auto-creates the all-NULL baseline on first use.
-        policy = resolve_policy(OrgId(venue.organization_id), None, None, None)
-
-        assert (policy.class_category, policy.plan_type) == (None, None)
-
-    @pytest.mark.parametrize(("field", "name", "value"), INVALID_SCOPES)
-    def test_invalid_scope_rejected_by_full_clean(self, field, name, value):
+    @pytest.mark.parametrize("tier", INVALID_TIERS)
+    def test_invalid_tier_rejected_by_full_clean(self, tier):
         policy = CancellationPolicyFactory.build(
-            organization=OrganizationFactory(), **{field: value}
+            organization=OrganizationFactory(), tier=tier
         )
 
         with pytest.raises(ValidationError):
             policy.full_clean()
 
-    @pytest.mark.parametrize(
-        ("field", "name"), [(field, name) for field, name, _, _ in SCOPE_FIELDS]
-    )
-    def test_blank_scope_caught_by_check_in_full_clean(self, field, name):
-        # blank=True makes field validation skip "", so choices never see
-        # it: full_clean's validate_constraints (this CHECK) is what flags
-        # it. Other bad values fail the choices check first instead.
-        policy = CancellationPolicyFactory.build(
-            organization=OrganizationFactory(), **{field: ""}
-        )
+    @pytest.mark.parametrize("tier", INVALID_TIERS)
+    def test_invalid_tier_rejected_at_db(self, tier):
+        with pytest.raises(IntegrityError, match="cancellationpolicy_tier_valid"):
+            CancellationPolicyFactory(tier=tier)
 
-        with pytest.raises(ValidationError, match=name):
-            policy.full_clean()
-
-    @pytest.mark.parametrize(("field", "name", "value"), INVALID_SCOPES)
-    def test_invalid_scope_rejected_at_db(self, field, name, value):
-        with pytest.raises(IntegrityError, match=name):
-            CancellationPolicyFactory(**{field: value})
-
-    @pytest.mark.parametrize(("field", "name", "value"), INVALID_SCOPES)
-    def test_invalid_scope_update_rejected_at_db(self, field, name, value):
+    @pytest.mark.parametrize("tier", INVALID_TIERS)
+    def test_invalid_tier_update_rejected_at_db(self, tier):
         policy = CancellationPolicyFactory()
 
-        with pytest.raises(IntegrityError, match=name):
-            CancellationPolicy.objects.filter(pk=policy.pk).update(**{field: value})
+        with pytest.raises(IntegrityError, match="cancellationpolicy_tier_valid"):
+            CancellationPolicy.objects.filter(pk=policy.pk).update(tier=tier)
 
 
 class TestHeldRelease:
@@ -800,7 +648,9 @@ class TestMemberCancel:
         assert record.credits_refunded == 2
         assert strike_count(member, venue.organization, timezone.now()) == 1
 
-    def test_no_rule_is_designed_free(self, venue):
+    def test_seeds_apply_without_explicit_rules(self, venue):
+        # No make_policy call: the auto-created regular seed (12h,
+        # lose-credit) governs the late cancel.
         session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
         member = make_member("m1", venue, credits=10)
         booking = book(member, session)
@@ -812,8 +662,8 @@ class TestMemberCancel:
             reason="no rules yet",
         )
 
-        assert record.enforcement_applied == NONE
-        assert record.credits_refunded == 2
+        assert record.enforcement_applied == LATE
+        assert record.credits_refunded == 0
 
     def test_double_cancel_raises(self, venue):
         session = make_session(venue)
@@ -876,8 +726,7 @@ class TestMemberCancel:
             "credits_refunded": 2,
             "policy": {
                 "id": policy.pk,
-                "specificity": 0,
-                "priority": 0,
+                "tier": "regular",
                 "late_cancel_hours": 12,
                 "enforcement": STRIKE,
             },
@@ -893,15 +742,8 @@ class TestMemberCancel:
         # pins what applied so history stays readable after rules change.
         session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
         member = make_member("m1", venue, credits=10)
-        old = make_policy(venue.organization, STRIKE, late_cancel_hours=12)
+        make_policy(venue.organization, STRIKE, late_cancel_hours=12)
         booking = book(member, session)
-        resolve_policy(
-            OrgId(venue.organization.pk),
-            VenueId(venue.pk),
-            ClassCategory.GROUP,
-            PlanType.CREDIT_PACK,
-        )
-        old.delete()
         make_policy(venue.organization, NONE, late_cancel_hours=12)
 
         record = cancel_booking(

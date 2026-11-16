@@ -25,9 +25,7 @@ class TestRemodelSeeds:
         _remodel_graph()
 
         org = Organization.objects.get(slug="downtown-dance")
-        assert CancellationPolicy.objects.filter(
-            organization=org, venue__isnull=True
-        ).exists()
+        assert CancellationPolicy.objects.filter(organization=org).count() == 3
         assert org.plans.count() >= 1
 
         member = get_user_model().objects.get(username="demo-member")

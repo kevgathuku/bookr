@@ -1,4 +1,4 @@
-"""Member, staff, and session cancel paths on scoped cancellation rules.
+"""Member, staff, and session cancel paths on tier cancellation rules.
 
 Every cancel writes one immutable CancellationRecord pinning the full
 context (session, member, plan, policy, actor, cause). Forgiveness never
@@ -26,7 +26,7 @@ from booking.models import (
 from booking.notifications import notify_member_cancel, notify_session_cancelled
 from booking.policies import resolve_policy
 from booking.tasks import promote_waitlist
-from common.ids import BookingId, OrgId, SessionId, VenueId
+from common.ids import BookingId, OrgId, SessionId
 from organizations.capabilities import (
     can_operate_desk,
     can_staff_door,
@@ -34,8 +34,8 @@ from organizations.capabilities import (
     is_staff,
 )
 from organizations.models import Organization, OrgRole, Venue
-from passes.models import CreditLedger, Membership, PlanType
-from scheduling.models import ClassCategory, ClassSession
+from passes.models import CreditLedger, Membership
+from scheduling.models import ClassSession
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,12 +148,7 @@ def _apply_cancel(
             actor=actor,
             reason=reason,
         )
-    policy = resolve_policy(
-        OrgId(organization.pk),
-        VenueId(venue.pk),
-        ClassCategory(session.offering.category),
-        PlanType(booking.membership.plan.plan_type),
-    )
+    policy = resolve_policy(OrgId(organization.pk), booking.membership.plan.tier)
     late = moment > session.starts_at - timedelta(hours=policy.late_cancel_hours)
     stamp = booking.credits_spent
     outcome = member_outcome(
@@ -542,12 +537,7 @@ def _cancel_one_for_session(
     booking.save(update_fields=["status", "hold_expires_at"])
     if stamp:
         _refund(booking=booking, amount=stamp, actor=actor)
-    policy = resolve_policy(
-        OrgId(organization.pk),
-        VenueId(venue.pk),
-        ClassCategory(session.offering.category),
-        PlanType(booking.membership.plan.plan_type),
-    )
+    policy = resolve_policy(OrgId(organization.pk), booking.membership.plan.tier)
     outcome = _Outcome(
         applied=CancellationPolicy.Enforcement.NONE,
         refund=stamp,
@@ -659,8 +649,7 @@ def _snapshot(
     if outcome.policy is not None:
         snapshot["policy"] = {
             "id": outcome.policy.pk,
-            "specificity": outcome.policy.specificity,
-            "priority": outcome.policy.priority,
+            "tier": outcome.policy.tier,
             "late_cancel_hours": outcome.policy.late_cancel_hours,
             "enforcement": outcome.policy.enforcement,
         }
