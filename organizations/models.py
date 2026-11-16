@@ -54,18 +54,27 @@ class OrgRoleQuerySet(models.QuerySet):
         return self.filter(pinned | org_wide, organization_id=venue.organization_id)
 
 
+class OrgRoleType(models.TextChoices):
+    """Role ranks; use via OrgRole.Role. Adding one needs a migration: the
+    orgrole_role_valid CHECK pins the allowed values. The migration keeps
+    explicit literals; the model reads the values here."""
+
+    MEMBER = "member", "Member"
+    TEACHER = "teacher", "Teacher"
+    FRONTDESK = "frontdesk", "Front desk"
+    MANAGER = "manager", "Manager"
+    OWNER = "owner", "Owner"
+
+
 class OrgRole(models.Model):
     """Duties live here, not on User. One user can be a member at one venue
     and a teacher at another. venue=None means the role applies org-wide."""
 
-    objects = OrgRoleQuerySet.as_manager()
+    # Alias, not a nested definition: Meta's CHECK below needs the values,
+    # and class bodies don't see their enclosing class's names.
+    Role = OrgRoleType  # noqa: WPS115 — public OrgRole.Role API
 
-    class Role(models.TextChoices):
-        MEMBER = "member", "Member"
-        TEACHER = "teacher", "Teacher"
-        FRONTDESK = "frontdesk", "Front desk"
-        MANAGER = "manager", "Manager"
-        OWNER = "owner", "Owner"
+    objects = OrgRoleQuerySet.as_manager()
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="org_roles"
@@ -76,13 +85,10 @@ class OrgRole(models.Model):
 
     class Meta:
         constraints: ClassVar[list[models.BaseConstraint]] = [
-            # Literal parity with Role.values: Meta can't see the sibling
-            # Role name (nested-class scope), and migrations serialize
-            # plain lists more stably than a Choices reference.
+            # Values live on OrgRoleType; the migration keeps the
+            # explicit literals (migrations serialize plain lists).
             models.CheckConstraint(
-                condition=models.Q(
-                    role__in=["member", "teacher", "frontdesk", "manager", "owner"]
-                ),
+                condition=models.Q(role__in=OrgRoleType.values),
                 name="orgrole_role_valid",
             ),
             # With pinned venue - enforce unique org / user / venue per role
