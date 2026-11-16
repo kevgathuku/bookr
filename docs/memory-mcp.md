@@ -28,6 +28,24 @@ After that, every memory op is `mcp({ tool: "<name>", args: {...} })`.
   (`statement`, `tier`, `status`, `*_refs`, ...) are rejected.
 - **Never**: `bd remember`, `MEMORY.md`, or any other ad-hoc memory file.
 
+## Retrieving tutoring state (socratic-tutor)
+
+Tutoring progress lives as evidence drawers in wing `bookr` — not in
+`MISSION.md`/`lessons/` (those belong to the separate `teach` skill).
+
+Explicit retrieve (newest `save-state` drawer wins — it holds s1..s8
+levels, covered/misconceptions, and Next):
+
+```
+mcp({ tool: "mempal_search", args: { query: "Socratic tutoring save-state", wing: "bookr", top_k: 5 } })
+```
+
+Fallback when the exact phrase misses:
+
+```
+mcp({ tool: "mempal_search", args: { query: "socratic", wing: "bookr", top_k: 10 } })
+```
+
 ## Why this doc exists
 
 Without it, each session re-discovers the gateway + connect + wing
