@@ -33,14 +33,22 @@ class Validity(models.TextChoices):
     RECURRING = "recurring", "Recurring"
 
 
+class LedgerReason(models.TextChoices):
+    """Why a balance moved; use via CreditLedger.Reason. Adding one needs a
+    migration: the creditledger_reason_valid CHECK pins the values."""
+
+    PURCHASE = "purchase", "Purchase"
+    BOOKING = "booking", "Booking"
+    REFUND = "refund", "Refund"
+    FORFEIT = "forfeit", "Forfeit"
+    EXPIRY = "expiry", "Expiry"
+    ADJUSTMENT = "adjustment", "Adjustment"
+
+
 class CreditLedger(models.Model):
-    class Reason(models.TextChoices):
-        PURCHASE = "purchase", "Purchase"
-        BOOKING = "booking", "Booking"
-        REFUND = "refund", "Refund"
-        FORFEIT = "forfeit", "Forfeit"
-        EXPIRY = "expiry", "Expiry"
-        ADJUSTMENT = "adjustment", "Adjustment"
+    # Alias, not a nested definition: Meta's CHECK below needs the values,
+    # and class bodies don't see their enclosing class's names.
+    Reason = LedgerReason  # noqa: WPS115 — public CreditLedger.Reason API
 
     membership = models.ForeignKey(
         "Membership",
@@ -91,6 +99,12 @@ class CreditLedger(models.Model):
                 fields=["booking", "reason"],
                 condition=models.Q(booking__isnull=False),
                 name="one_spend_and_refund_per_booking",
+            ),
+            # Append-only audit rows and save() never full_cleans: a bad
+            # reason written once could never be corrected in place.
+            models.CheckConstraint(
+                condition=models.Q(reason__in=LedgerReason.values),
+                name="creditledger_reason_valid",
             ),
         ]
 
@@ -151,6 +165,22 @@ class Plan(models.Model):
                     duration_days__gt=0,
                 ),
                 name="plan_duration_match_validity",
+            ),
+            # Choice CHECKs. save() never full_cleans. entitlement and
+            # validity are also implied by the two match CHECKs above, but
+            # stated on their own so relaxing either (e.g. rewriting it as
+            # "isnull OR ...") can never let an unknown value through.
+            models.CheckConstraint(
+                condition=models.Q(plan_type__in=PlanType.values),
+                name="plan_plan_type_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(entitlement__in=Entitlement.values),
+                name="plan_entitlement_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(validity__in=Validity.values),
+                name="plan_validity_valid",
             ),
         ]
 
