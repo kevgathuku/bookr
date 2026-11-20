@@ -34,10 +34,8 @@ def get_session(session_id: SessionId) -> ClassSession:
 
     Occupancy reads from this snapshot are provisional: seat-taking units
     validate them with bump_session before any seat moves."""
-    return (
-        ClassSession.objects.select_related("offering", "offering__venue").get(
-            pk=session_id
-        )
+    return ClassSession.objects.select_related("offering", "offering__venue").get(
+        pk=session_id
     )
 
 
@@ -48,11 +46,9 @@ def bump_session(session: ClassSession) -> ClassSession:
     bumping its version conditionally. Zero rows means another writer
     (a booking, a promotion, a session cancel) moved the row first, so
     the unit re-reads and decides again."""
-    updated = (
-        ClassSession.objects.filter(pk=session.pk, version=session.version).update(
-            version=F("version") + 1
-        )
-    )
+    updated = ClassSession.objects.filter(
+        pk=session.pk, version=session.version
+    ).update(version=F("version") + 1)
     if not updated:
         raise ConcurrentWrite("Session changed under a concurrent writer.")
     session.version += 1
@@ -72,13 +68,11 @@ def load_open_booking(
     # whose conditional UPDATE (pk + version) rejects stale writes on any
     # backend. The checks below still run on the loaded state; a concurrent
     # transition after the load surfaces as AlreadyCancelled at write time.
-    booking = (
-        Booking.objects.select_related(
-            "session__offering__venue__organization",
-            "membership__plan",
-            "member",
-        ).get(pk=booking_id)
-    )
+    booking = Booking.objects.select_related(
+        "session__offering__venue__organization",
+        "membership__plan",
+        "member",
+    ).get(pk=booking_id)
     session = booking.session
     if booking.status not in (Booking.Status.BOOKED, Booking.Status.HELD):
         raise AlreadyCancelled("Booking is no longer active.")
@@ -101,10 +95,8 @@ def transition_booking(booking: Booking, **fields) -> Booking:
     concurrent writer moved the row since this instance was loaded. The
     version bump is server-side (F), so read-modify-write cannot interleave
     on any backend, including SQLite."""
-    updated = (
-        Booking.objects.filter(pk=booking.pk, version=booking.version).update(
-            version=F("version") + 1, **fields
-        )
+    updated = Booking.objects.filter(pk=booking.pk, version=booking.version).update(
+        version=F("version") + 1, **fields
     )
     if not updated:
         raise AlreadyCancelled("Booking changed under a concurrent writer.")

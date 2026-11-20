@@ -70,9 +70,9 @@ class TestVenueScoping:
         response = _admin_client(manager).get("/admin/booking/cancellationpolicy/")
 
         assert response.status_code == 200
-        assert {
-            row.organization_id for row in response.context["cl"].result_list
-        } == {org_a.pk}
+        assert {row.organization_id for row in response.context["cl"].result_list} == {
+            org_a.pk
+        }
 
     def test_spanning_owner_sees_both(self):
         org = OrganizationFactory(slug="org", name="Org")

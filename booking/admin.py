@@ -73,7 +73,7 @@ class BookingAdmin(VenueScopedAdmin):
         for booking in queryset.iterator():
             try:
                 func(actor=request.user, booking=booking)
-            except (BookingError, PermissionDenied, DjangoValidationError):
+            except BookingError, PermissionDenied, DjangoValidationError:
                 skipped += 1
             else:
                 applied += 1
