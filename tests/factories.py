@@ -10,7 +10,7 @@ from faker import Faker
 from aggregators.models import Aggregator
 from aggregators.tokens import new_token
 from booking.models import Booking, CancellationPolicy, CancellationRecord
-from organizations.models import Organization, OrgRole, Venue
+from organizations.models import Organization, OrgRole, OrgRoleType, Venue
 from passes.models import (
     CreditLedger,
     Entitlement,
@@ -241,7 +241,7 @@ class CancellationRecordFactory(factory.django.DjangoModelFactory):
 
 def user_with_roles(
     venue: Venue,
-    roles: Iterable[tuple[OrgRole.Role, bool]],
+    roles: Iterable[tuple[OrgRoleType, bool]],
     username: str | None = None,
     staff: bool = False,
 ):
@@ -265,7 +265,7 @@ def user_with_roles(
 
 def user_with_role(
     venue: Venue,
-    role: OrgRole.Role,
+    role: OrgRoleType,
     username: str | None = None,
     org_wide: bool = False,
     staff: bool = False,

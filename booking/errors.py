@@ -30,6 +30,12 @@ class AlreadyCancelled(BookingError):
     """Booking is no longer active; repeats change nothing."""
 
 
+class ConcurrentWrite(BookingError):
+    """A version check found a moved row: re-read and retry the unit.
+    Services retry internally; an escape means sustained contention, so
+    callers treat it as retryable (celery tasks autoretry)."""
+
+
 class SessionStarted(BookingError):
     """Session has started or been provider-cancelled."""
 

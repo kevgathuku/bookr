@@ -13,6 +13,8 @@ from tests.factories import (
     OrganizationFactory,
     UserFactory,
     VenueFactory,
+    book,
+    make_member,
     make_policy,
     make_session,
     user_with_role,
@@ -281,3 +283,64 @@ class TestCoverageMatrix:
         response = client.get("/admin/booking/cancellationpolicy/coverage/")
 
         assert response.status_code in (302, 403)
+
+
+class TestBookingActions:
+    """BookingAdmin never writes transition fields by hand: they are
+    readonly, and the console changes bookings through service-backed
+    actions (version-guarded writes plus the refund/record/notice)."""
+
+    def test_transition_fields_are_readonly(self):
+        from booking.admin import BookingAdmin
+
+        assert {
+            "status",
+            "hold_expires_at",
+            "checked_in_at",
+            "credits_spent",
+            "membership",
+            "version",
+        } <= set(BookingAdmin.readonly_fields)
+
+    def test_cancel_action_runs_the_service(self):
+        from booking.models import Booking, CancellationRecord
+
+        venue = VenueFactory()
+        member = make_member("m1", venue, credits=10)
+        session = make_session(venue)
+        booking = book(member, session)
+        desk = user_with_role(
+            venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True, staff=True
+        )
+
+        response = _admin_client(desk).post(
+            "/admin/booking/booking/",
+            {"action": "cancel_bookings", "_selected_action": [booking.pk]},
+            follow=True,
+        )
+
+        assert response.status_code == 200
+        booking.refresh_from_db()
+        assert booking.status == Booking.Status.CANCELLED
+        assert CancellationRecord.objects.filter(booking=booking).count() == 1
+
+    def test_check_in_action_runs_the_service(self):
+        from booking.models import Booking
+
+        venue = VenueFactory()
+        member = make_member("m1", venue, credits=10)
+        session = make_session(venue)
+        booking = book(member, session)
+        desk = user_with_role(
+            venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True, staff=True
+        )
+
+        response = _admin_client(desk).post(
+            "/admin/booking/booking/",
+            {"action": "check_in_bookings", "_selected_action": [booking.pk]},
+            follow=True,
+        )
+
+        assert response.status_code == 200
+        booking.refresh_from_db()
+        assert booking.status == Booking.Status.ATTENDED

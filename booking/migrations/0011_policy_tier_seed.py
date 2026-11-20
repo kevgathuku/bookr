@@ -77,7 +77,44 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.RunPython(seed_and_audit, noop),
+        # The old scope partials predate tier: the trio (three org-wide
+        # rows per org) collides with them, so they go before the seed.
+        # 0012 drops the columns and the choice CHECKs after purging.
+        migrations.RemoveConstraint(
+            model_name="cancellationpolicy",
+            name="policy_scope_all_set_unique",
+        ),
+        migrations.RemoveConstraint(
+            model_name="cancellationpolicy",
+            name="policy_scope_no_venue_unique",
+        ),
+        migrations.RemoveConstraint(
+            model_name="cancellationpolicy",
+            name="policy_scope_no_category_unique",
+        ),
+        migrations.RemoveConstraint(
+            model_name="cancellationpolicy",
+            name="policy_scope_no_plan_unique",
+        ),
+        migrations.RemoveConstraint(
+            model_name="cancellationpolicy",
+            name="policy_scope_venue_only_unique",
+        ),
+        migrations.RemoveConstraint(
+            model_name="cancellationpolicy",
+            name="policy_scope_category_only_unique",
+        ),
+        migrations.RemoveConstraint(
+            model_name="cancellationpolicy",
+            name="policy_scope_plan_only_unique",
+        ),
+        migrations.RemoveConstraint(
+            model_name="cancellationpolicy",
+            name="policy_scope_org_wide_unique",
+        ),
+        # The new unique goes before the seed: NULL tiers never collide,
+        # and all DDL must precede the INSERTs — Postgres refuses ALTER
+        # TABLE with pending trigger events in the same transaction.
         migrations.AddConstraint(
             model_name="cancellationpolicy",
             constraint=models.UniqueConstraint(
@@ -85,4 +122,5 @@ class Migration(migrations.Migration):
                 name="policy_org_tier_unique",
             ),
         ),
+        migrations.RunPython(seed_and_audit, noop),
     ]

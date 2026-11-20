@@ -24,7 +24,7 @@ from tests.factories import (  # noqa: WPS235
     user_with_role,
     with_monthly_plan,
 )
-from tests.markers import requires_postgres
+from tests.markers import requires_shared_db
 
 pytestmark = pytest.mark.django_db
 
@@ -338,7 +338,7 @@ class TestBookSession:
 
 @pytest.mark.django_db(transaction=True)
 class TestLastSeatRace:
-    @requires_postgres
+    @requires_shared_db
     def test_twenty_threads_one_seat_yields_one_booked(self):
         venue = make_venue("race")
         session = make_session(venue, capacity=1)
@@ -366,7 +366,7 @@ class TestLastSeatRace:
 
 @pytest.mark.django_db(transaction=True)
 class TestDoubleSubmitRace:
-    @requires_postgres
+    @requires_shared_db
     def test_same_member_double_submit_charges_once(self):
         venue = make_venue("double-submit")
         session = make_session(venue, capacity=2)

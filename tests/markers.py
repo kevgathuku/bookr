@@ -1,13 +1,14 @@
 """Shared pytest markers.
 
-requires_postgres skips tests that depend on Postgres-only behavior
-when the suite runs on another backend.
+requires_shared_db skips threaded race tests when the suite runs on a
+backend without one database shared across threads (in-memory SQLite
+gives each connection its own database, so threads race nothing).
 """
 
 import pytest
 from django.db import connection
 
-requires_postgres = pytest.mark.skipif(
+requires_shared_db = pytest.mark.skipif(
     connection.vendor != "postgresql",
-    reason="Needs Postgres row locking for threaded races.",
+    reason="Threaded races need one database shared across threads.",
 )
