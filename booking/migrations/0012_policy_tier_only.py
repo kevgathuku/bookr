@@ -25,38 +25,6 @@ class Migration(migrations.Migration):
         migrations.RunPython(drop_legacy_rows, noop),
         migrations.RemoveConstraint(
             model_name="cancellationpolicy",
-            name="policy_scope_all_set_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_no_venue_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_no_category_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_no_plan_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_venue_only_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_category_only_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_plan_only_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_org_wide_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
             name="cancellationpolicy_class_category_valid",
         ),
         migrations.RemoveConstraint(

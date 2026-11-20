@@ -51,6 +51,11 @@ class Booking(models.Model):
     )
     # When the door marked attendance; the roster shows it, not the status.
     checked_in_at = models.DateTimeField(null=True, blank=True)
+    # Optimistic lock: every status transition bumps this with a
+    # conditional UPDATE (see _core.transition_booking). A 0-row result
+    # means a concurrent writer won, and the loser raises instead of
+    # overwriting — the SQLite-safe replacement for SELECT ... FOR UPDATE.
+    version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

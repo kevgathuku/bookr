@@ -57,6 +57,9 @@
 # cross-product idea; spelling it as nested loops hides its shape.
 # Per-file: booking/admin.py ignores WPS202 — admin grows one view and
 # helper per staff ticket (same endpoint-file reasoning as the views).
+# WPS201: the booking actions import the services they invoke; the admin
+# is the seam between the console and the service layer, so the imports
+# live here by design.
 # Per-file: gate modules ignore WPS202 — permissions.py grows one class
 # per capability and tenancy.py one helper per resolution step; splitting
 # either would scatter one access-control story across modules.
@@ -126,6 +129,11 @@ per-file-ignores =
         WPS202,
     booking/cancellations.py:
         WPS201,
+        # WPS220/WPS231: cancel_session's claim loop nests by necessity
+        # (get, require, claim-or-repeat, sweep); carved helpers would
+        # scatter one provider-cancel story. Revisit if it grows a leg.
+        WPS220,
+        WPS231,
     booking/tests/test_cancellations.py:
         WPS203,
         WPS202,
@@ -135,6 +143,7 @@ per-file-ignores =
     booking/notifications.py:
         WPS202,
     booking/admin.py:
+        WPS201,
         WPS202,
         WPS221,
     organizations/permissions.py:

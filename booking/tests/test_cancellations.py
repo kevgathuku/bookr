@@ -47,7 +47,7 @@ from tests.factories import (  # noqa: WPS235
     user_with_role,
     with_monthly_plan,
 )
-from tests.markers import requires_postgres
+from tests.markers import requires_shared_db
 
 pytestmark = pytest.mark.django_db
 
@@ -136,7 +136,7 @@ class TestTierResolution:
         assert CancellationPolicy.objects.filter(organization=org).count() == 3
 
     @pytest.mark.django_db(transaction=True)
-    @requires_postgres
+    @requires_shared_db
     def test_concurrent_setup_yields_three_rows(self, venue):
         org = venue.organization
 
@@ -1045,7 +1045,7 @@ class TestWaiver:
 
 @pytest.mark.django_db(transaction=True)
 class TestSessionCancelRace:
-    @requires_postgres
+    @requires_shared_db
     def test_concurrent_session_cancels_refund_once(self, venue):
         session = make_session(venue, starts_at=timezone.now() + timedelta(hours=2))
         member = make_member("m1", venue, credits=10)
@@ -1067,7 +1067,7 @@ class TestSessionCancelRace:
         assert first == second
         assert CancellationRecord.objects.filter(booking__session=session).count() == 1
 
-    @requires_postgres
+    @requires_shared_db
     def test_concurrent_member_cancels_keep_one_refund(self, venue):
         from concurrent.futures import ThreadPoolExecutor
 
