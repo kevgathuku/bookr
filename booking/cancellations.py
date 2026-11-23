@@ -192,8 +192,10 @@ def cancel_session(
     *, session_id: SessionId, actor: User, reason: str = ""
 ) -> list[CancellationRecord]:
     """Provider-side cancel: refund every active booking's stamp, penalize
-    none. Repeat calls return the original records; the conditional claim
-    below makes concurrent calls and member-vs-session races safe."""
+    none. Repeat calls return the original records. The claim and the
+    sweep share one transaction: a crash between them can never leave a
+    cancelled session half-refunded, and the conditional claim makes
+    concurrent calls and member-vs-session races safe."""
     if not reason:
         raise ValidationError("Session cancellations require a reason.")
     for _ in range(3):
@@ -224,34 +226,33 @@ def cancel_session(
                 version=session.version,
                 cancelled_at__isnull=True,
             ).update(cancelled_at=moment, version=F("version") + 1)
-            if claimed:
-                session.cancelled_at = moment
-                session.version += 1
-                break
-            # A booking bump moved the version, not a second cancel:
-            # re-read and decide again.
-    else:
-        raise ConcurrentWrite("Session is under heavy contention; retry.")
-    # None means a member cancel won that row: its record stands,
-    # so the session sweep drops it instead of paying twice.
-    records = list(
-        filter(
-            None,
-            (
-                _cancel_one_for_session(
-                    booking=booking,
-                    session=session,
-                    venue=session.offering.venue,
-                    organization=session.offering.venue.organization,
-                    actor=actor,
+            if not claimed:
+                # A booking bump moved the version, not a second cancel:
+                # re-read and decide again.
+                continue
+            session.cancelled_at = moment
+            session.version += 1
+            # None means a member cancel won that row: its record stands,
+            # so the session sweep drops it instead of paying twice.
+            records = list(
+                filter(
+                    None,
+                    (
+                        _cancel_one_for_session(
+                            booking=booking,
+                            session=session,
+                            venue=session.offering.venue,
+                            organization=session.offering.venue.organization,
+                            actor=actor,
+                        )
+                        for booking in _live_session_bookings(session)
+                    ),
                 )
-                for booking in _live_session_bookings(session)
-            ),
-        )
-    )
-    for record in records:
-        committed(record, notify_session_cancelled)
-    return records
+            )
+            for record in records:
+                committed(record, notify_session_cancelled)
+            return records
+    raise ConcurrentWrite("Session is under heavy contention; retry.")
 
 
 def _live_session_bookings(session):

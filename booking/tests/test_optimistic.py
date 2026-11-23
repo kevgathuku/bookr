@@ -11,7 +11,7 @@ import pytest
 from django.utils import timezone
 
 from booking._core import bump_session, transition_booking
-from booking.cancellations import cancel_booking
+from booking.cancellations import cancel_booking, cancel_session
 from booking.errors import AlreadyCancelled, ConcurrentWrite, NotHeld, SeatFull
 from booking.models import Booking
 from booking.services import (
@@ -21,9 +21,10 @@ from booking.services import (
     confirm_booking,
     promote_next,
 )
-from common.ids import BookingId
+from common.ids import BookingId, SessionId
+from organizations.models import OrgRole
 from scheduling.models import ClassSession
-from tests.factories import book, make_member, make_session
+from tests.factories import book, make_member, make_session, user_with_role
 
 pytestmark = pytest.mark.django_db
 
@@ -123,3 +124,27 @@ class TestSessionBump:
 
         with pytest.raises(AlreadyCancelled):
             _seat_head(locked=session, head=stale_head, moment=timezone.now())
+
+
+class TestWaitlistSnapshot:
+    def test_stale_join_after_session_cancel_refuses(self, venue):
+        from django.core.exceptions import ValidationError
+
+        session = make_session(
+            venue, starts_at=timezone.now() + timedelta(hours=48), capacity=1
+        )
+        book(make_member("first", venue, credits=10), session)
+        stale = ClassSession.objects.get(pk=session.pk)
+        desk = user_with_role(
+            venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True, staff=True
+        )
+        cancel_session(session_id=SessionId(session.pk), actor=desk, reason="storm")
+
+        with pytest.raises(ValidationError, match="cancelled"):
+            book_session(
+                session=stale, member=make_member("m2", venue), waitlist=True
+            )
+
+        assert not Booking.objects.filter(
+            session=session, status=Booking.Status.WAITLISTED
+        ).exists()

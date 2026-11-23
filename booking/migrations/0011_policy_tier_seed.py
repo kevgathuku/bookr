@@ -52,6 +52,14 @@ def seed_and_audit(apps, schema_editor):
         print(f"quarantined rows: {[pk for pk, _ in quarantined]}")
 
 
+def drop_legacy_rows(apps, schema_editor):
+    CancellationPolicy = apps.get_model("booking", "CancellationPolicy")
+    legacy = CancellationPolicy.objects.filter(tier__isnull=True)
+    count = legacy.count()
+    legacy.delete()
+    print(f"dropped {count} legacy scope rows (audit above)")
+
+
 def noop(apps, schema_editor):
     pass
 
@@ -123,4 +131,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunPython(seed_and_audit, noop),
+        # Same-transaction DML only: the columns die in 0012, which stays
+        # pure DDL, so no migration mixes row writes with schema changes.
+        migrations.RunPython(drop_legacy_rows, noop),
     ]

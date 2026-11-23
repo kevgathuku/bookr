@@ -717,3 +717,36 @@ class TestWaitlistApi:
         assert cancel.status_code == 200, cancel.content
         queued_booking = Booking.objects.get(session=session, member=queued)
         assert queued_booking.status == Booking.Status.HELD
+
+
+@pytest.mark.django_db(transaction=True)
+class TestConcurrentWaitlistJoin:
+    @requires_shared_db
+    def test_same_member_double_join_dedupes(self, world):
+        session, member = world
+        book_session(session=session, member=member("seated"))
+        joiner = member("joiner")
+
+        def attempt(_):
+            try:
+                book_session(session=session, member=joiner, waitlist=True)
+                return "queued"
+            except DuplicateBooking:
+                return "duplicate"
+            finally:
+                # Threads hold their connection open; release it so the
+                # test database can tear down.
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = sorted(pool.map(attempt, range(2)))
+
+        assert outcomes == ["duplicate", "queued"]
+        assert (
+            Booking.objects.filter(
+                session=session,
+                member=joiner,
+                status=Booking.Status.WAITLISTED,
+            ).count()
+            == 1
+        )

@@ -255,13 +255,20 @@ def _join_or_refuse(
             session=locked,
             today=timezone.now().date(),
         )
-    return Booking.objects.create(
-        session=locked,
-        member=member,
-        membership=membership,
-        credits_spent=0,
-        status=Booking.Status.WAITLISTED,
-    )
+    # The queue insert validates the snapshot too: a stale read from
+    # before a session cancel loses here, and the retry sees the cancel.
+    bump_session(locked)
+    try:
+        return Booking.objects.create(
+            session=locked,
+            member=member,
+            membership=membership,
+            credits_spent=0,
+            status=Booking.Status.WAITLISTED,
+        )
+    except IntegrityError:
+        # A concurrent join won: same answer as a duplicate request.
+        raise DuplicateBooking(f"{member} is already queued for {locked}.")
 
 
 def promote_next(session: ClassSession, now: datetime | None = None) -> Booking | None:

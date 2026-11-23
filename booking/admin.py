@@ -43,8 +43,9 @@ class BookingAdmin(VenueScopedAdmin):
     # Status and its fellow travelers move only through the booking
     # services: transition_booking guards the write, and the services add
     # the refund, record, promotion, and notice around it. The console
-    # changes bookings through the actions below, never the form — which
-    # also means hand-created bookings (no spend, no ledger) are refused.
+    # changes bookings through the actions below, never the form — and
+    # add/delete stay off, so no hand-made booking can bypass the spend
+    # and no deletion can skip the refund, record, and notice.
     readonly_fields = (
         "created_at",
         "status",
@@ -67,6 +68,14 @@ class BookingAdmin(VenueScopedAdmin):
     @admin.action(description="Mark no-show (door)")
     def mark_no_show_bookings(self, request, queryset):
         self._apply(request, queryset, "Marked no-show", _door_no_show)
+
+    def has_add_permission(self, request):
+        # Hand-made bookings bypass the spend: create only via services.
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Deletion skips the refund, record, and notice: cancel instead.
+        return False
 
     def _apply(self, request, queryset, verb, func):
         applied, skipped = 0, 0

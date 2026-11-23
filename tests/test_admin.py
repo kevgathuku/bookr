@@ -344,3 +344,21 @@ class TestBookingActions:
         assert response.status_code == 200
         booking.refresh_from_db()
         assert booking.status == Booking.Status.ATTENDED
+
+
+class TestBookingAddDeleteRefused:
+    def test_booking_admin_has_no_add_or_delete(self):
+        from booking.admin import BookingAdmin
+
+        assert BookingAdmin.has_add_permission(None, None) is False
+        assert BookingAdmin.has_delete_permission(None, None) is False
+
+    def test_add_view_refuses(self):
+        venue = VenueFactory()
+        desk = user_with_role(
+            venue, OrgRole.Role.FRONTDESK, "desk", org_wide=True, staff=True
+        )
+
+        response = _admin_client(desk).get("/admin/booking/booking/add/")
+
+        assert response.status_code == 403
