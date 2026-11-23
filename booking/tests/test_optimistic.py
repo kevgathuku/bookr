@@ -13,7 +13,7 @@ from django.utils import timezone
 from booking._core import bump_session, transition_booking
 from booking.cancellations import cancel_booking, cancel_session
 from booking.errors import AlreadyCancelled, ConcurrentWrite, NotHeld, SeatFull
-from booking.models import Booking
+from booking.models import Booking, CancellationRecord
 from booking.services import (
     _raise_for_confirm_conflict,
     _seat_head,
@@ -146,3 +146,79 @@ class TestWaitlistSnapshot:
         assert not Booking.objects.filter(
             session=session, status=Booking.Status.WAITLISTED
         ).exists()
+
+
+class TestSessionSweepConflict:
+    """The session sweep only skips rows a terminal transition won. A
+    still-live row (a confirm landed first) is re-claimed and refunded."""
+
+    def _held_booking(self, venue, member):
+        session = make_session(
+            venue, starts_at=timezone.now() + timedelta(hours=48), capacity=1
+        )
+        filler = make_member("filler", venue, credits=10)
+        seated = book(filler, session)
+        booking = book_session(session=session, member=member, waitlist=True)
+        cancel_booking(
+            booking_id=BookingId(seated.pk),
+            actor=filler,
+            now=timezone.now(),
+            reason="frees the seat",
+        )
+        promote_next(session)
+        return session, Booking.objects.get(pk=booking.pk)
+
+    def test_sweep_claims_confirm_won_row(self, venue):
+        from booking.cancellations import _cancel_one_for_session
+
+        member = make_member("m1", venue, credits=10)
+        session, stale = self._held_booking(venue, member)
+        # The sweep read the HELD row, then the confirm committed first.
+        confirm_booking(booking_id=BookingId(stale.pk), actor=member)
+        before = member.plan_memberships.get().credits_remaining
+
+        record = _cancel_one_for_session(
+            booking=stale,
+            session=session,
+            venue=venue,
+            organization=venue.organization,
+            actor=member,
+        )
+
+        assert record is not None
+        assert (
+            record.cause == CancellationRecord.Cause.SESSION_CANCELLED
+        )
+        stale.refresh_from_db()
+        assert stale.status == Booking.Status.CANCELLED
+        member.plan_memberships.get().refresh_from_db()
+        assert (
+            member.plan_memberships.get().credits_remaining
+            == before + record.credits_refunded
+        )
+        assert record.credits_refunded > 0
+
+    def test_sweep_skips_member_cancelled_row(self, venue):
+        from booking.cancellations import _cancel_one_for_session
+
+        member = make_member("m1", venue, credits=10)
+        session = make_session(venue, starts_at=timezone.now() + timedelta(hours=48))
+        booking = book(member, session)
+        stale = Booking.objects.get(pk=booking.pk)
+        cancel_booking(
+            booking_id=BookingId(booking.pk),
+            actor=member,
+            now=timezone.now(),
+            reason="mine",
+        )
+
+        assert (
+            _cancel_one_for_session(
+                booking=stale,
+                session=session,
+                venue=venue,
+                organization=venue.organization,
+                actor=member,
+            )
+            is None
+        )

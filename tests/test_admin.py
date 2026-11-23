@@ -299,6 +299,8 @@ class TestBookingActions:
             "checked_in_at",
             "credits_spent",
             "membership",
+            "session",
+            "member",
             "version",
         } <= set(BookingAdmin.readonly_fields)
 

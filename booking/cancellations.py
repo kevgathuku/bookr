@@ -570,15 +570,27 @@ def _cancel_one_for_session(
     organization: Organization,
     actor: User,
 ) -> CancellationRecord | None:
+    for _ in range(3):
+        booking.status = Booking.Status.CANCELLED
+        booking.hold_expires_at = None
+        try:
+            transition_booking(booking, status=booking.status, hold_expires_at=None)
+        except AlreadyCancelled:
+            booking.refresh_from_db()
+            if booking.status not in ACTIVE_STATUSES:
+                # A terminal transition won (member cancel, no-show,
+                # check-in): its record stands, so the sweep skips the
+                # row instead of paying twice.
+                return None
+            # Still live — a confirm landed first and charged the member:
+            # fall through and re-claim the row so the sweep refunds it.
+        else:
+            break
+    else:
+        raise ConcurrentWrite("Session is under heavy contention; retry.")
+    # Read after the claim: a confirm that landed mid-sweep changes what
+    # is owed, and the refresh above already picked that up.
     stamp = booking.credits_spent
-    booking.status = Booking.Status.CANCELLED
-    booking.hold_expires_at = None
-    try:
-        transition_booking(booking, status=booking.status, hold_expires_at=None)
-    except AlreadyCancelled:
-        # A member cancel won the race for this booking: its refund
-        # stands, so the session sweep skips the row instead of paying twice.
-        return None
     if stamp:
         _refund(booking=booking, amount=stamp, actor=actor)
     policy = resolve_policy(OrgId(organization.pk), booking.membership.plan.tier)

@@ -40,12 +40,13 @@ class BookingAdmin(VenueScopedAdmin):
     list_display = ("member", "status", "created_at")
     list_filter = ("status",)
     date_hierarchy = "created_at"
-    # Status and its fellow travelers move only through the booking
-    # services: transition_booking guards the write, and the services add
-    # the refund, record, promotion, and notice around it. The console
-    # changes bookings through the actions below, never the form — and
-    # add/delete stay off, so no hand-made booking can bypass the spend
-    # and no deletion can skip the refund, record, and notice.
+    # Status, its fellow travelers, and the booking's anchors move only
+    # through the booking services: transition_booking guards the write,
+    # and the services add the refund, record, promotion, and notice
+    # around it. The console changes bookings through the actions below,
+    # never the form — and add/delete stay off, so no hand-made booking
+    # can bypass the spend and no deletion can skip the refund, record,
+    # and notice.
     readonly_fields = (
         "created_at",
         "status",
@@ -53,6 +54,8 @@ class BookingAdmin(VenueScopedAdmin):
         "checked_in_at",
         "credits_spent",
         "membership",
+        "session",
+        "member",
         "version",
     )
     actions = ("cancel_bookings", "check_in_bookings", "mark_no_show_bookings")
