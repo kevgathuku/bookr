@@ -141,9 +141,7 @@ class TestWaitlistSnapshot:
         cancel_session(session_id=SessionId(session.pk), actor=desk, reason="storm")
 
         with pytest.raises(ValidationError, match="cancelled"):
-            book_session(
-                session=stale, member=make_member("m2", venue), waitlist=True
-            )
+            book_session(session=stale, member=make_member("m2", venue), waitlist=True)
 
         assert not Booking.objects.filter(
             session=session, status=Booking.Status.WAITLISTED
