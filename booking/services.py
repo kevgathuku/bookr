@@ -3,17 +3,26 @@ and map typed errors to HTTP (SeatFull/DuplicateBooking → 409,
 CreditInsufficient → 402). Waitlist promotion and the hold-expiry sweep
 live here too; booking/tasks.py wraps them as shared tasks."""
 
+from contextlib import suppress
 from datetime import date, datetime, timedelta
+from typing import NoReturn
 
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from booking._core import committed, load_open_booking, lock_session
+from booking._core import (
+    bump_session,
+    committed,
+    get_session,
+    load_open_booking,
+    transition_booking,
+)
 from booking.cancellations import release_unclaimed
 from booking.errors import (
     AlreadyCancelled,
+    ConcurrentWrite,
     CreditInsufficient,
     DuplicateBooking,
     NotHeld,
@@ -85,9 +94,9 @@ def _ensure_no_duplicate(*, locked: ClassSession, member: User) -> None:
 
 def _is_full(locked: ClassSession) -> bool:
     # Seated bookings and held seats occupy capacity; the queue waits outside it.
-    # Race-safe only under the session row lock: both occupancy-increasing
-    # writers (_create_booking/_join_or_refuse via book_session, _seat_head
-    # via promote_next) hold lock_session, so count-then-write serializes.
+    # Race-safe through bump_session: both occupancy-increasing writers
+    # (_create_booking via book_session, _seat_head via promote_next) bump
+    # the session version before writing, so a stale count retries.
     # Confirm (held->booked) is occupancy-neutral and needs no lock.
     return (
         Booking.objects.filter(
@@ -99,8 +108,8 @@ def _is_full(locked: ClassSession) -> bool:
 
 def _next_waiter(locked: ClassSession) -> Booking | None:
     return (
-        Booking.objects.select_for_update()
-        .filter(session=locked, status=Booking.Status.WAITLISTED)
+        Booking.objects.filter(session=locked)
+        .filter(status=Booking.Status.WAITLISTED)
         .select_related("member")
         .order_by("created_at", "pk")
         .first()
@@ -141,7 +150,7 @@ def book_session(
     spend_credits: bool = True,
     waitlist: bool = False,
 ) -> Booking:
-    """Book one seat, serialized per session via SELECT ... FOR UPDATE.
+    """Book one seat, serialized per session via a version bump.
 
     Retries are safe through the natural key: the same member + session can
     hold exactly one active booking, so a repeated request raises
@@ -151,37 +160,77 @@ def book_session(
     with no seat and no spend (spend happens on confirm). Private
     sessions never queue: they book or raise SeatFull.
     """
-    with transaction.atomic():
-        locked = lock_session(SessionId(session.pk))
-        _ensure_open(locked)
-        _ensure_no_duplicate(locked=locked, member=member)
-        if _is_full(locked):
-            return _join_or_refuse(
-                locked=locked, member=member, membership=membership, waitlist=waitlist
-            )
-        price = locked.offering.credit_cost
-        if membership is None:
-            membership = _paying_membership(member=member, session=locked, price=price)
-        else:
-            _validate_membership(
-                membership=membership,
-                member=member,
-                session=locked,
-                today=timezone.now().date(),
-            )
-        amount = _charge_for(
-            membership=membership, price=price, spend_credits=spend_credits
+    for _ in range(5):
+        # None means another taker moved the session: try again on fresh state.
+        booking = _attempt_book(
+            session=session,
+            member=member,
+            membership=membership,
+            spend_credits=spend_credits,
+            waitlist=waitlist,
         )
-        booking = _create_booking(
-            locked=locked, member=member, membership=membership, amount=amount
-        )
-        try:
-            spend_for_booking(membership, amount, booking)
-        except IntegrityError:
-            # Lost a same-member double-submit race: the winner's spend
-            # stands, so this attempt is a duplicate, not a new booking.
-            raise DuplicateBooking(f"{member} already booked {locked}.")
+        if booking is not None:
+            return booking
+    raise ConcurrentWrite("Session is under heavy contention; retry the request.")
+
+
+def _attempt_book(
+    *,
+    session: ClassSession,
+    member: User,
+    membership: Membership | None,
+    spend_credits: bool,
+    waitlist: bool,
+) -> Booking | None:
+    """One booking attempt: None signals a lost race, the caller retries."""
+    try:
+        with transaction.atomic():
+            locked = get_session(SessionId(session.pk))
+            _ensure_open(locked)
+            _ensure_no_duplicate(locked=locked, member=member)
+            if _is_full(locked):
+                return _join_or_refuse(
+                    locked=locked,
+                    member=member,
+                    membership=membership,
+                    waitlist=waitlist,
+                )
+            price = locked.offering.credit_cost
+            if membership is None:
+                membership = _paying_membership(
+                    member=member, session=locked, price=price
+                )
+            else:
+                _validate_membership(
+                    membership=membership,
+                    member=member,
+                    session=locked,
+                    today=timezone.now().date(),
+                )
+            amount = _charge_for(
+                membership=membership, price=price, spend_credits=spend_credits
+            )
+            bump_session(locked)
+            booking = _create_booking(
+                locked=locked, member=member, membership=membership, amount=amount
+            )
+            _spend_or_duplicate(
+                membership=membership, amount=amount, booking=booking, locked=locked
+            )
+    except ConcurrentWrite:
+        return None
     return booking
+
+
+def _spend_or_duplicate(
+    *, membership: Membership, amount: int, booking: Booking, locked: ClassSession
+) -> None:
+    try:
+        spend_for_booking(membership, amount, booking)
+    except IntegrityError:
+        # Lost a same-member double-submit race: the winner's spend
+        # stands, so this attempt is a duplicate, not a new booking.
+        raise DuplicateBooking(f"{booking.member} already booked {locked}.")
 
 
 def _join_or_refuse(
@@ -206,13 +255,20 @@ def _join_or_refuse(
             session=locked,
             today=timezone.now().date(),
         )
-    return Booking.objects.create(
-        session=locked,
-        member=member,
-        membership=membership,
-        credits_spent=0,
-        status=Booking.Status.WAITLISTED,
-    )
+    # The queue insert validates the snapshot too: a stale read from
+    # before a session cancel loses here, and the retry sees the cancel.
+    bump_session(locked)
+    try:
+        return Booking.objects.create(
+            session=locked,
+            member=member,
+            membership=membership,
+            credits_spent=0,
+            status=Booking.Status.WAITLISTED,
+        )
+    except IntegrityError:
+        # A concurrent join won: same answer as a duplicate request.
+        raise DuplicateBooking(f"{member} is already queued for {locked}.")
 
 
 def promote_next(session: ClassSession, now: datetime | None = None) -> Booking | None:
@@ -223,22 +279,36 @@ def promote_next(session: ClassSession, now: datetime | None = None) -> Booking 
     queue is empty, so retries and concurrent workers are safe.
     """
     moment = now or timezone.now()
+    for _ in range(5):
+        # A lost race falls through to the next attempt; falling off the
+        # loop returns None, the documented no-op.
+        with suppress(ConcurrentWrite, AlreadyCancelled):
+            return _attempt_promote(session=session, moment=moment)
+    return None
+
+
+def _attempt_promote(*, session: ClassSession, moment: datetime) -> Booking | None:
+    """One promotion attempt: races raise, the caller retries."""
     with transaction.atomic():
-        locked = lock_session(SessionId(session.pk))
+        locked = get_session(SessionId(session.pk))
         if _is_full(locked):
             return None
         head = _next_waiter(locked)
         if head is None:
             return None
+        bump_session(locked)
         return _seat_head(locked=locked, head=head, moment=moment)
 
 
 def _seat_head(*, locked: ClassSession, head: Booking, moment: datetime) -> Booking:
     # The seated head leaves the queue: the waitlist holds waiters only,
-    # so a held seat can never be re-promised from this list.
-    head.status = Booking.Status.HELD
-    head.hold_expires_at = moment + timedelta(minutes=HOLD_WINDOW_MINUTES)
-    head.save(update_fields=["status", "hold_expires_at"])
+    # so a held seat can never be re-promised from this list. The
+    # conditional write rejects a head another worker already seated.
+    transition_booking(
+        head,
+        status=Booking.Status.HELD,
+        hold_expires_at=moment + timedelta(minutes=HOLD_WINDOW_MINUTES),
+    )
     return committed(head, notify_promoted)
 
 
@@ -263,16 +333,28 @@ def confirm_booking(
         booking.credits_spent = amount
         booking.status = Booking.Status.BOOKED
         booking.hold_expires_at = None
-        booking.save(
-            update_fields=[
-                "membership",
-                "credits_spent",
-                "status",
-                "hold_expires_at",
-            ]
-        )
+        try:
+            transition_booking(
+                booking,
+                membership=membership,
+                credits_spent=amount,
+                status=booking.status,
+                hold_expires_at=None,
+            )
+        except AlreadyCancelled:
+            _raise_for_confirm_conflict(booking)
         spend_for_booking(membership, amount, booking)
     return booking
+
+
+def _raise_for_confirm_conflict(booking: Booking) -> NoReturn:
+    """Map a lost confirm race onto the error a fresh load would raise:
+    a confirm means the seat is taken (NotHeld), anything else means
+    the hold is gone."""
+    booking.refresh_from_db()
+    if booking.status == Booking.Status.BOOKED:
+        raise NotHeld("Booking holds no confirmable seat.")
+    raise AlreadyCancelled("Booking changed under a concurrent writer.")
 
 
 def _confirmed_charge(

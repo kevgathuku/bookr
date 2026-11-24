@@ -107,6 +107,9 @@ class ClassSession(models.Model):
     starts_at = models.DateTimeField()
     capacity = models.PositiveIntegerField(default=15)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    # Seat-taking bumps this to serialize occupancy counts (see
+    # booking._core.bump_session); the SQLite-safe replacement for locking.
+    version = models.PositiveIntegerField(default=1)
 
     @property
     def ends_at(self):

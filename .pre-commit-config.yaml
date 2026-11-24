@@ -1,0 +1,13 @@
+# Commit gate: ruff formatting on staged Python files, using the
+# project's locked ruff via uv (no second ruff version to drift).
+# Install once per clone: pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        # --force-exclude: pre-commit passes filenames explicitly, which
+        # would otherwise bypass the migrations exclude in pyproject.toml.
+        entry: uv run ruff format --check --diff --force-exclude
+        language: system
+        types: [python]

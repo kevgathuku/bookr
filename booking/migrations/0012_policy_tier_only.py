@@ -3,18 +3,6 @@
 from django.db import migrations, models
 
 
-def drop_legacy_rows(apps, schema_editor):
-    CancellationPolicy = apps.get_model("booking", "CancellationPolicy")
-    legacy = CancellationPolicy.objects.filter(tier__isnull=True)
-    count = legacy.count()
-    legacy.delete()
-    print(f"dropped {count} legacy scope rows (audit in 0011)")
-
-
-def noop(apps, schema_editor):
-    pass
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -22,39 +10,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(drop_legacy_rows, noop),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_all_set_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_no_venue_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_no_category_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_no_plan_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_venue_only_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_category_only_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_plan_only_unique",
-        ),
-        migrations.RemoveConstraint(
-            model_name="cancellationpolicy",
-            name="policy_scope_org_wide_unique",
-        ),
         migrations.RemoveConstraint(
             model_name="cancellationpolicy",
             name="cancellationpolicy_class_category_valid",

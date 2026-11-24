@@ -13,10 +13,16 @@ from typing import assert_never
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.utils import timezone
 
-from booking._core import committed, load_open_booking, lock_session
-from booking.errors import AlreadyCancelled, InvalidWaiver
+from booking._core import (
+    committed,
+    get_session,
+    load_open_booking,
+    transition_booking,
+)
+from booking.errors import AlreadyCancelled, ConcurrentWrite, InvalidWaiver
 from booking.models import (
     ACTIVE_STATUSES,
     Booking,
@@ -160,7 +166,10 @@ def _apply_cancel(
         on_behalf=on_behalf_of,
         reason=reason,
     )
+    # Claim first: a concurrent writer loses here, before any refund hits
+    # the ledger unique (the loser's INSERT would collide instead of lose).
     booking.status = outcome.status
+    transition_booking(booking, status=outcome.status)
     if outcome.refund:
         _refund(
             booking=booking,
@@ -183,43 +192,72 @@ def cancel_session(
     *, session_id: SessionId, actor: User, reason: str = ""
 ) -> list[CancellationRecord]:
     """Provider-side cancel: refund every active booking's stamp, penalize
-    none. Repeat calls return the original records; the row lock makes
+    none. Repeat calls return the original records. The claim and the
+    sweep share one transaction: a crash between them can never leave a
+    cancelled session half-refunded, and the conditional claim makes
     concurrent calls and member-vs-session races safe."""
     if not reason:
         raise ValidationError("Session cancellations require a reason.")
-    with transaction.atomic():
-        session = lock_session(SessionId(session_id))
-        venue = session.offering.venue
-        organization = venue.organization
-        _require_session_cancel(actor=actor, organization=organization, session=session)
-        if session.cancelled_at is not None:
-            return list(
-                CancellationRecord.objects.filter(
-                    booking__session=session,
-                    cause=CancellationRecord.Cause.SESSION_CANCELLED,
-                ).order_by("pk")
-            )
-        session.cancelled_at = timezone.now()
-        session.save(update_fields=["cancelled_at"])
-        records = [
-            _cancel_one_for_session(
-                booking=booking,
-                session=session,
-                venue=venue,
-                organization=organization,
+    for _ in range(3):
+        with transaction.atomic():
+            session = get_session(SessionId(session_id))
+            _require_session_cancel(
                 actor=actor,
+                organization=session.offering.venue.organization,
+                session=session,
             )
-            for booking in _live_session_bookings(session)
-        ]
-    for record in records:
-        committed(record, notify_session_cancelled)
-    return records
+            if session.cancelled_at is not None:
+                # A concurrent cancel won but may not have committed its
+                # records yet: spin until they land (bounded; an empty
+                # return means the winner died mid-flight).
+                for _ in range(100):
+                    records = list(
+                        CancellationRecord.objects.filter(
+                            booking__session=session,
+                            cause=CancellationRecord.Cause.SESSION_CANCELLED,
+                        ).order_by("pk")
+                    )
+                    if records:
+                        return records
+                return records
+            moment = timezone.now()
+            claimed = ClassSession.objects.filter(
+                pk=session.pk,
+                version=session.version,
+                cancelled_at__isnull=True,
+            ).update(cancelled_at=moment, version=F("version") + 1)
+            if not claimed:
+                # A booking bump moved the version, not a second cancel:
+                # re-read and decide again.
+                continue
+            session.cancelled_at = moment
+            session.version += 1
+            # None means a member cancel won that row: its record stands,
+            # so the session sweep drops it instead of paying twice.
+            records = list(
+                filter(
+                    None,
+                    (
+                        _cancel_one_for_session(
+                            booking=booking,
+                            session=session,
+                            venue=session.offering.venue,
+                            organization=session.offering.venue.organization,
+                            actor=actor,
+                        )
+                        for booking in _live_session_bookings(session)
+                    ),
+                )
+            )
+            for record in records:
+                committed(record, notify_session_cancelled)
+            return records
+    raise ConcurrentWrite("Session is under heavy contention; retry.")
 
 
 def _live_session_bookings(session):
     return (
         session.bookings.filter(status__in=ACTIVE_STATUSES)
-        .select_for_update()
         .select_related("membership__plan")
         .order_by("pk")
     )
@@ -249,7 +287,7 @@ def mark_no_show(*, booking_id: BookingId, actor: User) -> CancellationRecord:
             promote_waitlist.delay(session_id=session.pk)
             return record
         booking.status = Booking.Status.NO_SHOW
-        booking.save(update_fields=["status"])
+        transition_booking(booking, status=booking.status)
         record = _write_no_show_record(
             booking=booking,
             session=session,
@@ -308,7 +346,9 @@ def check_in(*, booking_id: BookingId, actor: User) -> Booking:
         _require_door(actor=actor, organization=organization)
         booking.status = Booking.Status.ATTENDED
         booking.checked_in_at = timezone.now()
-        booking.save(update_fields=["status", "checked_in_at"])
+        transition_booking(
+            booking, status=booking.status, checked_in_at=booking.checked_in_at
+        )
         return booking
 
 
@@ -403,7 +443,7 @@ def release_unclaimed(
     penalized, refunded, or waived — released as unclaimed."""
     booking.status = Booking.Status.CANCELLED
     booking.hold_expires_at = None
-    booking.save(update_fields=["status", "hold_expires_at"])
+    transition_booking(booking, status=booking.status, hold_expires_at=None)
     outcome = _Outcome(
         applied=CancellationPolicy.Enforcement.NONE,
         refund=0,
@@ -459,7 +499,6 @@ def _write_record(
             waived=waive_penalty,
         ),
     )
-    booking.save(update_fields=["status"])
     return record
 
 
@@ -530,11 +569,28 @@ def _cancel_one_for_session(
     venue: Venue,
     organization: Organization,
     actor: User,
-) -> CancellationRecord:
+) -> CancellationRecord | None:
+    for _ in range(3):
+        booking.status = Booking.Status.CANCELLED
+        booking.hold_expires_at = None
+        try:
+            transition_booking(booking, status=booking.status, hold_expires_at=None)
+        except AlreadyCancelled:
+            booking.refresh_from_db()
+            if booking.status not in ACTIVE_STATUSES:
+                # A terminal transition won (member cancel, no-show,
+                # check-in): its record stands, so the sweep skips the
+                # row instead of paying twice.
+                return None
+            # Still live — a confirm landed first and charged the member:
+            # fall through and re-claim the row so the sweep refunds it.
+        else:
+            break
+    else:
+        raise ConcurrentWrite("Session is under heavy contention; retry.")
+    # Read after the claim: a confirm that landed mid-sweep changes what
+    # is owed, and the refresh above already picked that up.
     stamp = booking.credits_spent
-    booking.status = Booking.Status.CANCELLED
-    booking.hold_expires_at = None
-    booking.save(update_fields=["status", "hold_expires_at"])
     if stamp:
         _refund(booking=booking, amount=stamp, actor=actor)
     policy = resolve_policy(OrgId(organization.pk), booking.membership.plan.tier)
