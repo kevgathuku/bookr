@@ -186,9 +186,7 @@ class TestSessionSweepConflict:
         )
 
         assert record is not None
-        assert (
-            record.cause == CancellationRecord.Cause.SESSION_CANCELLED
-        )
+        assert record.cause == CancellationRecord.Cause.SESSION_CANCELLED
         stale.refresh_from_db()
         assert stale.status == Booking.Status.CANCELLED
         member.plan_memberships.get().refresh_from_db()
